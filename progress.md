@@ -12,11 +12,15 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** G0 PASSED (2026-08-22). G1 next — highest risk. No app code exists.
+**Overall status:** G0 PASSED. G1 core risk RETIRED (2026-08-22) — the
+sm_120a llama.cpp build runs on the GPU and answers curl; that was the
+whole point of the gate. Four G1 measurements are deferred to next session
+(VRAM under desktop load, exact KV size, whisper CPU bench, CPU-torch
+check) — none blocks starting G2. No app code exists.
 
 ```
    G0 REPO        [x]
-   G1 TOOLCHAIN   [ ]   <-- highest risk. blocks everything.
+   G1 TOOLCHAIN   [~]   <-- sm_120a PROVEN. measurements deferred (see G1).
    G2 EVAL        [ ]
    G3 TEXT+REG    [ ]
    G4 PERSIST     [ ]
@@ -25,6 +29,51 @@ Rules:
    G7 SEARCH      [ ]
    G8 SERVICE     [ ]
 ```
+
+---
+
+## NEXT SESSION — START HERE (written 2026-08-22)
+
+Everything below is verified state, not intention. Read this block, then
+`git log --oneline -8` to see the commits it refers to.
+
+### What is true right now
+- G0 passed. Repo on `main`, pushed to `origin` (github.com/bittu1400/friday, private).
+- Python 3.12.13 venv at `.venv`, `uv.lock` committed. No runtime deps yet.
+- App registry trimmed to 5 (brave/foot/code/mpv/vlc) — ADR-032. See `tech-stack.md`.
+- llama.cpp built at `/opt/llama.cpp` (owned by you), commit `b21e4de`,
+  CUDA 13.3, **host compiler g++-15** (system gcc 16 is too new), arch
+  **sm_120a**. Binary: `/opt/llama.cpp/build/bin/llama-server`.
+- Model: `~/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf`
+  (SHA256 `65b8fcd9…aa1423`). Verified to run on the GPU.
+- NPU present (`/dev/accel/accel0`), reserved for Phase 2.
+- **No llama-server is running** — the G1 one was stopped at end of session.
+
+### Start the server (needed for any G1 measurement or G2 work)
+```bash
+export PATH=/opt/cuda/bin:$PATH
+/opt/llama.cpp/build/bin/llama-server \
+  --model ~/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8080 --ctx-size 8192 --n-gpu-layers 99 \
+  --cache-type-k q8_0 --cache-type-v q8_0 --no-webui
+```
+Health: `curl -s http://127.0.0.1:8080/health` → `{"status":"ok"}`.
+(There is NO systemd unit yet — that is G8. Run it by hand for now.)
+
+### Finish the 4 deferred G1 measurements (optional; none blocks G2)
+1. **VRAM under load** — you open brave + play a video, then run a
+   generation and capture `nvidia-smi --query-compute-apps`. Fills OQ-11.
+2. **Exact KV size** — try `-lv 4` or `/props`; expect ~224 MiB (ADR-003).
+3. **Whisper CPU bench** — record 20 DMIC clips, `uv add faster-whisper`,
+   benchmark int8/8-threads. Full procedure in the G1 whisper block below.
+4. **CPU-torch check** — only when torch is first added (G5). Enforcement
+   snippet is in the G1 CPU-only block below; apply it BEFORE `uv add torch`.
+
+### Then begin G2 — the eval harness (this is the real next build step)
+Read G2 in this file + ADR-017 + ADR-030 (rate gate, not a fixed count) +
+the working agreement in CLAUDE.md (batch all G2 questions up front). G2
+needs 20 seed fixtures drafted by Claude and edited by you, plus the
+adversarial set — that fixture-drafting is the first G2 task.
 
 ---
 
@@ -60,7 +109,7 @@ This gate exists because the archived blueprint's §5.3 recommended CUDA
 12.4 wheels, which contain no sm_120 kernels and would fail at runtime on
 this Blackwell GPU (ADR-021). Discovering that at G6 would have cost days.
 
-- [ ] Python env is CPU-only (ADR-018 enforcement)
+- [~] Python env is CPU-only (ADR-018) — DEFERRED to when torch is first added (G5)
 
 ```bash
 uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
@@ -68,14 +117,33 @@ uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available
 
 ```
 EVIDENCE (must end in +cpu and print False — False is CORRECT):
-  (paste)
+  torch is NOT installed yet (no audio deps until G5), so there is nothing
+  to check. When torch is added it MUST be the CPU wheel. Enforce in
+  pyproject before the first `uv add torch`:
+      [tool.uv.sources]  torch = { index = "pytorch-cpu" }
+      [[tool.uv.index]]  name = "pytorch-cpu"
+                         url = "https://download.pytorch.org/whl/cpu"
+                         explicit = true
+  Then run the check above and paste `+cpu ... False` here.
+  (Empirically already safe: only llama-server holds VRAM, see below.)
 ```
 
-- [ ] `llama.cpp` built with `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120`
+- [x] `llama.cpp` built with `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120`
 
 ```
 BUILD COMMIT:
-  (paste git rev-parse HEAD from the llama.cpp checkout)
+  b21e4de74567f5eef213765c9476a843c2e43f0d  (ggml 0.21.0, tag shows as b1-b21e4de)
+  location: /opt/llama.cpp   (built by user, owned by user, no sudo per build)
+  toolchain: CUDA 13.3 (nvcc V13.3.73), Ninja, Release
+  HOST COMPILER: g++-15 (gcc 15.3.0) — system gcc is 16.2.1, TOO NEW for
+    CUDA 13.3; forced via -DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-15.
+  ARCH: -DCMAKE_CUDA_ARCHITECTURES=120 was auto-promoted by cmake to 120a
+    (Blackwell accelerated variant) — this is correct for the RTX 5070.
+  configure line:
+    cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=ON \
+      -DCMAKE_CUDA_ARCHITECTURES=120 \
+      -DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-15 -DLLAMA_CURL=OFF
+  build: cmake --build build --target llama-server -j$(nproc)
 ```
 
 - [x] Model downloaded and checksummed — 4.4 GB, at `~/.local/share/friday/models/`
@@ -86,7 +154,7 @@ SHA256:
   65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423
 ```
 
-- [ ] Server responds, reports compute capability 12.0, offloads all layers
+- [x] Server responds; sm_120a kernels PROVEN to execute on the GPU
 
 ```bash
 curl -s http://127.0.0.1:8080/v1/chat/completions \
@@ -96,33 +164,73 @@ curl -s http://127.0.0.1:8080/v1/chat/completions \
 
 ```
 EVIDENCE (curl response):
-  (paste)
+  {"choices":[{"finish_reason":"length","message":{"role":"assistant",
+   "content":"Ok! How can I"}}], ... "system_fingerprint":"b1-b21e4de",
+   "usage":{"prompt_tokens":31,"completion_tokens":5},
+   "timings":{"prompt_per_second":480.3, ...}}
 
-EVIDENCE (llama-server startup log — require "compute capability 12.0"
-and "offloaded XX/XX layers to GPU" with XX==XX):
-  (paste)
+DOC DRIFT (noted per progress.md rule 3): the expected startup-log strings
+"compute capability 12.0" and "offloaded XX/XX layers to GPU" DO NOT appear
+in llama.cpp b21e4de — this build dropped those verbose device lines. The
+gate is satisfied by stronger empirical proof instead:
+
+  1. nvidia-smi attributes 4696 MiB of dGPU VRAM to the llama-server pid
+     (a CPU-only load would show 0):
+       747143  /opt/llama.cpp/build/bin/llama-server   4696 MiB
+  2. A real generation returned tokens. If sm_120 kernels were missing the
+     call would have died with "no kernel image is available for execution
+     on the device" (the exact ADR-021 failure). It did not. Kernels work.
+
+llama-server startup log (b21e4de, verbosity 3, full): loads model, prints
+"model loaded" + "listening on http://127.0.0.1:8080"; no CUDA device lines.
 ```
 
-- [ ] VRAM peak under real desktop load (browser open, video playing)
+- [~] VRAM peak — server-loaded snapshot taken; UNDER-LOAD peak DEFERRED to next session (user opens browser+video, decided 2026-08-22)
 
 ```
-$ nvidia-smi --query-gpu=memory.used,memory.total --format=csv
-  (paste)
+Snapshot with llama-server up (ctx 8192, q8_0 KV), NO browser/video load:
+$ nvidia-smi --query-gpu=memory.used,memory.free --format=csv
+  4798 MiB, 2949 MiB     (of 8151 MiB total)
 
-$ nvidia-smi --query-compute-apps=pid,used_memory --format=csv
-  (paste)      <-- OQ-11: is the desktop on the dGPU or the iGPU?
+$ nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+  747143  llama-server   4696 MiB
+  1599    walker           79 MiB    <-- OQ-11: a Wayland launcher IS on the
+                                         dGPU. So the desktop is NOT wholly
+                                         on the iGPU. Full answer next session
+                                         with a browser + video playing.
+
+NEXT SESSION: open brave + play a video, run a llama-server generation,
+capture nvidia-smi during it. That is the real peak.
 ```
 
-- [ ] KV cache actual size at ctx 8192 q8_0 (from server startup log)
+- [~] KV cache actual size at ctx 8192 q8_0 — NOT emitted by b21e4de log
 
 ```
 EVIDENCE (expect ~224 MiB, ADR-003):
-  (paste)
+  b21e4de does not print per-buffer KV size at verbosity 3. The ~224 MiB
+  prediction is unfalsified: total llama-server VRAM 4696 MiB is consistent
+  with model (~4.4 GiB) + KV (~224 MiB) + compute buffer. Exact KV number
+  DEFERRED: next session try `--verbose`/`-lv 4` or `/props`, or compute
+  from n_ctx * 2 * n_layer * n_kv_head * head_dim at q8_0.
 ```
 
-- [ ] Whisper CPU benchmark — OQ-07
+- [~] Whisper CPU benchmark — OQ-07 — DEFERRED to next session (decided 2026-08-22)
 
 ```
+   DEFERRED: needs 20 REAL clips from this laptop's DMIC array (synthetic
+   was rejected — real mic noise is the point). Blocks nothing on the
+   critical path; STT is not wired until G6. Procedure for next session:
+
+   1. Record 20 clips, 2-8 s, normal speaking voice, into a scratch dir:
+        for i in $(seq -w 1 20); do
+          echo "clip $i: speak now (~5s), Ctrl-C to stop"
+          arecord -f S16_LE -r 16000 -c 1 /tmp/wclips/clip_$i.wav
+        done
+      (confirm the DMIC is the default source first: `arecord -l`)
+   2. Install STT deps in the venv:  uv add faster-whisper
+   3. Benchmark int8 / cpu_threads=8 over the 20 clips, medium model,
+      language="en", VAD on; record p50/p95 wall time per clip.
+
    clips: 20, lengths 2-8 s, recorded from the laptop DMIC array
 
    mode              p50 ms   p95 ms   VRAM MiB
@@ -150,7 +258,7 @@ $ lsmod | grep -i vpu
 intel_vpu             389120  0
 ```
 
-- [ ] No non-loopback bind
+- [x] No non-loopback bind
 
 ```bash
 ss -ltnp | grep -E '8080|8888'
@@ -158,7 +266,8 @@ ss -ltnp | grep -E '8080|8888'
 
 ```
 EVIDENCE (must show 127.0.0.1 only):
-  (paste)
+  LISTEN 0 512 127.0.0.1:8080 0.0.0.0:* users:(("llama-server",pid=747143,fd=37))
+  (8888 absent — SearXNG not running until G7, expected)
 ```
 
 ---
@@ -385,6 +494,10 @@ Append a line whenever a measurement changes a document.
    2026-08-22  model artifact pinned to bartowski GGUF          ADR-029
    2026-08-22  eval gate is a RATE on a growing set, not 45/50  ADR-030
    2026-08-22  disk is the boundary, provisionally (OQ-05 open) ADR-031
+   2026-08-22  NPU present (/dev/accel/accel0), Phase 2 option  ADR-019/OQ-10
+   2026-08-22  llama.cpp sm_120a build runs on GPU; risk gone   G1/ADR-021
+   2026-08-22  CUDA 13.3 needs g++-15 host (gcc16 too new)      G1 build note
+   2026-08-22  b21e4de log dropped "compute capability" strings G1 doc-drift
 ```
 
 ## Time log
