@@ -102,15 +102,18 @@ filler on `web_search`, which does not touch the pipeline.
 ---
 
 ### OQ-10 — Is the Intel NPU actually usable?
-**Decider:** MEASURE · **Blocks:** nothing in Phase 1 · **Status:** OPEN
+**Decider:** MEASURE · **Blocks:** nothing in Phase 1 · **Status:** ANSWERED 2026-08-22 — device PRESENT
 
 ```bash
 ls /dev/accel/ 2>/dev/null; lsmod | grep -i vpu
 ```
 
-If the device exists, note it as a Phase 2 option for offloading whisper
-and freeing P-cores. Do not build on it now. Thirty seconds to check;
-ADR-019 exists because the blueprint asserted it was dead without looking.
+Result: `/dev/accel/accel0` exists and `intel_vpu` (389120) is loaded. The
+blueprint's "NPU dead on Linux" claim is **false** on this kernel. Not
+built on in Phase 1 (ADR-019 stands); filed as a Phase 2 option for
+offloading whisper to free P-cores. Whether it is *usable* for STT (an
+OpenVINO NPU path) is unmeasured — presence is confirmed, throughput is
+not. See ADR-019.
 
 ---
 

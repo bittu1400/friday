@@ -136,7 +136,7 @@ EVIDENCE (expect ~224 MiB, ADR-003):
    DECISION:
 ```
 
-- [ ] NPU presence check — OQ-10
+- [x] NPU presence check — OQ-10 — device PRESENT, excluded Phase 1 (ADR-019)
 
 ```bash
 ls /dev/accel/ 2>/dev/null; lsmod | grep -i vpu
@@ -144,7 +144,10 @@ ls /dev/accel/ 2>/dev/null; lsmod | grep -i vpu
 
 ```
 EVIDENCE:
-  (paste)
+$ ls /dev/accel/
+accel0
+$ lsmod | grep -i vpu
+intel_vpu             389120  0
 ```
 
 - [ ] No non-loopback bind

@@ -413,7 +413,13 @@ offloading whisper, freeing P-cores.
 **Consequences.** Costs 30 seconds. The blueprint's own stated principle
 is "paper specs lie" — that cuts both ways.
 
-**Status:** Accepted; check pending G1.
+**G1 check (2026-08-22):** `/dev/accel/accel0` present, `intel_vpu` loaded.
+The device is NOT dead on Linux; the blueprint was wrong. Decision
+unchanged — excluded from Phase 1 — but it is now a *verified* Phase 2
+option for whisper offload, not a dismissed one. Usability for STT
+(OpenVINO NPU path, throughput) remains unmeasured.
+
+**Status:** Accepted; NPU excluded in Phase 1, present and reserved for Phase 2.
 
 ---
 
