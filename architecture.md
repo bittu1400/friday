@@ -257,7 +257,7 @@ exits non-zero on any failure. Run it at every gate.
 ```
    ~/.config/systemd/user/friday-llm.service
      ExecStart=/opt/llama.cpp/build/bin/llama-server \
-       --model  %h/.local/share/friday/models/qwen2.5-7b-instruct-q4_k_m.gguf \
+       --model  %h/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
        --host   127.0.0.1 --port 8080 \
        --ctx-size 8192 --n-gpu-layers 99 \
        --cache-type-k q8_0 --cache-type-v q8_0 \
