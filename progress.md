@@ -78,12 +78,12 @@ BUILD COMMIT:
   (paste git rev-parse HEAD from the llama.cpp checkout)
 ```
 
-- [ ] Model downloaded and checksummed
+- [x] Model downloaded and checksummed — 4.4 GB, at `~/.local/share/friday/models/`
 
 ```
 MODEL: bartowski/Qwen2.5-7B-Instruct-GGUF :: Qwen2.5-7B-Instruct-Q4_K_M.gguf  (ADR-029)
 SHA256:
-  (paste)
+  65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423
 ```
 
 - [ ] Server responds, reports compute capability 12.0, offloads all layers
