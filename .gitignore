@@ -1,0 +1,27 @@
+# --- runtime, never committed -------------------------------------------
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# models and state live in XDG dirs (ADR-023) but guard against strays
+models/
+*.gguf
+*.bin
+*.pt
+*.onnx
+state/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# --- privacy (ADR-024) ---------------------------------------------------
+# contains MAC addresses, SSD serial, battery serial
+laptop-specifications.md
+*.local.md
+
+# --- misc ----------------------------------------------------------------
+.env
+.direnv/
+audio-samples/
