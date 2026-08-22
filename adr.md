@@ -591,7 +591,10 @@ eval fixture, by design. The "default vs named" split means the model
 does not have to disambiguate between two browsers on a vague request —
 it picks `browser`, and only a request naming brave produces `brave`.
 
-**Status:** Accepted.
+**Status:** Superseded by ADR-032 (2026-08-22). The seven-entry table and
+the default-vs-named split for browser and terminal no longer hold; the
+rest of the reasoning (why the enum is closed, why every member costs) is
+still the rationale ADR-032 builds on.
 
 ---
 
@@ -748,3 +751,40 @@ yet. Doing it later is more expensive than doing it now — that cost is
 accepted knowingly.
 
 **Status:** Accepted provisionally. OQ-05 stays OPEN by user request.
+
+---
+
+## ADR-032 — Registry trimmed to one app per category (supersedes ADR-026's table)
+
+**Context.** ADR-026 registered seven apps with a default-vs-named split:
+two browsers (firefox default, brave named) and two terminals (foot
+default, kitty named). Every enum member widens T2's blast radius and
+measurably degrades a 7B model's tool selection; two of them existed only
+to reach a second app of a kind the user does not switch between by voice.
+
+**Decision.** Decided by the user, 2026-08-22: one app per category for
+browser, terminal, and editor; two for media (mpv and vlc are genuinely
+different players the user picks between). Firefox and kitty are removed.
+
+```
+   app id      argv       role
+   ---------   --------   -----------------------------------------
+   browser     brave      the browser (was firefox+brave; now brave)
+   terminal    foot       the terminal (was foot+kitty; now foot)
+   editor      code       the editor
+   video       mpv        media, default for "play a video"
+   vlc         vlc        media, second player, named only
+```
+
+Five entries plus `youtube_search` (ADR-027, unchanged). The
+default-vs-named split from ADR-026 now survives only for media, where two
+players genuinely coexist; for browser and terminal there is nothing to
+disambiguate, so the semantic id (`browser`, `terminal`) maps directly to
+the one binary.
+
+**Consequences.** A smaller enum: easier tool selection for the 7B, a
+narrower T2 surface. Adding firefox or kitty back is a code change plus an
+eval fixture, by design — not a config edit. No behaviour change to
+`youtube_search` or to the "model never supplies argv" invariant.
+
+**Status:** Accepted.

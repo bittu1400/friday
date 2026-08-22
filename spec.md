@@ -117,10 +117,8 @@ App map (`open_app` params.app enum) — extend by editing code, not config:
 ```
    app id      argv                default for
    ---------   -----------------   --------------------------------
-   browser     firefox             "open my browser", "the web"
-   brave       brave               named only
+   browser     brave               "open my browser", "the web"
    terminal    foot                "open a terminal", "a shell"
-   kitty       kitty               named only
    editor      code                "open my editor"
    video       mpv                 "play a video", "video player"
    vlc         vlc                 named only

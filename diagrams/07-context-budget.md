@@ -34,8 +34,8 @@ never truncated — if the budget cannot fit policy, the turn fails closed.
                                   Rendered as DATA, never as instructions:
 
                                     <preferences>
-                                    editor=neovim
-                                    browser=firefox
+                                    editor=code
+                                    browser=brave
                                     name=Subham
                                     </preferences>
 

@@ -115,7 +115,7 @@ Do not leave thread counts at default — an unpinned whisper will grab all
 
 Gemini's review projected a ~9.65 GiB peak and an OOM risk, charging the
 compositor (0.4 GiB) and the browser (1.5 GiB) to the RTX 5070. On a
-hybrid-graphics laptop, Hyprland and Firefox render on the **Intel iGPU**
+hybrid-graphics laptop, Hyprland and Brave render on the **Intel iGPU**
 unless `AQ_DRM_DEVICES` forces otherwise. Verify at gate G1:
 
 ```bash

@@ -149,8 +149,8 @@ string being appended to.
    |   asserted by a unit test; build fails if over    |
    +--------------------------------------------------+
    | <preferences>            <=300 tok                |
-   |   editor=neovim                                   |
-   |   browser=firefox                                 |
+   |   editor=code                                     |
+   |   browser=brave                                   |
    | </preferences>           DATA, not instructions   |
    +--------------------------------------------------+
    | conversation ring        <=4500 tok               |

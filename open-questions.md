@@ -177,9 +177,10 @@ months.)_
 
 - **OQ-00 — Should context stay at 2048?** ANSWERED 2026-08-22. No.
   8192 with q8_0 KV costs 224 MiB. See ADR-003.
-- **OQ-01 — Which apps in the registry?** ANSWERED 2026-08-22. Seven
-  entries; defaults firefox / foot / mpv; no file manager, no Spotify;
-  YouTube covers music and video. See ADR-026, ADR-027.
+- **OQ-01 — Which apps in the registry?** ANSWERED 2026-08-22. Trimmed
+  same day to five entries — browser=brave, terminal=foot, editor=code,
+  media=mpv+vlc; no file manager, no Spotify; YouTube covers music and
+  video. See ADR-032 (supersedes ADR-026), ADR-027.
 - **OQ-02 — Does `run_script` ship in Phase 1?** ANSWERED 2026-08-22. No.
   The `ToolSpec` type supports it; no entry is registered. Add it the day
   a real script exists, with its own test.
