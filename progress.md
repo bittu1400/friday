@@ -12,10 +12,10 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** G0 in progress. Nothing else started. No code exists.
+**Overall status:** G0 PASSED (2026-08-22). G1 next — highest risk. No app code exists.
 
 ```
-   G0 REPO        [ ]
+   G0 REPO        [x]
    G1 TOOLCHAIN   [ ]   <-- highest risk. blocks everything.
    G2 EVAL        [ ]
    G3 TEXT+REG    [ ]
@@ -35,18 +35,18 @@ Rules:
 - [x] `git init`
 - [x] Docs written: `friday.md`, `spec.md`, `adr.md`, `architecture.md`, `threat-model.md`, `open-questions.md`, `diagrams/`
 - [x] `friday.md`, `gemini-thoughts.md`, `gpt-thoughts.md` archived to `docs/archive/` with banners
-- [ ] `sudo pacman -S just nvtop`   (ADR-025; nvtop for G1 evidence)
-- [ ] `.gitignore` written (ADR-023, ADR-024)
-- [ ] `git remote add origin`, `git branch -M main`
-- [ ] XDG dirs created: `~/.local/share/friday/models`, `~/.local/state/friday`
-- [ ] `uv venv .venv --python 3.12`
-- [ ] `uv.lock` committed
-- [ ] Initial commit
+- [x] `just` + `nvtop` present (ADR-025) — both already installed, `just 1.58.0`, no pacman needed
+- [x] `.gitignore` written (ADR-023, ADR-024) — `.venv/`, XDG strays, `laptop-specifications.md`
+- [x] `origin` = github.com/bittu1400/friday.git (private), `main` tracks `origin/main`
+- [x] XDG dirs created: `~/.local/share/friday/models` (755), `~/.local/state/friday` (700)
+- [x] `uv venv .venv --python 3.12` — CPython 3.12.13
+- [x] `uv.lock` committed — `Resolved 1 package`
+- [x] Committed (no deps yet; runtime deps land per gate)
 
 ```
 EVIDENCE:
 $ uv run python -V
-  (paste)
+Python 3.12.13
 ```
 
 ---
@@ -218,7 +218,7 @@ $ grep -rn "irreversible" friday/tools/registry.py
   (must be empty in Phase 1)
 ```
 
-- [x] OQ-01 answered 2026-08-22 — ADR-026 (7 apps, firefox/foot/mpv defaults)
+- [x] OQ-01 answered 2026-08-22 — ADR-032 (5 apps: brave/foot/code/mpv+vlc; supersedes ADR-026)
 - [x] OQ-02 answered 2026-08-22 — `run_script` cut from Phase 1
 - [ ] AS-13..AS-16 (youtube query hardening) written and passing — ADR-027
 
@@ -375,6 +375,7 @@ Append a line whenever a measurement changes a document.
    2026-08-22  laptop-specifications.md gitignored (MACs)       ADR-024
    2026-08-22  task runner = just (installed, not make)         ADR-025
    2026-08-22  app registry fixed: 7 entries, no files/spotify  ADR-026
+   2026-08-22  registry trimmed 7->5 (drop firefox, kitty)     ADR-032
    2026-08-22  youtube_search allowed as audited exception      ADR-027
    2026-08-22  run_script cut from Phase 1                      OQ-02
    2026-08-22  transcripts: in-memory ring buffer only          ADR-028

@@ -1,0 +1,13 @@
+[project]
+name = "friday"
+version = "0.0.0"
+description = "Local-first voice and text assistant for one Arch + Hyprland machine"
+# Pinned to 3.12: Kokoro's phonemizer stack (misaki/espeak-ng/spacy) needs
+# 3.10-3.12, and the system interpreter is 3.14. See ADR-016.
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.uv]
+# Application, not a distributable package — no build backend, no src module
+# required yet. Runtime deps are added per gate (llama client at G1, etc.).
+package = false
