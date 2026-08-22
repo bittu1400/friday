@@ -137,3 +137,27 @@ adding any requires an ADR that names the problem it solves.
 | TTS voice preset (`af_heart` / `af_bella` / `af_sky`) | G5 | ADR-005 |
 | PTT transport (Hyprland bind vs evdev) | G6 | ADR-013 |
 | Streaming TTS (only if measured TTFA demands it) | G6 | ADR-020 |
+
+---
+
+## Appendix — other local models on this machine (NOT used by Friday)
+
+Inventory snapshot, 2026-08-22. Recorded for reference only. Friday does
+**not** use any of these, and does **not** use Ollama as its server —
+`llama-server` is the deliberate choice (ADR-002, for GBNF grammar). This
+list is volatile; the user may add or remove models at any time.
+
+| Model | Managed by | Size | Location |
+| :-- | :-- | :-- | :-- |
+| `qwen2.5-coder:7b` | Ollama | 4.4 G | `~/.ollama/models` (GGUF) |
+| `llama3.1:8b` | Ollama | 4.6 G | `~/.ollama/models` (GGUF) |
+| `deepseek-r1:7b` | Ollama | 4.4 G | `~/.ollama/models` (GGUF) |
+| `gemma3:4b` | Ollama | 3.2 G | `~/.ollama/models` (GGUF) |
+| `model.onnx` | none (loose file) | 14 M | `~/npu-test/` — an NPU experiment, relates to ADR-019 |
+
+Ollama blob store totals ~17 G. If the pinned Qwen2.5-7B GGUF (ADR-029)
+ever misbehaves, these are on-disk points of comparison — but a swap still
+follows ADR-029 (re-run the eval baseline; never compare scores across
+artifacts). Friday's own weights live only in
+`~/.local/share/friday/models/` (ADR-023), separate from all of the above.
+
