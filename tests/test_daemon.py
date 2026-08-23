@@ -302,3 +302,17 @@ def test_release_without_capture_is_ignored():
     asyncio.run(go())
     assert d.state.state is State.IDLE
     assert d._turn_task is None
+
+
+def test_chat_turn_appends_to_dialogue(monkeypatch):
+    _plan(monkeypatch, TurnResult("chat", {}, "Hello there!", False))
+    d = _daemon()
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+
+    asyncio.run(go())
+    assert len(d._dialogue) == 1
+    assert "Hello there!" in d._dialogue.render()

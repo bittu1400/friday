@@ -20,6 +20,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Input, RichLog
 
 from .. import config
+from ..dialogue import Dialogue
 from ..llm.client import LlamaClient
 from ..store.audit import AuditLog
 from ..store.prefs import PendingPreference, PrefStore
@@ -65,6 +66,7 @@ class FridayTUI(App):
             base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
         )
         self._pending: PendingPreference | None = None
+        self._dialogue = Dialogue()  # in-session context, RAM-only (invariant #7)
         self._voice = "muted" if speaker is None else getattr(speaker, "voice", "on")
         self._set_mode_subtitle()
 
@@ -124,6 +126,7 @@ class FridayTUI(App):
             speaker=self._speaker,
             search_client=self._search,
             connected=self._connected,
+            history=self._dialogue.render(),
         )
         params = f" {result.params}" if result.params else ""
         log.write(f"[dim]→ action: {result.plan_name}{params}[/]")
@@ -131,6 +134,8 @@ class FridayTUI(App):
         src = render_sources(result.sources)
         if src:  # ADR-047: TUI always shows sources; voice never speaks them
             log.write(f"[dim]{src}[/]")
+        if result.spoken:  # RAM-only in-session context (invariant #7)
+            self._dialogue.add(text, result.spoken)
         if result.pending is not None:
             self._pending = result.pending  # await a yes/no next
         self._reenable()

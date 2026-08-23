@@ -29,6 +29,7 @@ from .audio import ptt
 from .audio.capture import Recorder
 from .audio.state import State, TurnState
 from .audio.stt import Transcriber
+from .dialogue import Dialogue
 from .llm.client import LlamaClient
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore
@@ -78,6 +79,7 @@ class Daemon:
         self._pending: PendingPreference | None = None  # awaiting voice confirm
         self._cap_timer: asyncio.TimerHandle | None = None
         self._confirm_timer: asyncio.TimerHandle | None = None
+        self._dialogue = Dialogue()  # in-session context, RAM-only (invariant #7)
         self._last_toggle = 0.0  # debounce clock for the tap-only trigger (ADR-044)
         self._capture_end = 0.0  # monotonic mark at end of speech, for TTFA (OQ-09)
         self._seq = 0
@@ -178,6 +180,7 @@ class Daemon:
                     text, self._client, request_id=rid, dry_run=self._dry_run,
                     prefs=self._prefs, audit=self._audit, speaker=None,
                     search_client=self._search, connected=self._connected,
+                    history=self._dialogue.render(),
                 ),
                 timeout=_PLANNING_TIMEOUT,
             )
@@ -198,6 +201,9 @@ class Daemon:
             self.state.got_plan(will_speak=will_speak)
             if will_speak:
                 await self._speak(result.spoken, measure=True)
+                # Append after speaking so cross-turn context holds (action and
+                # chat turns alike). RAM-only — the buffer is never persisted.
+                self._dialogue.add(text, result.spoken)
         except asyncio.TimeoutError:
             await self._fail_speak("That took too long.")  # E_LLM_TIMEOUT
         except asyncio.CancelledError:

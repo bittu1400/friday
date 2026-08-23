@@ -92,10 +92,14 @@ def test_run_turn_speaks_dispatched_outcome() -> None:
     assert len(sp.said) == 1 and sp.said[0].startswith("Opened Brave")
 
 
-def test_run_turn_does_not_speak_none_placeholder() -> None:
+def test_run_turn_speaks_none_out_of_scope_line() -> None:
+    # G8 (design open-item #4): `none` now SPEAKS a distinct out-of-scope line
+    # so the operator can tell live that the model chose no action.
+    from friday.ui import templates
+
     sp = RecordingSpeaker()
     _turn('{"action":{"name":"none","params":{}}}', sp)
-    assert sp.said == []  # "(no action)" is never voiced
+    assert sp.said == [templates.OUT_OF_SCOPE]
 
 
 def test_run_turn_speaks_error_line() -> None:
