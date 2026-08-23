@@ -11,13 +11,14 @@ from friday.llm.validate import Plan, SchemaError, validate
 
 def test_open_app_accepted() -> None:
     p = validate('{"action":{"name":"open_app","params":{"app":"browser"}}}')
-    assert p == Plan(name="open_app", params={"app": "browser"}, thought=None)
+    assert p == Plan(name="open_app", params={"app": "browser"})
 
 
-def test_thought_within_cap_accepted() -> None:
-    p = validate('{"thought":"user wants a browser","action":{"name":"open_app","params":{"app":"editor"}}}')
-    assert p.thought == "user wants a browser"
-    assert p.name == "open_app"
+def test_thought_field_now_rejected() -> None:
+    # thought was removed at G3 (OQ-08 / ADR-011); it is now an unknown
+    # top-level field and must fail closed.
+    with pytest.raises(SchemaError):
+        validate('{"thought":"hi","action":{"name":"none","params":{}}}')
 
 
 def test_none_with_empty_params() -> None:

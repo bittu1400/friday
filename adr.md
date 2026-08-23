@@ -253,8 +253,14 @@ the start of G3.** Not done in the G2 commit (it touches the grammar and
 warrants a clean re-baseline); flagged for user confirmation. The suite
 will grow, so this can be re-measured if a later fixture set disagrees.
 
-**Status:** Resolved provisionally by G2 data — delete recommended,
-removal pending at G3.
+**G3 (2026-08-23).** Removed. `thought` is gone from `friday/llm/schema.py`,
+the generated grammars, the prompt, and the validator (a `thought` key is
+now an unknown top-level field and fails closed). Eval held at 20/20 after
+removal — the field cost tokens and a privacy surface for zero measurable
+tool-selection benefit. OQ-08 closed.
+
+**Status:** Resolved and removed at G3. The privacy question is closed by
+deletion, not by lifetime management.
 
 ---
 
@@ -858,5 +864,61 @@ single right answer and were decided with the user, 2026-08-23.
 a regression map. The validator is real from day one, so the adversarial
 suite is a genuine control, not a stub. The synchronous client is rewritten
 to async only when the turn loop needs it — an intentional, contained cost.
+
+**Status:** Accepted.
+
+---
+
+## ADR-034 — G3 text mode: TUI, dispatch safety, and the not-found problem
+
+**Context.** G3 is the first gate where Friday does something. It wires the
+tool registry, the executor, and a text UI on top of the G2 planning layer.
+Several choices had no single right answer and were decided with the user,
+2026-08-23.
+
+**Decisions (user, 2026-08-23).**
+
+1. **Full textual TUI now** (`friday/ui/tui.py`), not a throwaway REPL. One
+   input, a scrolling log, a mode indicator (LIVE / DRY-RUN), and the input
+   disabled while a turn is in flight — the minimal form of FR-5 (the full
+   concurrency test is G6). No confirm prompt: Phase 1 ships only reversible
+   tools (FR-33), so nothing needs a guard yet; the prompt lands with the
+   first irreversible tool, if ever.
+
+2. **Real launch by default, with a `--dry-run` flag.** The executor really
+   runs `hyprctl dispatch exec ...`. `friday --dry-run` (or `just run
+   --dry-run`) returns the argv a dispatch would run without launching, so
+   the pipeline can be exercised without spawning windows. Eval and unit
+   tests never call the real executor on a real app — `test_executor` uses
+   `true`/`false`/`sleep`; the eval harness is planning-only.
+
+3. **`not_found` via a `which()` preflight, not exit code.** `hyprctl
+   dispatch exec` returns 0 even when the target app is absent, so exit code
+   cannot distinguish "launched" from "no such app". Each `ToolSpec` carries
+   a `target_binary(params)`; the executor checks `shutil.which` on the real
+   binary and returns `NOT_FOUND` before dispatching. This is the one place
+   ADR-009's `not_found` template becomes truthful for a fire-and-forget
+   launcher.
+
+4. **YouTube opens in the browser (brave), not firefox.** friday.md §5.3
+   sketched `firefox`; ADR-032 dropped firefox from the registry. Corrected
+   to the sole browser, brave. friday.md §5.3 updated.
+
+5. **AS-13..AS-16 live in `tests/test_youtube.py`, not `adversarial.jsonl`.**
+   They exercise the youtube URL builder (FR-39x), not the plan-shape
+   validator, so the raw-into-validate format does not fit them (ADR-033).
+   `just test-adversarial` runs both files; together they are the 16/16 the
+   gate requires.
+
+6. **Panic switch: file `~/.local/state/friday/DISABLED` OR env
+   `FRIDAY_DISABLED`** (FR-36), checked in the executor before every
+   dispatch, before argv is even built. Two forms so it can be tripped from
+   a key bind (touch the file) or a wrapping service (the env var).
+
+**Consequences.** `just run` gives a working text assistant that launches
+the five apps and does youtube; memory and web search show as not-yet-wired
+rather than dispatching (G4, G7). A new synchronous stdlib llama client is
+used from an event loop via `asyncio.to_thread`; it becomes a native async
+client when the turn loop needs it.
 
 **Status:** Accepted.

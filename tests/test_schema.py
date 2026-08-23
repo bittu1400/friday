@@ -13,15 +13,22 @@ GDIR = Path(schema.__file__).parent / "grammars"
 
 
 def test_plan_grammar_matches_schema() -> None:
-    assert (GDIR / "plan.gbnf").read_text() == schema.build_grammar(
-        with_thought=True
-    ), "plan.gbnf is stale — run: uv run python -m friday.llm.schema"
+    assert (GDIR / "plan.gbnf").read_text() == schema.build_grammar(), (
+        "plan.gbnf is stale — run: uv run python -m friday.llm.schema"
+    )
 
 
-def test_no_thought_grammar_matches_schema() -> None:
-    assert (GDIR / "plan_no_thought.gbnf").read_text() == schema.build_grammar(
-        with_thought=False
-    ), "plan_no_thought.gbnf is stale — run: uv run python -m friday.llm.schema"
+def test_final_grammar_matches_schema() -> None:
+    assert (GDIR / "final.gbnf").read_text() == schema.build_final_grammar(), (
+        "final.gbnf is stale — run: uv run python -m friday.llm.schema"
+    )
+
+
+def test_final_grammar_allows_only_none() -> None:
+    # The invariant behind ADR-008: a grounding turn cannot name any action
+    # but "none". Asserted on the schema so it cannot drift.
+    assert schema.FINAL_ACTIONS == ("none",)
+    assert '"\\"open_app\\""' not in schema.build_final_grammar()
 
 
 def test_every_action_has_a_param_schema() -> None:

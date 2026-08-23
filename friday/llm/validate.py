@@ -13,7 +13,9 @@ Rules (architecture.md §5.2):
     reject params not in the registry's param_schema for the chosen action
     reject non-string param values (a nested object is not a string)
     normalize Unicode (NFKC); reject confusables in enum positions
-    cap `thought`; never persist it (lifetime is the caller's concern)
+
+`thought` was removed at G3 (OQ-08 / ADR-011): the only legal top-level
+field is `action`.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .schema import PARAM_SCHEMA, THOUGHT_MAX
+from .schema import PARAM_SCHEMA
 
 
 class SchemaError(Exception):
@@ -34,7 +36,6 @@ class SchemaError(Exception):
 class Plan:
     name: str
     params: Mapping[str, str]
-    thought: str | None = None
 
 
 def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -66,13 +67,10 @@ def validate(raw: str) -> Plan:
     if not isinstance(obj, dict):
         raise SchemaError("top level is not an object")
 
-    # Unknown top-level fields (AS-4). Only `thought` and `action` are legal.
-    allowed_top = {"thought", "action"}
-    extra = set(obj) - allowed_top
+    # Unknown top-level fields (AS-4). `action` is the only legal field.
+    extra = set(obj) - {"action"}
     if extra:
         raise SchemaError(f"unknown top-level field(s): {sorted(extra)}")
-
-    thought = _validate_thought(obj.get("thought")) if "thought" in obj else None
 
     if "action" not in obj:
         raise SchemaError("missing 'action'")
@@ -97,15 +95,7 @@ def validate(raw: str) -> Plan:
         raise SchemaError("action.params is not an object")
 
     params = _validate_params(name, params_in)
-    return Plan(name=name, params=params, thought=thought)
-
-
-def _validate_thought(value: Any) -> str:
-    if not isinstance(value, str):
-        raise SchemaError("thought is not a string")
-    if len(value) > THOUGHT_MAX:  # AS-10: 50 KB thought
-        raise SchemaError(f"thought exceeds {THOUGHT_MAX} chars")
-    return value
+    return Plan(name=name, params=params)
 
 
 def _validate_params(name: str, params_in: dict[str, Any]) -> dict[str, str]:

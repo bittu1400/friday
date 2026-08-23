@@ -95,7 +95,7 @@ Firefox failed to open.
 | FR-33 | Risk classes: `read_only`, `reversible`, `irreversible`. Phase 1 ships only `read_only` and `reversible` | Registry test: no `irreversible` entries exist |
 | FR-34 | `irreversible` requires typed confirmation (never a spoken "yes"), showing tool name and salient args, with a 30 s timeout defaulting to cancel | Test exists and passes even though no such tool ships |
 | FR-35 | `run_script` does not ship in Phase 1. No registry entry exists | Registry test: `"run_script" not in REGISTRY` |
-| FR-36 | A panic control disables all execution (env var or a file at `~/.local/state/friday/DISABLED`) checked before every dispatch | Touch the file, run 10 fixtures, zero dispatches |
+| FR-36 | A panic control disables all execution — the file `~/.local/state/friday/DISABLED` OR the env var `FRIDAY_DISABLED` (ADR-034) — checked before every dispatch, fails closed | `test_executor::test_panic_switch_blocks_dispatch`; touch the file, dispatch, zero launches |
 
 Phase 1 registry:
 

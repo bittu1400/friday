@@ -1,7 +1,7 @@
 # Generated from friday/llm/schema.py — do not edit by hand.
 # Regenerate with: uv run python -m friday.llm.schema
 
-root ::= "{" ws "\"thought\"" ws ":" ws string ws "," ws "\"action\"" ws ":" ws action ws "}" ws
+root ::= "{" ws "\"action\"" ws ":" ws action ws "}" ws
 action ::= "{" ws "\"name\"" ws ":" ws name ws "," ws "\"params\"" ws ":" ws params ws "}"
 name ::= "\"none\"" | "\"open_app\"" | "\"web_search\"" | "\"open_youtube\"" | "\"youtube_search\"" | "\"remember_preference\"" | "\"forget_preference\""
 params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"

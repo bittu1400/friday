@@ -14,22 +14,23 @@ serve:
 grammar:
     uv run python -m friday.llm.schema
 
+# Start the text-mode orchestrator (TUI). Add --dry-run to print argv
+# instead of launching apps: `just run --dry-run` (needs `--` passthrough).
+run *ARGS:
+    uv run python -m friday {{ARGS}}
+
 # G2 eval: fixture -> prompt -> llama-server -> validator -> compare.
 eval:
     uv run python -m friday.eval_harness
-
-# OQ-08: run the eval set with and without the `thought` field.
-eval-thought:
-    uv run python -m friday.eval_harness --both
 
 # Record the current pass/fail map as the regression baseline (ADR-030).
 eval-baseline:
     uv run python -m friday.eval_harness --update-baseline
 
-# Adversarial suite AS-1..AS-12 straight into the validator.
+# Adversarial 16/16: AS-1..12 into the validator, AS-13..16 the youtube builder.
 test-adversarial:
-    uv run pytest tests/test_adversarial.py -q
+    uv run pytest tests/test_adversarial.py tests/test_youtube.py -q
 
-# Unit tests (schema/grammar drift, validator, adversarial).
+# Full unit suite (schema drift, validator, registry, executor, turn, adversarial).
 test:
     uv run pytest -q

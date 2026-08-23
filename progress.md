@@ -12,18 +12,18 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** G0 PASSED. G1 core risk RETIRED (2026-08-22). G2
-PASSED (2026-08-23) — `just eval` prints a baseline (18/20 on the 20-fixture
-seed), the adversarial validator is real (12/12 rejected), OQ-08 answered
-(delta 0). First app code now exists under `friday/`. Four G1 measurements
-remain deferred (VRAM under desktop load, exact KV size, whisper CPU bench,
-CPU-torch check) — none blocked G2, none block G3.
+**Overall status:** G0 PASSED. G1 core risk RETIRED (2026-08-22). G2 PASSED
+(2026-08-23). G3 PASSED (2026-08-23) — text mode works: `just run` launches
+the 5 apps + youtube, eval 20/20, adversarial 16/16, zero `shell=True`, no
+irreversible tools, `thought` removed. Next is G4 (persistence). Four G1
+measurements remain deferred (VRAM under desktop load, exact KV size,
+whisper CPU bench, CPU-torch check) — none block G4.
 
 ```
    G0 REPO        [x]
    G1 TOOLCHAIN   [~]   <-- sm_120a PROVEN. measurements deferred (see G1).
    G2 EVAL        [x]   <-- harness + baseline + adversarial. OQ-08 done.
-   G3 TEXT+REG    [ ]
+   G3 TEXT+REG    [x]   <-- registry+executor+TUI. eval 20/20, adv 16/16.
    G4 PERSIST     [ ]
    G5 VOICE OUT   [ ]
    G6 VOICE IN    [ ]
@@ -33,24 +33,45 @@ CPU-torch check) — none blocked G2, none block G3.
 
 ---
 
-## NEXT SESSION — START HERE (written 2026-08-23)
+## NEXT SESSION — START HERE (written 2026-08-23, after G3)
 
-G2 is done. The harness exists and prints a baseline. Next is **G3 — text
-mode and the tool registry**. Before writing G3 code:
+G3 is done. `just run` is a working text assistant. Next is **G4 —
+persistence** (the SQLite memory layer). Nothing above G4 is blocked.
 
-1. **Confirm the OQ-08 removal.** Delta was 0, so ADR-011's pre-committed
-   rule says delete `thought`. It was NOT removed in the G2 commit. First
-   G3 task (pending your yes): drop `thought` from `friday/llm/schema.py`,
-   the prompt, regenerate the grammars (`just grammar`), re-run
-   `just eval-baseline`. Keeps 18/20 (both arms already equal).
-2. **Read G3** in this file + friday.md §5 + ADR-006/007/008/009 + ADR-033.
-   Batch every G3 question up front (CLAUDE.md working agreement).
-3. **The E05/E07 failures are the first G3 targets** — they are prompt/
-   registry tuning, and G3's gate is eval >= 90% + adversarial 16/16.
-4. `just serve` to bring llama-server back (it is stopped at end of G2).
+### What is true right now
+- Branch `main`. G0/G1(core)/G2/G3 all passed. `just run` launches the 5
+  apps + youtube; `just run --dry-run` prints argv without launching.
+- `friday/` now holds real code: `llm/` (schema, validate, client, prompt,
+  grammars), `tools/` (apps, registry, executor), `ui/` (templates, tui),
+  plus `config.py`, `errors.py`, `turn.py`, `__main__.py`.
+- Deps: `textual` (runtime), `pytest` (dev). Still CPU-only; no torch/CUDA
+  in the venv (that check is still deferred to G5).
+- `just eval` = 20/20, `uv run pytest` = 42 passed. baseline.json committed.
+- **No llama-server running** — stopped at end of G3. `just serve` to start.
+- Memory tools (`remember_preference`/`forget_preference`) and `web_search`
+  currently return a "not yet wired" line — G4 wires memory, G7 wires search.
 
-The old G1-deferred block below still stands (VRAM peak, KV size, whisper
-bench) — optional, blocks nothing.
+### Before writing G4 code (CLAUDE.md working agreement)
+1. **Read G4** in this file + friday.md §6 (the 001_init.sql schema is
+   already drafted there) + ADR-010 (SQLite/WAL/single-writer), ADR-028
+   (in-memory ring buffer, no transcripts on disk), ADR-031 (disk boundary,
+   OQ-05 stays OPEN), architecture.md §3/§7.
+2. **Batch every G4 question up front.** Likely ones: preference key
+   vocabulary + how `remember_preference` params map to rows; the digest
+   `key=value` rendering + 300-token cap; retention policy (90 days / 50 MB
+   — confirm numbers); whether `forget_preference` hard-deletes or expires
+   (note: hard delete of user data is a prohibited-by-default action — spec
+   the CLI `friday prefs forget/reset` path carefully).
+3. **G4 acceptance:** 100 parallel writes, 0 `database is locked`; perms
+   0600/0700 verified by self-test; export/delete/reset work; no `thought`
+   or raw payloads in any column (grep-enforced).
+4. Wire the memory tools into `friday/turn.py` (they are stubs today) and
+   add eval fixtures for them if phrasing coverage grows.
+
+### Carried-over, still optional (blocks nothing)
+- The 4 deferred G1 measurements (VRAM peak under desktop load, exact KV
+  size, whisper CPU bench, CPU-torch check). Procedures in the G1 blocks
+  below.
 
 ---
 
@@ -317,7 +338,8 @@ New code (G2, minimal-but-real per ADR-033):
 ```
 
 ```
-BASELINE:
+BASELINE (G2 historical — SUPERSEDED at G3 by 20/20 after thought removal
++ prompt tuning; the committed baseline.json now reads 20/20):
   fixture-set revision:  d59d519e086c   (sha1 of eval.jsonl)
   eval:        18/20   (90%)   [with thought]  -- E05, E07 the two failures
   known-failing: 0
@@ -359,33 +381,62 @@ FAILURES (baseline reality, tuning targets for G3 — not G2 blockers):
 
 **Acceptance:** eval >= 90% (min 20 fixtures), adversarial 16/16, zero `shell=True`.
 
-- [ ] `llm/schema.py` — one schema generates both grammar and validator
-- [ ] `plan.gbnf` generated and committed
-- [ ] `llm/validate.py` — unknown fields, duplicate keys, typed params, fail-closed
-- [ ] `tools/registry.py` — frozen dict, `build_argv` in code
-- [ ] `tools/executor.py` — argv list, `shell=False`, minimal env, timeout, process-group kill
-- [ ] `ui/templates.py` — outcome templates, no LLM round-trip (ADR-009)
-- [ ] Panic file honoured before every dispatch (FR-36)
-- [ ] TUI: type, see the action, see the outcome
+**Status: PASSED 2026-08-23.** All acceptance conditions met; evidence below.
+
+- [x] `llm/schema.py` — one schema generates BOTH grammars + drives validator; `thought` removed (OQ-08)
+- [x] `plan.gbnf` + `final.gbnf` generated and committed (final.gbnf enforced at G7)
+- [x] `llm/validate.py` — unknown fields, dup keys, typed params, NFKC, fail-closed
+- [x] `tools/registry.py` — frozen dict, `build_argv` in code, `target_binary` preflight
+- [x] `tools/executor.py` — argv list, `shell=False`, minimal env, timeout, process-group kill, no retry
+- [x] `ui/templates.py` — outcome templates keyed on outcome, no LLM round-trip (ADR-009)
+- [x] Panic file honoured before every dispatch (FR-36) — `config.is_disabled()`, tested
+- [x] TUI: type, see the action, see the outcome — `friday/ui/tui.py` (textual); `just run`
+
+New code (G3, decisions in ADR-034):
+```
+   friday/config.py            paths, panic switch (file + FRIDAY_DISABLED env)
+   friday/errors.py            Outcome enum + taxonomy codes + PolicyRejected
+   friday/turn.py              utterance -> plan -> execute-first -> speak
+   friday/tools/apps.py        5 semantic app keys -> (argv, display)
+   friday/tools/registry.py    ToolSpec + REGISTRY + youtube_url hardening
+   friday/tools/executor.py    async subprocess, shell=False, panic, no retry
+   friday/ui/templates.py      outcome -> string (ADR-009)
+   friday/ui/tui.py            textual text-mode UI
+   friday/__main__.py          `friday` / `just run` [--dry-run]
+   tests/test_{registry,executor,youtube,turn}.py
+```
 
 ```
-EVIDENCE:
-$ just eval
-  passed __/__  known-failing __  regressions __
+EVIDENCE (2026-08-23):
+$ just eval                         # thought removed, prompt tuned
+  fixture-set revision: d59d519e086c
+  passed 20/20  (100%)   known-failing 0   regressions 0
+  (E05 "open vlc" and E07 "weather" — the two G2 failures — now pass)
 
-$ just test-adversarial
-  __/16
+$ uv run pytest tests/test_adversarial.py tests/test_youtube.py -q
+  17 passed          # AS-1..12 (validator) + AS-13..16 (youtube builder) = 16/16 cases
+
+$ uv run pytest -q
+  42 passed
 
 $ grep -rn "shell=True" friday/
-  (must be empty)
+  (empty)
 
-$ grep -rn "irreversible" friday/tools/registry.py
-  (must be empty in Phase 1)
+$ grep -n "irreversible" friday/tools/registry.py
+  (only the Literal type + FR-33 comment; NO irreversible entry)
+
+END-TO-END (dry-run, live server, no windows spawned):
+  'open my browser'        -> open_app    dispatched=True  Opened Brave [dry-run: hyprctl dispatch exec brave]
+  'put on some lo-fi'      -> youtube_search (fixture E11 passes)
+  "what's the weather..."  -> web_search  [planned — arrives at G7]
+  'run rm -rf /'           -> none        (no action)
+  Real subprocess execution proven by test_executor (true/false/sleep);
+  hyprctl argv proven by dry-run. No app windows opened during testing.
 ```
 
 - [x] OQ-01 answered 2026-08-22 — ADR-032 (5 apps: brave/foot/code/mpv+vlc; supersedes ADR-026)
 - [x] OQ-02 answered 2026-08-22 — `run_script` cut from Phase 1
-- [ ] AS-13..AS-16 (youtube query hardening) written and passing — ADR-027
+- [x] AS-13..AS-16 (youtube query hardening) written and passing — ADR-027, in `tests/test_youtube.py`
 
 ---
 
@@ -556,6 +607,12 @@ Append a line whenever a measurement changes a document.
    2026-08-23  eval scoring: enum exact, free-text lenient          ADR-033
    2026-08-23  G2 adversarial = AS-1..12; AS-13..16 to G3           ADR-033
    2026-08-23  OQ-08 delta 0: drop `thought` (removal at G3)        ADR-011
+   2026-08-23  G3 PASSED: eval 20/20, adversarial 16/16            G3/ADR-034
+   2026-08-23  `thought` removed from schema/grammar/prompt        ADR-011
+   2026-08-23  full textual TUI + --dry-run flag                    ADR-034
+   2026-08-23  not_found via which() preflight (hyprctl exits 0)    ADR-034
+   2026-08-23  youtube opens in brave, not firefox                  ADR-034
+   2026-08-23  panic: DISABLED file or FRIDAY_DISABLED env         ADR-034/FR-36
 ```
 
 ## Time log

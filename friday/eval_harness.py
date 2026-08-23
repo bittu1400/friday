@@ -18,9 +18,7 @@ Scoring (decided 2026-08-23):
     no params in expect  only the name is checked
 
 Run:
-    uv run python -m friday.eval_harness                 # with thought
-    uv run python -m friday.eval_harness --no-thought
-    uv run python -m friday.eval_harness --both          # OQ-08 A/B
+    uv run python -m friday.eval_harness
     uv run python -m friday.eval_harness --update-baseline
 """
 
@@ -93,11 +91,8 @@ class Result:
     predicted: str
 
 
-def run(client: LlamaClient, *, with_thought: bool) -> list[Result]:
-    grammar_name = "plan.gbnf" if with_thought else "plan_no_thought.gbnf"
-    grammar = (
-        Path(schema.__file__).parent / "grammars" / grammar_name
-    ).read_text()
+def run(client: LlamaClient) -> list[Result]:
+    grammar = (Path(schema.__file__).parent / "grammars" / "plan.gbnf").read_text()
 
     results: list[Result] = []
     for fx in _load_fixtures():
@@ -117,7 +112,7 @@ def run(client: LlamaClient, *, with_thought: bool) -> list[Result]:
     return results
 
 
-def _report(results: list[Result], *, label: str) -> int:
+def _report(results: list[Result]) -> int:
     gated = [r for r in results if not r.known_failing]
     passed = sum(r.passed for r in gated)
     total = len(gated)
@@ -131,7 +126,6 @@ def _report(results: list[Result], *, label: str) -> int:
             r.fid for r in results if prev.get(r.fid) and not r.passed
         ]
 
-    print(f"\n=== {label} ===")
     print(f"fixture-set revision: {_revision()}")
     print(f"passed {passed}/{total}  ({100 * passed // total if total else 0}%)")
     print(f"known-failing: {len(known)}")
@@ -163,8 +157,6 @@ def _write_baseline(results: list[Result]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--no-thought", action="store_true")
-    ap.add_argument("--both", action="store_true", help="run both, for OQ-08")
     ap.add_argument("--update-baseline", action="store_true")
     ap.add_argument("--base-url", default="http://127.0.0.1:8080")
     args = ap.parse_args(argv)
@@ -175,22 +167,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        if args.both:
-            r_with = run(client, with_thought=True)
-            r_without = run(client, with_thought=False)
-            _report(r_with, label="with thought")
-            _report(r_without, label="without thought")
-            pw = sum(x.passed for x in r_with if not x.known_failing)
-            pn = sum(x.passed for x in r_without if not x.known_failing)
-            print(f"\nOQ-08 delta (thought - no-thought): {pw - pn} fixtures")
-            return 0
-
-        with_thought = not args.no_thought
-        results = run(client, with_thought=with_thought)
-        regressions = _report(
-            results,
-            label="with thought" if with_thought else "without thought",
-        )
+        results = run(client)
+        regressions = _report(results)
         if args.update_baseline:
             _write_baseline(results)
         return 1 if regressions else 0

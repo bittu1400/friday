@@ -31,6 +31,7 @@ See `diagrams/00-system-overview.md`.
    friday/
      __main__.py            entrypoint, arg parsing, service wiring
      config.py              typed config load + defaults + validation
+     errors.py              Outcome enum + error taxonomy codes (spec §4)
      fsm.py                 turn state machine (diagram 01)
      turn.py                Turn dataclass: request_id, transcript,
                             plan, tool_result, outcome, timings

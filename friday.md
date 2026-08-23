@@ -355,60 +355,42 @@ ADR-033, matching the §5.3 registry and ADR-027. Implemented at G2 in
 
 ### 5.3 Registry
 
+> **Implemented at G3.** This section originally sketched a 7-app `APPS`
+> with a firefox/kitty default split. That sketch is superseded — the real
+> code is `friday/tools/apps.py` (5 apps, ADR-032) and
+> `friday/tools/registry.py`. YouTube opens in the browser (brave), not
+> firefox (ADR-034). The shape below reflects what shipped.
+
 ```python
-APPS = MappingProxyType({          # ADR-026
-    "browser":  (["firefox"], "Firefox"),      # default for "browser"
-    "brave":    (["brave"],   "Brave"),
-    "terminal": (["foot"],    "the terminal"), # default for "terminal"
-    "kitty":    (["kitty"],   "Kitty"),
-    "editor":   (["code"],    "VS Code"),      # nvim is NOT installed
-    "video":    (["mpv"],     "mpv"),          # default for "video"
-    "vlc":      (["vlc"],     "VLC"),
+# friday/tools/apps.py — 5 semantic keys (ADR-032), brand resolution here
+APPS = MappingProxyType({
+    "browser":  App(("brave",), "Brave"),
+    "terminal": App(("foot",),  "the terminal"),
+    "editor":   App(("code",),  "VS Code"),
+    "video":    App(("mpv",),   "mpv"),
+    "vlc":      App(("vlc",),   "VLC"),
 })
 
-REGISTRY: Mapping[str, ToolSpec] = MappingProxyType({
-    "open_app": ToolSpec(
-        tool_id="open_app",
-        risk="reversible",
-        build_argv=lambda p: ["hyprctl", "dispatch", "exec", *APPS[p["app"]][0]],
-        cwd=str(Path.home()),
-        env={"PATH": "/usr/bin:/bin", "HOME": str(Path.home())},
-        timeout_s=5.0,
-        param_schema={"app": {"enum": list(APPS)}},
-    ),
-    "open_youtube": ToolSpec(                   # ADR-027, no params
-        tool_id="open_youtube",
-        risk="reversible",
-        build_argv=lambda p: ["hyprctl", "dispatch", "exec",
-                              "firefox", "https://www.youtube.com"],
-        cwd=str(Path.home()),
-        env={"PATH": "/usr/bin:/bin", "HOME": str(Path.home())},
-        timeout_s=5.0,
-        param_schema={},
-    ),
-    "youtube_search": ToolSpec(                 # ADR-027, THE exception
-        tool_id="youtube_search",
-        risk="reversible",
-        build_argv=lambda p: ["hyprctl", "dispatch", "exec",
-                              "firefox", _youtube_url(p["query"])],
-        cwd=str(Path.home()),
-        env={"PATH": "/usr/bin:/bin", "HOME": str(Path.home())},
-        timeout_s=5.0,
-        param_schema={"query": {"type": "string", "maxLength": 100}},
-    ),
-})
+# friday/tools/registry.py — code builds argv; only launch tools execute at
+# G3. web_search (G7) and the memory tools (G4) are NOT_YET_WIRED.
+#   open_app        -> hyprctl dispatch exec <APPS[app].argv>
+#   open_youtube    -> hyprctl dispatch exec brave https://www.youtube.com
+#   youtube_search  -> hyprctl dispatch exec brave <youtube_url(query)>
+# Each ToolSpec also carries target_binary(params) for the which() preflight
+# that makes ADR-009's `not_found` truthful (hyprctl exits 0 regardless).
 
-_ALLOWED = re.compile(r"^[A-Za-z0-9 \-'&,.]{1,100}$")
+_ALLOWED = re.compile(r"^[A-Za-z0-9 \-'&,.]{1,100}$")   # ADR-027, FR-39
 
-def _youtube_url(query: str) -> str:
-    """ADR-027. Reject, never strip — stripping turns hostile input into
-    plausible input. Five layers, all of them cheap."""
+def youtube_url(query: str) -> str:
+    """Reject, never strip — stripping turns hostile input into plausible
+    input. Charset + length + NFKC + post-build netloc re-assertion."""
     q = unicodedata.normalize("NFKC", query)
     if not _ALLOWED.fullmatch(q):
-        raise PolicyRejected("E_POLICY_DENIED")
+        raise PolicyRejected()                   # -> DENIED, no dispatch
     url = "https://www.youtube.com/results?search_query=" + quote_plus(q)
-    parsed = urlparse(url)                       # belt and braces
-    assert parsed.scheme == "https" and parsed.netloc == "www.youtube.com"
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.netloc != "www.youtube.com":
+        raise PolicyRejected()
     return url
 ```
 
@@ -417,7 +399,7 @@ type supports it; no entry exists.
 
 `APPS` values are argv lists written by you. The model's `p["app"]` is an
 enum key, never a string that reaches the shell. App list settled in
-ADR-026; the single string exception is settled in ADR-027.
+ADR-032; the single string exception is settled in ADR-027.
 
 ### 5.4 Executor
 
