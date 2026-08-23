@@ -1,8 +1,16 @@
 [Unit]
 Description=Friday Assistant Voice Daemon
 Documentation=https://github.com/bittu1400/friday
-After=friday-llm.service friday-searxng.service
+# The daemon needs the Wayland/audio session env (WAYLAND_DISPLAY, DBUS, the
+# Hyprland signature) to reach the compositor, launch apps, and use the mic/
+# speaker. Under uwsm that env is finalized into the user manager only when the
+# graphical session comes up, so bind to graphical-session.target — NOT
+# default.target, which can start us before the compositor has published it and
+# leave the daemon blind. PartOf ties our lifecycle to the session (stops on
+# logout, restarts with it).
+After=graphical-session.target friday-llm.service friday-searxng.service
 Wants=friday-llm.service friday-searxng.service
+PartOf=graphical-session.target
 # Keep retrying across a slow dependency start; don't let the default rate
 # limiter stop the daemon permanently.
 StartLimitIntervalSec=0
@@ -22,4 +30,4 @@ PrivateTmp=yes
 ProtectSystem=strict
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

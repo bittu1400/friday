@@ -124,6 +124,20 @@ is speculative — every claim below was run.**
 - **TTFA on long chat replies** spikes to ~7 s (v10 in the trace). If it annoys,
   cap `_CHAT_MAX_TOKENS` (currently 160) or tune. Measured, not urgent.
 
+### Boot / auto-start (fixed this session — Friday now comes up at login)
+The units were `linked`, NOT `enabled` — they only ran because started by hand,
+and would NOT have auto-started after a reboot. Fixed:
+- `friday-llm` + `friday-searxng` → `enabled` on `default.target` (no display
+  needed; come up early). docker is `enabled` at boot (searxng depends on it).
+- `friday` (voice daemon) → `enabled` on **`graphical-session.target`** with
+  `After=graphical-session.target` + `PartOf=`. This machine runs **uwsm**, which
+  finalizes the Wayland/DBUS env into the systemd user manager only when the
+  graphical session comes up; binding to `default.target` risked starting the
+  daemon BEFORE that env existed (blind — no screen/apps/audio). Verified: the
+  running daemon's `/proc/<pid>/environ` carries `WAYLAND_DISPLAY`, `DBUS_...`,
+  `XDG_RUNTIME_DIR`. So after login tomorrow the full stack starts on its own.
+  (Unproven only by an actual reboot; the env + ordering are correct.)
+
 ### To run Friday next session
 - `systemctl --user start friday` (background service; tap `XF86Presentation`
   to talk), OR — for the visible debug trace — `systemctl --user stop friday`
