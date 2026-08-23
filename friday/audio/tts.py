@@ -8,8 +8,11 @@ code in this package.
 
 `Speaker.create()` fails soft: if the model or an audio device is missing it
 returns `None`, and the caller stays text-only rather than crashing. `say()`
-synthesizes and plays blocking — cancellation (barge-in) is deferred to G6,
-where the mic that would trigger it exists (ADR-040).
+synthesizes and plays, blocking until finished or until `stop()` is called
+from another thread — that is barge-in (FR-73, FR-7): the PTT handler on the
+event loop calls `stop()` to cut playback mid-sentence while the turn's
+`say()` runs in a worker thread. `say()` returns True if it played to the
+end, False if it was cancelled (or produced nothing).
 
 Heavy imports (onnxruntime, kokoro_onnx, sounddevice) are lazy so importing
 this module — and the whole app under test — costs nothing and needs no
@@ -18,15 +21,18 @@ audio hardware.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 
 class Speaker:
-    """Loads Kokoro once, then voices strings on demand (blocking)."""
+    """Loads Kokoro once, then voices strings on demand. `say()` blocks;
+    `stop()` cancels an in-flight `say()` from another thread (barge-in)."""
 
     def __init__(self, kokoro: object, voice: str) -> None:
         self._kokoro = kokoro
         self._voice = voice
+        self._cancel = threading.Event()
 
     @property
     def voice(self) -> str:
@@ -80,19 +86,40 @@ class Speaker:
             return None
         return cls(kokoro, chosen)
 
-    def say(self, text: str) -> None:
-        """Synthesize `text` and play it, blocking until finished. A failure
-        to synthesize or reach the audio device is swallowed — a silent turn
-        beats a crash, and the text was already printed by the caller."""
+    def say(self, text: str) -> bool:
+        """Synthesize `text` and play it, blocking until finished or cancelled.
+        Returns True if it played to the end, False if it produced nothing or
+        was cut short by `stop()`. A failure to synthesize or reach the audio
+        device is swallowed (returns False) — a silent turn beats a crash, and
+        the text was already printed by the caller."""
         if not text or not text.strip():
-            return
+            return False
+        self._cancel.clear()
         try:
             samples, sr = self._kokoro.create(
                 text, voice=self._voice, speed=1.0, lang="en-us"
             )
+            # Barge-in may have arrived during synthesis; don't start audio.
+            if self._cancel.is_set():
+                return False
             import sounddevice as sd
 
             sd.play(samples, sr)
-            sd.wait()
+            sd.wait()  # returns early if stop() -> sd.stop() runs elsewhere
+        except Exception:
+            return False
+        return not self._cancel.is_set()
+
+    def stop(self) -> None:
+        """Cancel an in-flight `say()` (barge-in, FR-73). Safe to call from
+        any thread and when nothing is playing. Sets the cancel flag so a
+        cancel that lands mid-synthesis is honoured before playback starts,
+        and stops the output stream so a `wait()` already in progress unblocks.
+        """
+        self._cancel.set()
+        try:
+            import sounddevice as sd
+
+            sd.stop()
         except Exception:
             return

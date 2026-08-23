@@ -13,76 +13,89 @@ Rules:
    this is a single-machine project. Paste it.
 
 **Overall status:** G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
-(2026-08-23): text mode, eval 20/20, adv 16/16. G4 (2026-08-23): SQLite
-memory, prefs (confirm-first), audit, retention — 104 unit tests. G5
-(2026-08-23): voice out via kokoro-onnx (fp32/8t, af_bella), spoken in the
-loop, FR-71 verified, listening test signed off. **Next is G6 (voice in).**
-Deferred G1 measurements (VRAM under desktop load, exact KV size, whisper
-CPU bench) remain optional; the CPU-torch check is now moot (venv is
-torch-free, ADR-039). None block G6.
+(2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
+(confirm-first), audit, retention. G5: voice out via kokoro-onnx (fp32/8t,
+af_bella), FR-71 verified, listening test signed off. **G6 (voice in) IN
+PROGRESS** (2026-08-23): STT drill done → small.en int8 beam1 hotwords, p95
+741 ms, CPU (ADR-042); all audio code built (FSM, capture, gate, STT, PTT
+unix socket, daemon, cancellable TTS/barge-in) + 40 tests, `uv run pytest`
+144 passed. **Remaining for G6: live end-to-end** — add the Hyprland bind,
+run `just voice` with llama-server up, do the 20-clip spoken eval + measure
+TTFA (OQ-09). Deferred G1 measurements remain optional; whisper CPU bench is
+now DONE (it moved into G6, ADR-042). None block finishing G6.
 
 ```
    G0 REPO        [x]
-   G1 TOOLCHAIN   [~]   <-- sm_120a PROVEN. measurements deferred (see G1).
+   G1 TOOLCHAIN   [~]   <-- sm_120a PROVEN. VRAM/KV measurements deferred.
+                        whisper CPU bench DONE at G6 (ADR-042).
    G2 EVAL        [x]   <-- harness + baseline + adversarial. OQ-08 done.
    G3 TEXT+REG    [x]   <-- registry+executor+TUI. eval 20/20, adv 16/16.
-   G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention. 98 unit,
+   G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention.
                         eval 20/20, adv 16/16.
-   G5 VOICE OUT   [x]   <-- kokoro-onnx/fp32/8t, af_bella, wired into loop,
-                        FR-71 verified, listening test signed off 2026-08-23.
-   G6 VOICE IN    [ ]
+   G5 VOICE OUT   [x]   <-- kokoro-onnx/fp32/8t, af_bella, FR-71 verified.
+   G6 VOICE IN    [~]   <-- STT locked (ADR-042); daemon+FSM+PTT+barge-in
+                        built, 144 unit. LIVE eval + TTFA + bind test pending.
    G7 SEARCH      [ ]
    G8 SERVICE     [ ]
 ```
 
 ---
 
-## NEXT SESSION — START HERE (written 2026-08-23, after G5)
+## NEXT SESSION — START HERE (updated 2026-08-23, mid-G6)
 
-G0–G5 are DONE. `just run` is a working text+voice assistant: it plans,
-launches the 5 apps + youtube, remembers/forgets preferences (confirm-
-first), and SPEAKS its outcomes (af_bella, kokoro-onnx CPU). **Next is
-G6 — Voice in** (whisper STT on CPU, PTT, mic gate, barge-in).
+G0–G5 DONE. **G6 code + STT drill DONE; only the LIVE test remains.** All
+the decisions are made and recorded (ADR-042 STT, OQ-03 PTT, OQ-07/23), the
+audio stack is built (FSM, capture, gate, PTT unix socket, daemon, barge-in,
+cancellable TTS), and `uv run pytest` is 144 passed. What is NOT yet done is
+the on-hardware run — no live daemon has driven a real mic through a real
+turn yet.
 
-**Before adopting ANY new package at G6 (faster-whisper, sounddevice
-capture, etc.): run the independent research+benchmark drill** — it is now
-a standing rule (CLAUDE.md working agreement §7, ADR-041). Kokoro is the
-worked example (ADR-039): benchmark real variants/configs on THIS laptop,
-check the dependency's true footprint (`uv pip install --dry-run`) against
-the invariants, and record the winner with numbers before wiring it in.
+### Finish G6 — the live test (needs the user at the machine)
+1. **Add the Hyprland bind** (OQ-03; the venv python — `package = false`, no
+   console script):
+   ```
+   bind        = SUPER SHIFT, XF86Assistant, exec, <repo>/.venv/bin/python -m friday.ptt_cli press
+   bindrelease = SUPER SHIFT, XF86Assistant, exec, <repo>/.venv/bin/python -m friday.ptt_cli release
+   ```
+   Reload Hyprland. (Copilot key = that chord; hold verified, OQ-03.)
+2. **Start the stack:** `just serve` (llama-server), then `just voice`
+   (daemon). First `just voice` downloads the `small.en` CT2 model (~1 GB)
+   to the HF cache. Hold the Copilot key, speak, release.
+3. **20-clip spoken eval** → fill `SPOKEN EVAL __/20` in the G6 block.
+   **Measure TTFA** (end of speech → first audio), p50/p95 → fill the G6
+   block; then answer **OQ-09** (is ~1.4 s a problem / streaming needed?).
+4. **Verify the live bind** end-to-end (a real press reaches the daemon over
+   the socket) and mark ADR-013 shipped. If the chord bind misbehaves in
+   practice, the evdev fallback (ADR-013) is the escape hatch — record why.
+5. **Barge-in in the flesh:** press mid-speech, confirm playback cuts and it
+   re-captures (unit-tested; confirm on hardware).
+6. Then **G6 PASSES** → commit, move to G7 (search, the only egress).
 
-### Build G6 — read then batch questions
-1. **Read** friday.md §8 + ADR-004 (STT on CPU, int8, 8 threads) + ADR-012
-   (wake word cut — PTT only) + ADR-014 (half-duplex mic gate) + ADR-020
-   (barge-in/latency) + diagram 05 (audio pipeline). FRs: FR-60..FR-69,
-   FR-73 (cancellable playback lands here).
-2. **Independent-research the STT stack** (ADR-041): benchmark
-   `faster-whisper` `large-v3-turbo` int8 on CPU — p95 must be ≤ 800 ms on
-   20 real mic clips (that's deferred G1 item #3, do it here). If it fails,
-   ADR-004/ADR-018 reopen (CUDA arm). Confirm no torch is pulled.
-3. **Batch the G6 questions** (working agreement rule #2): PTT key (OQ-03 —
-   Menu vs Right-Ctrl, is it free in Hyprland?), mic device selection,
-   barge-in behaviour (cancel current TTS on speech? — FR-73), and whether
-   the FSM couples capture→STT→turn→TTS now.
-4. **Wire cancellable TTS** (FR-73, deferred from G5 per ADR-040) — the mic
-   that triggers barge-in exists at G6.
+The STT drill is COMPLETE — do NOT re-benchmark. small.en int8 beam1
+hotwords is locked (ADR-042); `faster-whisper` is in pyproject, venv still
+torch-free.
 
 ### What is true right now
-- Branch `main`. G0/G1(core)/G2/G3/G4 all passed. `just run` launches the 5
-  apps + youtube, remembers/forgets prefs; `just run --dry-run` = no launch.
+- Branch `main`. G0–G5 passed; G6 code complete, live test pending. `just
+  run` = text+voice TUI; `just voice` = the G6 voice-in daemon (needs the
+  bind + a mic to exercise); `just ptt press|release` = the client.
 - `friday/` code: `llm/` (schema, validate, client, prompt, grammars),
   `tools/` (apps, registry, executor), `store/` (db, prefs, audit,
-  migrations), `ui/` (templates, tui), plus `config.py`, `errors.py`,
-  `turn.py`, `prefs_cli.py`, `__main__.py`.
+  migrations), `ui/` (templates, tui), `audio/` (state[FSM], capture, stt,
+  ptt, tts, say), plus `config.py`, `errors.py`, `turn.py`, `daemon.py`,
+  `voice_main.py`, `prefs_cli.py`, `ptt_cli.py`, `eval_harness.py`,
+  `__main__.py`.
 - Persistence: SQLite at `~/.local/state/friday/memory.db` (WAL, 0600 in a
   0700 dir), single-writer (`store/db.py`), forward-only migrations. `just
   prefs list|export|forget [--hard]|reset --yes`.
-- Deps: `textual` (runtime), `pytest` (dev). Store uses stdlib `sqlite3` —
-  no new dep. Venv is CPU-only and stays **torch-free**: G5 uses
-  `kokoro-onnx` (onnxruntime), STT will use CTranslate2 — neither needs
-  torch (ADR-039). The old "CPU-torch check" G1 item is now moot.
-- `just eval` = 20/20, `uv run pytest` = 98 passed. baseline.json committed.
-- **No llama-server running** — stopped at end of G4. `just serve` to start.
+- Deps: `textual`, `kokoro-onnx`, `sounddevice`, `soundfile` (G5),
+  **`faster-whisper`** (G6); `pytest` (dev). Store uses stdlib `sqlite3`.
+  Venv is CPU-only and stays **torch-free** — kokoro-onnx (onnxruntime) and
+  faster-whisper (CTranslate2) neither pull torch (ADR-039/042). Verified:
+  `uv pip list | grep -iE torch|nvidia|cuda` is empty. CPU-torch check moot.
+- `just eval` = 20/20 (last run G5; G6 touched none of the planning path so
+  unaffected by construction). `uv run pytest` = **144 passed**.
+- **No llama-server running** — start with `just serve` for eval or `just voice`.
 - `web_search` still returns "not yet wired" — G7. Memory is now wired.
 
 ### Memory design as built (G4 — ADR-035/036/037/038)
@@ -665,27 +678,74 @@ test signed off (af_bella). Next is G6 (voice in). Nothing blocks it.
 **Acceptance:** 20 spoken utterances produce the correct action; TTFA p95
 recorded.
 
-- [ ] `capture.py` — ring buffer, 15 s cap, callback allocates nothing
-- [ ] `gate.py` — mic open only in CAPTURING
-- [ ] `stt.py` — CPU, `language="en"`, `cpu_threads=8`, VAD
-- [ ] PTT via Hyprland bind (try this first — ADR-013, OQ-03)
-- [ ] If the bind failed: evidence here, then narrow udev ACL, one device, no `grab()`
-- [ ] Barge-in: PTT during SPEAKING cancels
-- [ ] FR-5: five rapid submits produce one turn and four rejections
+- [x] `capture.py` — `Recorder`: preallocated 15 s ring, callback checks the
+      gate + copies only (no alloc), 15 s hard cap drops overflow (FR-4/FR-6)
+- [x] gate — folded into the FSM (`TurnState.mic_open`, open only in
+      CAPTURING); the audio callback reads that one boolean (no separate
+      gate.py; matches friday.md §8.2 "nine lines")
+- [x] `stt.py` — `FasterWhisperBackend` (CPU, `language="en"`, VAD,
+      `cpu_threads=8`) + backend-independent policy: FR-12 empty→IDLE,
+      FR-13 over-limit refused not truncated. Model/compute from config.
+- [x] `state.py` — the FSM (diagram 01): IDLE/CAPTURING/TRANSCRIBING/
+      PLANNING/SPEAKING/ERROR, one-turn-in-flight (FR-5), mic gate (FR-6),
+      barge-in→CAPTURING (FR-7)
+- [x] `ptt.py` + `ptt_cli.py` — unix-socket PTT (FR-3, ADR-013 bind path):
+      daemon serves 0600 socket in the 0700 runtime dir; `friday-ptt
+      press|release|cancel` client; closed command set, fail-closed parse
+- [x] `daemon.py` — wires PTT→capture→STT→turn→speak; execute-first kept
+      (run_turn(speaker=None) executes, daemon speaks); cancellable SPEAKING;
+      confirm-first voice handshake (speak question → next utterance = y/n,
+      30 s window); per-stage timeouts (transcribe 5 s, planning 12 s)
+- [x] cancellable TTS (FR-73) — `Speaker.stop()` cancels mid-sentence (flag +
+      `sd.stop()`); barge-in wired through the daemon
+- [x] Tests: 40 new (test_fsm 11, test_stt 6, test_tts_cancel 5, test_ptt 5,
+      test_capture 6, test_daemon 7) → **`uv run pytest` 144 passed**
+- [ ] PTT via Hyprland bind — code + socket done; live bind end-to-end test
+      pending (needs the daemon running + bind added to hypr config)
+- [x] Barge-in: PTT during SPEAKING cancels — implemented + unit-tested
+      (test_daemon `test_barge_in_cancels_playback_and_recaptures`)
+- [x] FR-5: five rapid submits → one turn + four rejections — unit-tested
+      (test_fsm + test_daemon)
 
+STT BACKEND DRILL (ADR-041, 2026-08-23) — 3 rounds on 20 real mic clips,
+isolated venv `~/.cache/whisper-bench`, CPU / 8 threads:
 ```
-PTT PATH SHIPPED:  hyprland-bind | evdev
-IF EVDEV, WHY THE BIND FAILED:
-  (paste evidence — this is a privilege escalation, justify it)
+  ROUND 1 (backend): faster-whisper vs whisper.cpp, large-v3-turbo int8
+    faster-whisper  p95 2702 ms   (beat whisper.cpp 2.8x) — FR-10 pin too slow
+    whisper.cpp     p95 7318 ms   REJECTED (speed)
+  ROUND 2 (model/compute): base/small/medium/distil-small, int8 + fp32
+    base.en int8         p95  390 ms   miss (VLC botched) — too inaccurate
+    small.en int8        p95  869 ms   all app cmds right (RECOMMEND)
+    small.en float32     p95 1543 ms   ~= int8 accuracy, 1.8x slower — rejected
+    medium.en int8       p95 2286 ms   too slow
+    distil-small.en int8 p95  713 ms   faster, worse (focused/arts-linux)
+  KEY RESULTS: CPU STT viable — NO GPU, ADR-018 stays closed, invariant #6
+    holds. int8 FASTER than fp32 for CT2 whisper here (no AVX-512 penalty,
+    unlike Kokoro). FR-10 pin (large-v3-turbo) fails latency; must change.
+  ROUND 3 (tuning small.en): hotwords/initial_prompt biasing, beam_size=1,
+    distil-large-v3
+    small.en beam5            p95 768 ms  miss 5/20
+    small.en beam1 +hotwords  p95 741 ms  miss 4/20   *** WINNER ***
+    distil-large-v3 beam5     p95 2610 ms miss 7/20  slower, no accuracy win
+    hotwords FIXED neovim ("new him"->Neovim) + arch ("us Linux"->Arch Linux)
+    at no latency cost. Remaining misses: the user's name (confirm-first
+    covers it) + "web"->"wave".
+LOCKED (ADR-042): faster-whisper small.en int8, 8t, beam_size=1, hotwords=
+  domain vocab. venv torch-free (uv add faster-whisper = 18 pkgs, no torch).
+```
 
-SPOKEN EVAL: __/20
+PTT PATH SHIPPED:  hyprland-bind (evdev NOT needed).
+  Key = Copilot key, chord `SUPER SHIFT, XF86Assistant`; a 3 s `wev` hold
+  confirmed it tracks physical hold, so bind/bindrelease hold-to-talk works
+  (OQ-03). No privilege escalation. Live bind test pending.
+
+SPOKEN EVAL: __/20     (pending: needs live daemon + server)
 
 TTFA (end of speech -> first audio):
-  p50 ____ ms     p95 ____ ms
+  p50 ____ ms     p95 ____ ms    (pending live run)
   target 1400 / hard fail 4400
 
-OQ-09 DECISION (streaming needed?):
-```
+OQ-09 DECISION (streaming needed?):  (pending TTFA measurement)
 
 ---
 
@@ -792,6 +852,19 @@ Append a line whenever a measurement changes a document.
    2026-08-23  TTS wired into turn loop (run_turn speaks)          ADR-040
    2026-08-23  G5 PASSED: af_bella signed off, 104 unit, FR-71 ok  G5
    2026-08-23  standing rule: research+bench every new dependency  ADR-041/CLAUDE§7
+   2026-08-23  G6 re-verify: diagram 05 Kokoro 4t->8t (G5 drift)   diagram 05
+   2026-08-23  G6 STT = full ADR-041 drill (fw vs whisper.cpp)     OQ-07/ADR-041
+   2026-08-23  G6 PTT = Copilot key, chord SUPER SHIFT XF86Assistant,
+               hold verified (bind/bindrelease); hold-to-talk viable   OQ-03
+   2026-08-23  G6 mic = default PipeWire source (Mic1), not DMIC   OQ-23
+   2026-08-23  G6 arch = daemon+FSM+unix socket built now          G6
+   2026-08-23  STT drill: whisper.cpp rejected (2.8x slower fw)    ADR-042
+   2026-08-23  STT = small.en int8 beam1 hotwords (p95 741 ms)     ADR-042
+   2026-08-23  large-v3-turbo pin dropped (2.7s CPU); FR-10 edited ADR-042
+   2026-08-23  CPU STT viable, no GPU; ADR-018 stays closed        ADR-042
+   2026-08-23  int8 > fp32 for CT2 whisper (no AVX-512 penalty)    ADR-042
+   2026-08-23  barge-in target: IDLE -> CAPTURING (diagram 01 fix) FR-7
+   2026-08-23  G6 audio code + 40 tests (144 total); live pending  G6
 ```
 
 ## Time log

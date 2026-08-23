@@ -36,7 +36,9 @@ close this OQ, tick the G5 voice-lock box.
 ---
 
 ### OQ-03 — Is a Hyprland bind acceptable for PTT?
-**Decider:** USER + MEASURE · **Blocks:** G6 · **Status:** OPEN
+**Decider:** USER + MEASURE · **Blocks:** G6 · **Status:** ANSWERED +
+RESOLVED 2026-08-23 (key = Copilot key; hold-to-talk confirmed viable via
+Hyprland bind — see below)
 
 `bind = , KEY, exec, friday-ptt press` signalling the running daemon
 avoids granting keyboard-observation privilege entirely (T5). It needs
@@ -47,6 +49,28 @@ already bind it?
 
 **Default if undecided:** try the bind path at G6 and record whether it
 works. Only fall back to `evdev` with written evidence.
+
+**Answer (2026-08-23):** PTT key = the **Copilot key** (right of the arrow
+cluster). This laptop has **no Right Ctrl**. Menu was the other candidate;
+user picked Copilot.
+
+**Keysym captured + hold verified (2026-08-23, `wev`).** The Copilot key
+emits a chord: `Super_L` + `Shift_L` + `XF86Assistant` on press. It was
+feared to be a firmware one-shot (a short tap released in ~0.6 s), but a
+deliberate ~3 s hold showed the trigger key stays down for the whole hold
+(press→release gap = hold duration, ~6.5 s measured; no auto-repeat during
+the hold). **Hold-to-talk is therefore viable** — FR-2 (hold, capture,
+release to submit) is unchanged; no toggle, no Menu fallback, no evdev.
+
+Bind (the bind path of ADR-013, no keyboard-observation privilege):
+```
+bind        = SUPER SHIFT, XF86Assistant, exec, friday-ptt press
+bindrelease = SUPER SHIFT, XF86Assistant, exec, friday-ptt release
+```
+`XF86Assistant` releases before the modifiers, so `bindrelease` fires
+cleanly on trigger key-up. Verify the bind end-to-end when the daemon
+socket exists (progress.md G6). Evdev fallback remains the ADR-013 escape
+hatch only if the live bind misbehaves.
 
 ---
 
@@ -75,7 +99,8 @@ does not exist yet.
 ---
 
 ### OQ-06 — Voice preset
-**Decider:** USER · **Blocks:** G5 · **Status:** OPEN
+**Decider:** USER · **Blocks:** G5 · **Status:** CLOSED by OQ-22 2026-08-23
+(af_bella primary / af_heart fallback — ADR-005/040)
 
 Audition `af_heart`, `af_bella`, `af_sky` on the same five sentences,
 through the laptop speakers (not headphones — that is the real listening
@@ -193,7 +218,12 @@ should not silently disappear; the `pinned` column then only matters if
 ## Answered by measurement (no opinion needed)
 
 ### OQ-07 — Does whisper meet latency on CPU?
-**Decider:** MEASURE · **Blocks:** G1 · **Status:** OPEN
+**Decider:** MEASURE · **Blocks:** G1 (deferred), now G6 · **Status:**
+ANSWERED 2026-08-23 — YES, with the right model. `large-v3-turbo` (FR-10's
+old pin) FAILED at p95 2.7 s, but `small.en` int8 beam=1 hotwords hits p95
+**741 ms** (< 800 ms) on this CPU. CPU STT is viable; no GPU; ADR-018 stays
+closed. Full 3-round table in ADR-042 + progress.md G6. int8 beat fp32 here
+(no AVX-512 penalty for CTranslate2, unlike Kokoro).
 
 CPU is the default (ADR-004): it removes an entire CUDA context and keeps
 the Python environment CUDA-free, which is what makes FR-71 checkable.
@@ -202,7 +232,14 @@ Measure CPU only. 20 clips, 2-8 s, from the actual laptop mic. Pass if
 p95 <= 800 ms. Only on failure does the CUDA arm get installed and
 measured — that is stop condition #5, and it reopens ADR-018.
 
-Record the table in `progress.md` G1.
+**Scope widened 2026-08-23 (ADR-041 standing rule).** Instead of accepting
+the FR-10 pin (`faster-whisper large-v3-turbo`) unexamined, G6 benchmarks
+it against at least one rival CPU backend (`whisper.cpp`, which keeps STT
+out of the Python venv entirely and off onnxruntime). Winner chosen on
+measured p50/p95 + footprint + robustness, recorded in an ADR; FR-10's pin
+is provisional until then. Kokoro (ADR-039) is the worked precedent.
+
+Record the table in `progress.md` G1/G6.
 
 ---
 
@@ -341,3 +378,17 @@ months.)_
 - **OQ-22 — Which Kokoro voice preset?** ANSWERED 2026-08-23. `af_bella`
   primary, `af_heart` fallback (heart/sky indistinct on audition). See
   ADR-005, ADR-040.
+- **OQ-03 — PTT key + bind path?** ANSWERED + RESOLVED 2026-08-23. Key =
+  the Copilot key (no Right Ctrl; Menu was the alternative). Emits chord
+  `SUPER SHIFT, XF86Assistant`; a 3 s hold confirmed it tracks physical
+  hold, so hold-to-talk (FR-2) works via `bind`/`bindrelease` on the bind
+  path (ADR-013) — no toggle, no Menu, no evdev. See OQ-03 body for the
+  exact bind lines + evidence.
+- **OQ-07 — whisper CPU latency?** ANSWERED 2026-08-23. Yes with `small.en`
+  (p95 741 ms); `large-v3-turbo` failed (2.7 s). CPU STT viable, no GPU.
+  See ADR-042.
+- **OQ-23 — mic device for capture?** ANSWERED 2026-08-23. Default
+  PipeWire source (currently analog `Mic1`), config-overridable; not the
+  `DMIC Raw` array (index can move). Recorded here to close the
+  docs/"DMIC array" mismatch. (OQ-06 was the *voice* preset, closed by
+  OQ-22 — do not confuse.)

@@ -53,8 +53,8 @@ limitation to be lifted later.
 
 | ID | Requirement | Acceptance |
 | :-- | :-- | :-- |
-| FR-10 | `faster-whisper` `large-v3-turbo`, `language="en"` hardcoded, no detection pass | Config asserted at startup; `language` is not `None` |
-| FR-11 | STT runs on CPU (`device="cpu"`, `compute_type="int8"`, `cpu_threads=8`) unless the G1 benchmark shows CPU p95 > 800 ms | Benchmark table in `progress.md` G1 |
+| FR-10 | `faster-whisper` `small.en`, `language="en"` hardcoded, no detection pass, `beam_size=1`, hotwords-biased to the domain vocab (ADR-042; `large-v3-turbo` failed the latency target on this CPU) | Config asserted at startup; `language` is not `None` |
+| FR-11 | STT runs on CPU (`device="cpu"`, `compute_type="int8"`, `cpu_threads=8`). Measured p95 741 ms < 800 ms (ADR-042), so it stays on CPU — no GPU arm | Benchmark table in `progress.md` G6 |
 | FR-12 | VAD filtering enabled; empty transcript returns to IDLE silently | Silence input produces no turn and no speech |
 | FR-13 | Transcript is capped at 500 tokens; longer input is refused, not truncated | Fixture with a 3000-char transcript returns `action=none` |
 

@@ -87,7 +87,10 @@ the original blueprint's per-process overhead worry disappears. Costs
 `int8` for CPU and `int8_float16` for CUDA — the plan must name the tested
 compute type, not use "int8" for both.
 
-**Status:** Accepted pending G1 benchmark evidence.
+**Status:** Accepted; benchmark evidence delivered at G6 — see ADR-042.
+CPU STT confirmed viable (p95 741 ms < 800 ms), so the "move to GPU if p95 >
+800 ms" clause does NOT fire; ADR-018 stays closed. The exact model +
+compute + tuning are ADR-042, not the placeholder here.
 
 ---
 
@@ -320,7 +323,10 @@ device via a narrow udev ACL — never a blanket `input` group, never
 `grab()` (which takes exclusive input and can lock the user out), and
 never logging events.
 
-**Which path shipped:** _TBD at G6._
+**Which path shipped:** bind path (evdev not needed). Key = Copilot key,
+chord `SUPER SHIFT, XF86Assistant`; a 3 s `wev` hold confirmed it tracks
+physical hold, so `bind`/`bindrelease` hold-to-talk works (OQ-03). Marked
+shipped once the daemon socket proves the bind live (progress.md G6).
 
 **Consequences.** Likely avoids granting keyboard-observation privilege
 entirely. Hyprland bind latency is a few ms and irrelevant here.
@@ -1234,3 +1240,57 @@ The cost is deliberate — the same friction the static tool registry (ADR-007)
 imposes, applied to dependencies.
 
 **Status:** Accepted.
+
+---
+
+## ADR-042 — STT: faster-whisper `small.en` int8, beam=1, hotwords-biased
+
+**Context.** FR-10 pinned `faster-whisper large-v3-turbo`. The ADR-041
+standing rule requires the pin be earned by measurement, not inherited. The
+diagram 05 budget wants whisper p95 <= 800 ms on CPU (invariant #6 keeps STT
+off the GPU). Benchmarked on this laptop (Core Ultra 9 275HX, 8 P-cores, no
+AVX-512) over 20 real DMIC clips, 8 threads, isolated venv.
+
+**Measurements (three rounds).**
+```
+  R1 backend:   faster-whisper large-v3-turbo int8  p95 2702 ms  (FR-10 pin)
+                whisper.cpp (pywhispercpp) turbo     p95 7318 ms  REJECTED 2.8x
+  R2 model:     base.en int8   p95  390 ms  — botched "Launch VLC" (app cmd)
+                small.en int8  p95  869 ms  — every app command correct
+                small.en fp32  p95 1543 ms  — ~= int8 accuracy, 1.8x slower
+                medium.en int8 p95 2286 ms  — too slow
+                distil-small   p95  713 ms  — faster, clearly less accurate
+  R3 tuning:    small.en beam5           p95 768 ms  miss 5/20
+                small.en beam1 +hotwords p95 741 ms  miss 4/20   WINNER
+                distil-large-v3 beam5    p95 2610 ms miss 7/20 — slow, no gain
+```
+
+**Decision.** `faster-whisper` (CTranslate2), model **`small.en`**,
+`compute_type="int8"`, `cpu_threads=8`, **`beam_size=1`**, and **hotwords**
+biasing toward Friday's fixed domain vocab (the 5 apps + youtube + preference
+subjects — `config.STT_HOTWORDS`, kept tracking the registry). `device="cpu"`,
+`language="en"`, `vad_filter=True`. whisper.cpp is rejected (2.8x slower).
+
+**Three measured findings that override intuition.**
+1. The FR-10 pin (large-v3-turbo) is unusable on this CPU: 2.7 s, ~3.4x over
+   target. Model **size** is the dominant latency lever, not the backend.
+2. int8 is **faster than fp32** for CTranslate2 whisper here — the opposite
+   of Kokoro (ADR-039), where no-AVX-512 made int8 4x slower. Do not
+   generalize the Kokoro int8 warning across libraries; measure each.
+3. Hotwords biasing fixed the proper-noun misses (`neovim`, `arch linux`)
+   that plain small.en had, at no latency cost — the right lever for a
+   fixed-domain command assistant. Remaining misses are the user's name
+   (covered by confirm-first, ADR-037) and "web"->"wave".
+
+**CPU STT is viable — no GPU.** The 800 ms target is met (p95 741 ms), so
+stop condition #5 does NOT trigger: ADR-018 stays closed, `ctranslate2` never
+touches CUDA, and FR-71's "one CUDA process" holds by construction. The venv
+stays torch-free (`uv add faster-whisper` pulled 18 pkgs, no torch/nvidia).
+
+**Consequences.** FR-10/FR-11 are updated (model + tuning). `small.en` costs
+~1 GB RAM (abundant). The hotwords list is coupled to the registry — a new
+app must be added there too, noted in `config.py`. If accuracy on names ever
+matters more than latency, distil-large-v3 is the tested fallback (accept
+~2.6 s) — but confirm-first already mitigates the one case that matters.
+
+**Status:** Accepted. Supersedes the FR-10 `large-v3-turbo` pin.

@@ -47,7 +47,7 @@ assumed.
 
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
-| STT | `faster-whisper`, `device=cpu`, `compute_type=int8`, `cpu_threads=8`, VAD | ADR-004 |
+| STT | `faster-whisper` **`small.en`**, `device=cpu`, `compute_type=int8`, `cpu_threads=8`, `beam_size=1`, hotwords-biased, VAD — **NO torch** (CTranslate2). p95 741 ms measured | ADR-004, **ADR-042** |
 | TTS | **Kokoro-82M** via `kokoro-onnx` (ONNX Runtime, `CPUExecutionProvider`, fp32 model, 8 threads), one female en-US voice — **NO torch** | ADR-005, ADR-039 |
 | Capture | `sounddevice` (PortAudio), preallocated 15 s ring buffer, mic gate | architecture §2, §5 |
 | Echo handling | half-duplex boolean mic gate — **no** acoustic echo cancellation | ADR-014 |
@@ -56,8 +56,10 @@ assumed.
 Enforcement: only `llama-server` touches CUDA. The original FR-71 hazard
 was a CUDA torch pulled in by the PyTorch Kokoro runtime; ADR-039's
 `kokoro-onnx` removes torch from the venv entirely, so FR-71 holds by
-construction (no CUDA code to misbehave). TTS voice preset is locked at
-**G5**; STT stays CPU unless the G1 benchmark p95 exceeds 800 ms.
+construction (no CUDA code to misbehave). TTS voice preset locked at **G5**
+(af_bella). STT locked at **G6** (ADR-042): the FR-10 `large-v3-turbo` pin
+failed on CPU (2.7 s); `small.en` int8 beam1 hotwords hits p95 741 ms, so it
+stays CPU — no GPU arm, ADR-018 remains closed.
 
 ---
 
@@ -78,10 +80,11 @@ construction (no CUDA code to misbehave). TTS voice preset is locked at
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
 | Interface | `textual` TUI — no web UI | architecture §9 |
-| Activation | **PTT** via Hyprland bind (raw `evdev` only as a proven fallback) | ADR-013 |
+| Activation | **PTT** = Copilot key (chord `SUPER SHIFT, XF86Assistant`), hold-to-talk via Hyprland `bind`/`bindrelease` -> `friday-ptt` -> unix socket. No evdev. | ADR-013, OQ-03 |
 | Wake word | **none** in Phase 1 | ADR-012 |
 
-PTT path (bind vs evdev) is locked at **G6**.
+PTT path locked at **G6**: bind path (evdev not needed). Copilot key tracks
+physical hold (verified via `wev`), so hold-to-talk works (OQ-03).
 
 ---
 
@@ -132,13 +135,13 @@ adding any requires an ADR that names the problem it solves.
 
 ## Locked later, not here
 
-| Thing | Gate | Owner |
+| Thing | Gate | Status |
 | :-- | :-- | :-- |
-| Intel NPU inclusion (currently excluded, unverified) | G1 | ADR-019 |
-| STT CPU-vs-GPU final call | G1 | ADR-004 |
-| TTS voice preset (`af_heart` / `af_bella` / `af_sky`) | G5 | ADR-005 |
-| PTT transport (Hyprland bind vs evdev) | G6 | ADR-013 |
-| Streaming TTS (only if measured TTFA demands it) | G6 | ADR-020 |
+| Intel NPU inclusion (excluded Phase 1, present/verified) | G1 | resolved — ADR-019, Phase 2 option |
+| STT CPU-vs-GPU final call | ~~G1~~ G6 | **RESOLVED — CPU, small.en (ADR-042)** |
+| TTS voice preset | G5 | **RESOLVED — af_bella (ADR-005/040)** |
+| PTT transport (Hyprland bind vs evdev) | G6 | **RESOLVED — bind, Copilot key (ADR-013/OQ-03)** |
+| Streaming TTS (only if measured TTFA demands it) | G6 | OPEN — pending live TTFA (OQ-09) |
 
 ---
 

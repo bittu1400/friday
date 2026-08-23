@@ -37,9 +37,9 @@
              v
    +---------+---------+
    | faster-whisper    |  language="en" hardcoded (no detect pass)
-   | large-v3-turbo    |  compute_type="int8", device="cpu"
-   | CPU, 8 threads    |  vad_filter=True
-   +---------+---------+
+   | small.en (ADR-042)|  compute_type="int8", device="cpu", beam_size=1
+   | CPU, 8 threads    |  vad_filter=True, hotwords=domain vocab
+   +---------+---------+  p95 741 ms measured (large-v3-turbo was 2.7 s)
              |
              v
         transcript text
@@ -49,8 +49,8 @@
              |
              v
    +---------+---------+
-   | Kokoro-82M        |  voice locked at G5, single preset
-   | CPU, 4 threads    |  RTF ~0.15 -> faster than realtime
+   | Kokoro-82M (ONNX) |  voice af_bella (G5, ADR-005/039), single preset
+   | CPU, 8 threads    |  RTF ~0.14 -> faster than realtime
    | 24 kHz f32        |
    +---------+---------+
              |

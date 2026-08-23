@@ -27,63 +27,70 @@ See `diagrams/00-system-overview.md`.
 
 ## 2. Module layout
 
+As-built through G6 (unbuilt modules tagged with the gate that lands them).
+The FSM lives in `audio/state.py`, not a top-level `fsm.py`, and the
+half-duplex gate is a property on it (`TurnState.mic_open`), not a separate
+`gate.py` — friday.md §8.2's "nine lines".
+
 ```
    friday/
-     __main__.py            entrypoint, arg parsing, service wiring
-     config.py              typed config load + defaults + validation
+     __main__.py            text-mode entrypoint (TUI), service wiring
+     voice_main.py          voice-in entrypoint: builds + runs the daemon [G6]
+     daemon.py              the G6 loop: PTT -> capture -> STT -> turn ->
+                            speak, barge-in, confirm-first voice handshake
+     config.py              paths, panic switch, TTS/STT/PTT config
      errors.py              Outcome enum + error taxonomy codes (spec §4)
-     fsm.py                 turn state machine (diagram 01)
-     turn.py                Turn dataclass: request_id, transcript,
-                            plan, tool_result, outcome, timings
+     turn.py                one turn: utterance -> plan -> execute -> outcome
+                            (TurnResult); execute-first (ADR-009)
+     prefs_cli.py           `just prefs` — list/export/forget/reset
+     ptt_cli.py             `friday-ptt press|release|cancel` client [G6]
+     eval_harness.py        the G2 runner (the 3 ADR-030 numbers)
 
      llm/
-       client.py            llama-server HTTP client, timeouts, retries
-                            (retries ONLY on connect, never on generate)
+       client.py            llama-server HTTP client (retries ONLY on connect)
        grammars/
          plan.gbnf          full action enum
-         final.gbnf         action enum = ["none"] ONLY
-       schema.py            single source of truth; generates BOTH the
-                            grammar and the validator
-       validate.py          strict parse: unknown fields, dup keys,
-                            typed params, fail-closed
+         final.gbnf         action enum = ["none"] ONLY (enforced at G7)
+       schema.py            single source of truth; generates grammar+validator
+       prompt.py            SYSTEM POLICY + <preferences> digest assembly
+       validate.py          strict parse, fail-closed
 
      tools/
        registry.py          frozen dict: tool_id -> ToolSpec
        executor.py          subprocess argv, no shell, bounded timeout
        apps.py              app_id -> argv map
-       search.py            searxng client + sanitizer
-       memory_tools.py      remember / forget
+       search.py            searxng client + sanitizer                 [G7]
 
      audio/
-       capture.py           sounddevice input, ring buffer, mic gate
-       stt.py               faster-whisper wrapper, CPU pinned
-       tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8 threads,
-                            NO torch — ADR-039), chunked playback, cancel
-       gate.py              the half-duplex boolean (diagram 05)
+       capture.py           sounddevice input, preallocated 15 s ring, gate [G6]
+       state.py             the FSM (diagram 01) + mic_open gate         [G6]
+       stt.py               faster-whisper backend + FR-12/13 policy     [G6]
+       ptt.py               unix-socket PTT server + client (FR-3)       [G6]
+       tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8t, NO
+                            torch — ADR-039); cancellable playback (FR-73)
+       say.py               `just say` / audition CLI (G5)
 
      store/
-       db.py                connection, WAL, single-writer queue
-       migrations/          001_init.sql, 002_....sql (forward only)
-       prefs.py             CRUD + digest rendering
-       audit.py             redacted dispatch records
+       db.py                connection, WAL, single-writer
+       migrations/          001_init.sql (forward only)
+       prefs.py             slug+alias keys, CRUD, inert digest rendering
+       audit.py             redacted dispatch records + retention sweep
 
      ui/
        tui.py               textual app, mode indicator, confirm prompt
        templates.py         outcome -> speech strings
 
-     obs/
-       log.py               structured JSON logs, redaction filter
-       metrics.py           per-stage timings, in-process counters
+     obs/                   structured logs + metrics                    [G8]
 
    tests/
      fixtures/
-       eval.jsonl           50
-       adversarial.jsonl    12
-       injection.jsonl      20
-     test_*.py
+       eval.jsonl           20, grown by the user (ADR-030)
+       adversarial.jsonl    AS-1..12  (+ youtube AS-13..16 in test_youtube)
+       injection.jsonl      20 hostile search results                    [G7]
+     test_*.py              incl. G6: test_fsm/stt/capture/ptt/tts_cancel/daemon
 
    diagrams/                ASCII, authoritative, updated with code
-   scripts/                 registered scripts, absolute paths, no args
+   scripts/                 registered scripts, absolute paths, no args  [when needed]
 ```
 
 ---
@@ -185,10 +192,13 @@ by a lock.
 ```
    event loop
      |
-     +-- TUI task                 (textual, always live)
-     +-- PTT listener task        (hyprctl signal or evdev)
-     +-- audio callback           (PortAudio thread -> queue, NEVER blocks)
-     +-- turn task                (at most ONE, cancellable)
+     +-- TUI task                 (textual, always live) [text mode]
+     +-- PTT socket server        (unix socket; Hyprland bind -> friday-ptt
+                                   -> one line; NO evdev, ADR-013) [G6]
+     +-- audio callback           (PortAudio thread -> ring, NEVER allocates)
+     +-- turn task                (at most ONE, cancellable) — FSM in
+                                   audio/state.py, one turn enforced there
+     +-- speak task               (at most ONE, cancellable = barge-in) [G6]
      +-- db writer task           (serialized queue consumer)
      +-- retention task           (periodic, low priority)
 ```

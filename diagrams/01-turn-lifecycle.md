@@ -108,7 +108,9 @@ turn the user has already stopped caring about.
    CONFIRMING    30 s   -> cancel, back to IDLE, say nothing
    EXECUTING     per-tool, from registry (open_app 5 s, web_search 8 s)
    GROUNDING     10 s   -> speak degraded answer from raw tool result
-   SPEAKING      interruptible by PTT press (barge-in = cancel, go IDLE)
+   SPEAKING      interruptible by PTT press (barge-in = cancel playback,
+                 drop the turn, go to CAPTURING — the user is already holding
+                 the key to speak; FR-7, diagram 05, G6 daemon)
 ```
 
 ## The two rules this diagram exists to enforce

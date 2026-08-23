@@ -8,8 +8,9 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: no application code exists yet.** The repository is documents
-and diagrams. `progress.md` is the only file that says what is true.
+**Status: G0–G5 done, G6 (voice in) mid-flight** (code + STT drill complete,
+live test pending — 2026-08-23). `friday/` is a real text+voice assistant.
+`progress.md` is the only file that says what is actually true — start there.
 
 ## Working agreement — how sessions run
 

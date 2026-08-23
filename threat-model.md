@@ -20,8 +20,8 @@ Read with `diagrams/04-trust-boundaries.md` and
 | The user's session privileges | Friday can launch what the user can launch |
 | Preferences in `memory.db` | Personal data; also steers future turns |
 | Audit log | Reveals behaviour patterns and app usage |
-| Keyboard event stream | Only if `evdev` ships — see ADR-013 |
-| Microphone | Always-on capture would be a surveillance device |
+| Keyboard event stream | N/A — bind path shipped, no keyboard access (T5 resolved, ADR-013) |
+| Microphone | Open only during a deliberate PTT hold (FSM gate, FR-6/ADR-014); no wake word = no ambient capture |
 | Search queries | Reveal intent and identity to whoever sees egress |
 
 ## 2. Actors
@@ -161,9 +161,17 @@ compromise makes the process a keylogger.
 **Likelihood:** low, but the impact is total.
 **Impact:** full keystroke capture including passwords.
 
+**RESOLVED at G6 (2026-08-23): T5 is fully avoided.** The bind path shipped
+— `friday-ptt` receives one line over a unix socket from a Hyprland
+`bind`/`bindrelease`; the process never reads the keyboard, so there is no
+keystroke stream to leak. No `evdev`, no udev ACL, no `input` group. The
+socket is 0600 in the 0700 per-user runtime dir and accepts only a closed
+command set (`audio/ptt.py`). Controls 2-5 below stay on the record as the
+escape hatch if the bind is ever forced to fall back.
+
 **Controls**
 1. Prefer the Hyprland bind path, which grants no keyboard access at all.
-   — ADR-013
+   — ADR-013 **[SHIPPED — this is the path in use]**
 2. If `evdev` is unavoidable: a narrow udev ACL for one stable
    `/dev/input/by-id/...` device, never blanket `input` group membership.
 3. Never `grab()` — exclusive input can lock the user out of their own

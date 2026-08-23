@@ -57,6 +57,16 @@ fetch-voice:
     echo "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb  $dst/model.onnx" | sha256sum -c -
     echo "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d  $dst/voices-v1.0.bin" | sha256sum -c -
 
-# Full unit suite (schema drift, validator, registry, executor, turn, adversarial).
+# Start the voice-in daemon (G6): PTT socket + capture + STT + turn + speak.
+# Add --dry-run to plan without launching, --no-voice for silent outcomes.
+voice *ARGS:
+    uv run python -m friday.voice_main {{ARGS}}
+
+# Send a PTT command to the running daemon: `just ptt press` / `just ptt release`.
+# The Hyprland bind runs the module directly (no console script; package=false).
+ptt CMD:
+    uv run python -m friday.ptt_cli {{CMD}}
+
+# Full unit suite (schema drift, validator, registry, executor, turn, audio, adversarial).
 test:
     uv run pytest -q

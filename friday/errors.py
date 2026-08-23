@@ -19,13 +19,17 @@ class Outcome(str, Enum):
     DISABLED = "disabled"  # panic switch (FR-36)
 
 
-# Error codes referenced by G3 code. The full taxonomy lives in spec.md §4.
+# Error codes referenced by code so far. The full taxonomy lives in spec.md §4.
 E_SCHEMA = "E_SCHEMA"
 E_POLICY_DENIED = "E_POLICY_DENIED"
 E_TOOL_NOTFOUND = "E_TOOL_NOTFOUND"
 E_TOOL_TIMEOUT = "E_TOOL_TIMEOUT"
 E_TOOL_FAILED = "E_TOOL_FAILED"
 E_DISABLED = "E_DISABLED"
+# G6 (voice in): the audio path's codes.
+E_STT_EMPTY = "E_STT_EMPTY"  # no speech -> silence, back to IDLE (FR-12)
+E_STT_TIMEOUT = "E_STT_TIMEOUT"  # transcription too slow
+E_BUSY = "E_BUSY"  # a turn is already in flight (FR-5)
 
 
 class PolicyRejected(Exception):
