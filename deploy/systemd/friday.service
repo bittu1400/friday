@@ -1,0 +1,22 @@
+[Unit]
+Description=Friday Assistant Voice Daemon
+Documentation=https://github.com/bittu1400/friday
+After=friday-llm.service friday-searxng.service
+Wants=friday-llm.service friday-searxng.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/Personal/Intern/friday
+ExecStart=%h/Projects/Personal/Intern/friday/.venv/bin/python -m friday.voice_main
+Restart=on-failure
+RestartSec=3s
+PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE DBUS_SESSION_BUS_ADDRESS PATH
+ReadWritePaths=%h/.local/state/friday %t/friday %h/.local/share/friday
+
+# Sandboxing and security
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=default.target

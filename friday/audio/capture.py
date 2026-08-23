@@ -67,6 +67,18 @@ class Recorder:
     def seconds(self) -> float:
         return self._n / self._sr
 
+    @property
+    def is_active(self) -> bool:
+        """True if the audio stream is open and actively recording."""
+        return self._stream is not None and getattr(self._stream, "active", False)
+
+    def ensure_open(self) -> bool:
+        """Ensure audio stream is active; reopens if closed or dropped (e.g. suspend/resume)."""
+        if not self.is_active:
+            self.close()
+            return self.open()
+        return True
+
     def open(self) -> bool:
         """Start the InputStream. Fail-soft: no device / no library -> False,
         the daemon degrades to text-only rather than crashing."""

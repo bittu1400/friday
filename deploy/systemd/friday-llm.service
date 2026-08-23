@@ -1,0 +1,25 @@
+[Unit]
+Description=Friday LLM Server (llama-server)
+Documentation=https://github.com/bittu1400/friday
+After=network.target
+
+[Service]
+Type=simple
+Environment=PATH=/opt/cuda/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/llama.cpp/build/bin/llama-server \
+  --model %h/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8080 \
+  --ctx-size 8192 --n-gpu-layers 99 \
+  --cache-type-k q8_0 --cache-type-v q8_0 \
+  --no-webui
+Restart=on-failure
+RestartSec=5s
+KillMode=process
+
+# Resource and sandbox hygiene
+LimitNOFILE=65536
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

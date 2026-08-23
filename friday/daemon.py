@@ -130,6 +130,8 @@ class Daemon:
             log.info("E_BUSY: press ignored in %s", self.state.state.value)
 
     def _start_capture(self) -> None:
+        if hasattr(self._recorder, "ensure_open"):
+            self._recorder.ensure_open()
         self._recorder.reset()
         self._arm_capture_cap()
 

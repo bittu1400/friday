@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import time
+import urllib.request
 
 from . import config
 from .audio.capture import Recorder
@@ -25,9 +28,42 @@ from .audio.stt import FasterWhisperBackend, Transcriber
 from .audio.tts import Speaker
 from .daemon import Daemon
 from .llm.client import LlamaClient
+from .logging_config import setup_logging
 from .store.audit import AuditLog, sweep_retention
 from .store.db import Database
 from .store.prefs import PrefStore
+
+
+def wait_for_llm(base_url: str, timeout_s: float = 30.0, poll_interval_s: float = 1.0) -> bool:
+    """Tolerantly wait for llama-server during startup to avoid crash-looping under systemd (G9)."""
+    url = f"{base_url.rstrip('/')}/health"
+    start = time.monotonic()
+    log = logging.getLogger("friday.startup")
+
+    while time.monotonic() - start < timeout_s:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "friday-health/1.0"})
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if data.get("status") in ("ok", "loading model"):
+                        log.info("llama-server is ready at %s (status=%s)", base_url, data.get("status"))
+                        return True
+        except urllib.error.HTTPError as exc:
+            if exc.code == 503:
+                try:
+                    data = json.loads(exc.read().decode("utf-8"))
+                    if data.get("status") == "loading model":
+                        log.info("llama-server is loading model at %s...", base_url)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        log.info("waiting for llama-server at %s...", base_url)
+        time.sleep(poll_interval_s)
+
+    log.warning("llama-server at %s not ready within %.1fs; continuing in degraded mode", base_url, timeout_s)
+    return False
 
 
 def _build(args) -> tuple[Daemon, Database]:  # noqa: ANN001
@@ -76,8 +112,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--base-url", default=config.LLAMA_BASE_URL)
     ap.add_argument("--log", default="INFO")
+    ap.add_argument(
+        "--startup-timeout",
+        type=float,
+        default=30.0,
+        help="seconds to wait for llama-server at startup before starting in degraded mode",
+    )
     args = ap.parse_args(argv)
-    logging.basicConfig(level=args.log, format="%(asctime)s %(name)s %(message)s")
+    setup_logging(level=args.log)
+
+    # Startup health wait — tolerates llama-server cold start (G9)
+    wait_for_llm(args.base_url, timeout_s=args.startup_timeout)
 
     d, db = _build(args)
     try:

@@ -1578,3 +1578,38 @@ same pattern as `<preferences>` and `<user_habits>`).
 **Consequences:** Friday maintains natural cross-session conversational memory with zero
 leakage of raw audio or transcripts to disk.
 
+## ADR-051 — Service layer architecture, systemd user units, self-test verification, and log rotation (G9)
+
+**Status:** Accepted 2026-08-23.
+
+**Context:** Gate G9 transitions Friday from interactive script runs to a robust, background-managed
+system service. It requires systemd user unit orchestration, comprehensive self-testing, size-based log
+rotation with sensitive path redaction (FR-43), and resilience against transient daemon or server restarts
+(NFR-9, NFR-10).
+
+**Decision:**
+1. **User Systemd Units (`deploy/systemd/`):**
+   - `friday-llm.service`: manages `llama-server` on `127.0.0.1:8080` (ctx 8192, q8_0 KV, GPU offload).
+   - `friday.service`: manages orchestrator voice daemon (`python -m friday.voice_main`), ordered after
+     `friday-llm.service` and `friday-searxng.service`. Hardened with `NoNewPrivileges=yes`, `PrivateTmp=yes`,
+     `ProtectSystem=strict`, and passes necessary Wayland compositor variables (`WAYLAND_DISPLAY`,
+     `HYPRLAND_INSTANCE_SIGNATURE`, `XDG_RUNTIME_DIR`).
+2. **Startup Health Tolerance & Crash Loop Prevention:**
+   - The voice daemon tolerantly polls `llama-server` at startup (`wait_for_llm`), allowing `llama-server`
+     up to 30 s to load weights into VRAM before starting in degraded mode rather than crash-looping.
+   - If `llama-server` is killed or restarted mid-session (NFR-9), `LlamaClient` catches connection drops,
+     reports fail-soft speech ("My brain's offline."), and automatically recovers on the next turn when the
+     server is back up.
+   - Audio capture stream recreates dynamically (`ensure_open()`) to survive suspend/resume (NFR-10).
+3. **Structured JSON Logging & Redaction (`logging_config.py`, FR-43):**
+   - Logs structured JSON lines to `~/.local/state/friday/friday.log` with `RotatingFileHandler` (10 MB x 5).
+   - Redaction formatter replaces any `/home/<user>` filesystem paths with `~` and protects raw prompt /
+     transcript leakage. File mode `0600` and directory `0700` are strictly enforced.
+4. **Unified Self-Test (`friday --selftest` / `just selftest`):**
+   - Audits 7 critical subsystems: llama-server reachability, SearXNG reachability, GPU sm_120 Blackwell
+     capability, SQLite permissions (0600/0700) and schema version, audio device presence, panic switch status,
+     and loopback socket binding (asserting no 0.0.0.0 listeners).
+
+**Consequences:** Complete Phase 1 deployment and resilience architecture is established and fully automated.
+
+

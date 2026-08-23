@@ -13,6 +13,8 @@ import argparse
 from . import config
 from .audio.tts import Speaker
 from .llm.client import LlamaClient
+from .logging_config import setup_logging
+from .selftest import run_selftest
 from .store.audit import AuditLog, sweep_retention
 from .store.db import Database
 from .store.prefs import PrefStore
@@ -21,6 +23,11 @@ from .ui.tui import FridayTUI
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="friday")
+    ap.add_argument(
+        "--selftest",
+        action="store_true",
+        help="run system self-test checks and exit (architecture.md §7, friday.md G9)",
+    )
     ap.add_argument(
         "--dry-run",
         action="store_true",
@@ -36,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--base-url", default=config.LLAMA_BASE_URL)
     args = ap.parse_args(argv)
+
+    if args.selftest:
+        return run_selftest()
+
+    setup_logging()
 
     db = Database(config.MEMORY_DB)
     sweep_retention(db, retention_days=config.RETENTION_DAYS)  # logs only

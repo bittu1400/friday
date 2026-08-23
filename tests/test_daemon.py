@@ -59,6 +59,9 @@ class FakeRecorder:
     def open(self):
         return True
 
+    def ensure_open(self):
+        return True
+
     def close(self):
         pass
 

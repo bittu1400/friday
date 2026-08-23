@@ -86,6 +86,10 @@ voice *ARGS:
 ptt CMD:
     uv run python -m friday.ptt_cli {{CMD}}
 
+# Full system self-test (G9): server reachability, GPU arch, DB perms/schema, audio, panic, egress.
+selftest *ARGS:
+    uv run python -m friday.selftest {{ARGS}}
+
 # Full unit suite (schema drift, validator, registry, executor, turn, audio, adversarial).
 test:
     uv run pytest -q

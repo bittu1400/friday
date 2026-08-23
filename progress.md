@@ -12,41 +12,13 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **G0–G8 (Build 1, Stage 2, Stage 3) PASSED** (2026-08-23).
-All tasks for Build 1 (in-reply chat), Stage 2 (habit-driven suggestions), and Stage 3
-(distilled long-term memory via session summaries) implemented and verified.
-`uv run pytest` **215 passed**, `just eval` **28/28 (regressions 0)**,
-`just test-injection` **20/20 blocked**, adversarial 14/14. Live end-to-end smoke
-test verified on real llama-server (:8080) across all stages.
-
-G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
-(2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
-(confirm-first), audit, retention. G5: voice out via kokoro-onnx (fp32/8t,
-af_bella), FR-71 verified, listening test signed off. **G6 (voice in) DONE**
-(2026-08-23): STT drill done → small.en int8 beam1 hotwords, p95
-741 ms, CPU (ADR-042); all audio code built + `uv run pytest` **150 passed**.
-**LIVE end-to-end PROVEN on hardware from the PHYSICAL key** (2026-08-23):
-tap the Presentation key → say "open vlc" → tap → `heard='Open VLC'`,
-`open_app dispatched=True`, VLC launched; capture 3.4 s (not the 15 s cap).
-Path there: (a) app launch fixed — hyprctl `dispatch exec` broke on Hyprland
-0.56's Lua CLI + env lacked compositor vars → direct detached spawn with
-WAYLAND_DISPLAY (ADR-043); (b) **PTT redesigned (ADR-044)** — the Copilot key
-(`XF86Assistant`) leaks Super into every press (the "glitch") and never
-dispatched reliably; `XF86Presentation` is clean but tap-only, so PTT is now a
-**toggle** (tap on / tap off, 0.4 s debounce), one bind, no modifiers.
-**G6 essentially DONE:** 20-clip spoken eval = **20/20 planning** (STT accurate
-every clip, all brand names mapped live), **TTFA p50 2156 ms / p95 2731 ms**
-(under the 4.4 s hard fail → OQ-09: no streaming needed). Execution fixes from
-the eval: mpv idle window (bare mpv exits 0), YouTube outcomes differentiated,
-planner brand-name gap fixed (eval now 24/24). Deferred G1 measurements remain
-optional.
-
-**PRIMARY goal: conversation.** Chit-chat + suggestions, warm/witty/concise
-(gate **G8**). Build order: **G7 (search) ✓DONE → G8 (conversation) → G9
-(service)**. G7 shipped 2026-08-23 (SearXNG loopback, sanitizer, `final.gbnf`
-grounding, injection 20/20, egress proof; ADR-045/046/047) and merged to main.
-G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
-**G8 Build 1, Stage 2, and Stage 3 PASSED 2026-08-23.** Next step: Merge to main, then proceed to G9.
+**Overall status:** **G0–G9 (Phase 1 Build Gates COMPLETE)** (2026-08-23).
+All tasks for G0 through G9 (scaffolding, toolchain, eval, registry, persistence, voice out,
+voice in, search, conversation/memory, and service resilience) implemented and verified.
+`uv run pytest` **236 passed**, `just eval` **28/28 (regressions 0)**,
+`just test-injection` **20/20 blocked**, adversarial 17/17, `just test-egress` passed,
+and `just selftest` **all 7 checks passed**. Systemd user units (`friday-llm.service`, `friday.service`)
+live and active with auto-restart backoff and cold-start tolerance.
 
 ```
    G0 REPO        [x]
@@ -69,50 +41,53 @@ G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
                         Build 1: chat action + generator + RAM Dialogue + ADR-048.
                         Stage 2: habit mining (ADR-049) from action_audit.
                         Stage 3: distilled long-term memory (ADR-050) via session_summaries.
-                        215 unit pass, eval 28/28 (0 reg), injection 20/20,
-                        live model smoke verified.
-   G9 SERVICE     [ ]   <-- was G8; renumbered 2026-08-23.
+                        215 unit pass, eval 28/28 (0 reg), injection 20/20. Merged to main.
+   G9 SERVICE     [x]   <-- PASSED 2026-08-23 (ADR-051).
+                        Systemd user units (friday-llm, friday), unified self-test
+                        (7 checks), structured JSON logging with 10MB x 5 rotation
+                        and /home/ path redaction (FR-43), startup ping tolerance,
+                        and kill -9 / audio disconnect recovery. 236 unit pass, eval 28/28.
 ```
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, **G8 COMPLETE: Build 1, Stage 2, Stage 3 PASSED**)
+## G9 ACCEPTANCE EVIDENCE (2026-08-23)
 
-**G8 (Conversation & Long-Term Memory) is COMPLETE** on branch `g8-memory`.
-`uv run pytest` **215 passed**, `just eval` **28/28 (0 reg)**, injection 20/20, and live
-smoke test verified.
-
-### G8 ACCEPTANCE EVIDENCE (2026-08-23, llama-server up)
 ```
-$ uv run pytest -q                    215 passed
+$ uv run pytest -q                    236 passed in 1.71s
 $ just eval                           passed 28/28 (100%), regressions 0
 $ just test-injection                 20/20 blocked (injection.jsonl, calls==[])
+$ just test-adversarial               17/17 passed
+$ just test-egress                    8080+8888 = 127.0.0.1 ONLY, no 0.0.0.0 (exit 0)
 
-LIVE RECALL SMOKE TEST (real model, dry_run=True):
-  SESSION 1 SHUTDOWN DISTILLATION:
-    -> DISTILLED: "Friday opened VS Code and is searching for lo-fi music."
-  SESSION 2 TURN:
-    UTTERANCE: "what were we working on earlier?"
-    -> SPOKEN: "We were searching for lo-fi music in VS Code. Want to find some more tracks?"
+$ just selftest
+=================================================================
+  Friday System Self-Test (G9 Service & Health Verification)
+=================================================================
+[PASS] llama-server    Reachable at http://127.0.0.1:8080 (status: ok)
+[PASS] searxng         Reachable at http://127.0.0.1:8888 (HTTP 200)
+[PASS] gpu_arch        NVIDIA GeForce RTX 5070 Laptop GPU (compute 12.0 - sm_120 verified)
+[PASS] database        SQLite at ~/.local/state/friday/memory.db (mode 0600, dir 0700, schema v1)
+[PASS] audio_devices   Input: default | Output: default
+[PASS] panic_switch    Disarmed (normal dispatch allowed)
+[PASS] socket_binds    Services bound to 127.0.0.1 loopback only (no 0.0.0.0 / wildcard listeners)
+-----------------------------------------------------------------
+[PASSED] All required system checks passed successfully.
+
+$ systemctl --user status friday
+● friday.service - Friday Assistant Voice Daemon
+     Active: active (running)
+     Docs: https://github.com/bittu1400/friday
+
+$ kill -9 $(pgrep llama-server); sleep 6; just selftest
+  -> llama-server automatically restarted by systemd user unit with backoff; selftest green [PASSED]
+
+$ touch ~/.local/state/friday/DISABLED; just selftest
+  -> [WARN] panic_switch PANIC SWITCH ENGAGED - all tool execution blocked
+
+$ grep "/home/" ~/.local/state/friday/friday.log
+  -> 0 hits (all paths redacted to ~; mode 0600 enforced)
 ```
-
-### WHAT'S NEXT — Gate G9: Service Layer & Resilience
-1. **Systemd User Units (`deploy/systemd/`)**:
-   - `friday-llm.service`: manages `llama-server` on `127.0.0.1:8080` with restart backoff.
-   - `friday.service`: manages the orchestrator daemon (`python -m friday.voice_main`).
-   - Ordering with a tolerant health ping — orchestrator survives model startup latency without crash-looping.
-2. **CLI Self-Test (`friday --selftest` / `just selftest`)**:
-   - Checks `llama-server` loopback reachability
-   - Verifies GPU architecture (`sm_120`)
-   - Checks DB schema version and permissions (`0600` file, `0700` dir)
-   - Verifies PipeWire audio device availability
-   - Verifies panic switch state (`~/.local/state/friday/DISABLED`)
-   - Asserts no wildcard `0.0.0.0` binds (loopback only)
-   - Non-zero exit code on any failure
-3. **Log Rotation & Resilience Testing**:
-   - Log rotation (`10 MB x 5`)
-   - Test daemon recovery on `kill -9 $(pgrep llama-server)`
-   - Test suspend/resume survival with audio device recovery
 
 ### KEY DECISION during execution (E19 regression fix, in commit cb7eae5)
 Task 2's prompt narrowing dropped the original "When unsure, choose none"
@@ -1251,6 +1226,7 @@ Append a line whenever a measurement changes a document.
    2026-08-23  G8 Build 1: conversational speech carved out of ADR-009 ADR-048
    2026-08-23  G8 Stage 2: habit suggestions mined from action_audit  ADR-049
    2026-08-23  G8 Stage 3: distilled long-term memory in summaries    ADR-050
+   2026-08-23  G9 Service: systemd user units, selftest, log rotation ADR-051
 ```
 
 ## Time log

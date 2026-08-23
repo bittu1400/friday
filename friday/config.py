@@ -38,6 +38,12 @@ SEARCH_CONNECTED_DEFAULT: bool = os.environ.get("FRIDAY_SEARCH_LOCAL") is None
 # enforced by store/db.py on open, not assumed.
 MEMORY_DB: Path = STATE_DIR / "memory.db"
 
+# Observability & logging (architecture.md §7, FR-43).
+# Structured JSON lines to ~/.local/state/friday/friday.log, rotated at 10 MB, 5 files.
+LOG_FILE: Path = Path(os.environ.get("FRIDAY_LOG_FILE", STATE_DIR / "friday.log"))
+LOG_MAX_BYTES: int = int(os.environ.get("FRIDAY_LOG_MAX_BYTES", str(10 * 1024 * 1024)))  # 10 MB
+LOG_BACKUP_COUNT: int = int(os.environ.get("FRIDAY_LOG_BACKUP_COUNT", "5"))
+
 # Retention (FR-59 / ADR-038): audit rows + session summaries only.
 RETENTION_DAYS: int = int(os.environ.get("FRIDAY_RETENTION_DAYS", "90"))
 
