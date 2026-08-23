@@ -39,10 +39,9 @@ def test_valid_none_does_not_dispatch() -> None:
     assert r.plan_name == "none" and not r.dispatched
 
 
-def test_not_yet_wired_action_is_not_dispatched() -> None:
-    r = _turn('{"action":{"name":"web_search","params":{"query":"weather"}}}')
-    assert r.plan_name == "web_search" and not r.dispatched
-    assert "planned" in r.spoken
+# NOTE: NOT_YET_WIRED is empty as of G7 (web_search is now wired in the turn
+# loop). The web_search path — which never dispatches — is covered by
+# tests/test_web_search_turn.py; there is no "planned …" fallback left to test.
 
 
 def test_open_app_dispatches_via_template() -> None:
