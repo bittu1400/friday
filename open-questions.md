@@ -378,12 +378,17 @@ months.)_
 - **OQ-22 — Which Kokoro voice preset?** ANSWERED 2026-08-23. `af_bella`
   primary, `af_heart` fallback (heart/sky indistinct on audition). See
   ADR-005, ADR-040.
-- **OQ-03 — PTT key + bind path?** ANSWERED + RESOLVED 2026-08-23. Key =
-  the Copilot key (no Right Ctrl; Menu was the alternative). Emits chord
-  `SUPER SHIFT, XF86Assistant`; a 3 s hold confirmed it tracks physical
-  hold, so hold-to-talk (FR-2) works via `bind`/`bindrelease` on the bind
-  path (ADR-013) — no toggle, no Menu, no evdev. See OQ-03 body for the
-  exact bind lines + evidence.
+- **OQ-03 — PTT key + bind path?** REOPENED + RE-RESOLVED 2026-08-23 (ADR-044).
+  The bind path (ADR-013, no evdev) stands; the KEY and press/release model
+  changed after live testing. The Copilot key (`XF86Assistant`) was dropped —
+  its firmware leaks Super into every press, mis-triggering the launcher (the
+  reported "glitch") and never dispatching the chord reliably. The 3 s-hold
+  "confirmation" recorded earlier was contaminated (the user was holding
+  SUPER+SHIFT during the `wev` check). SHIPPED: **one bind on plain
+  `XF86Presentation` → `friday-ptt toggle`** (tap on / tap off, 0.4 s
+  debounce). The key is clean (modmask 0) but tap-only, so it drives toggle,
+  not hold. Live-proven: tap→"open vlc"→tap launched VLC, capture 3.4 s.
+  `press`/`release` remain for a future holdable key. See ADR-044.
 - **OQ-07 — whisper CPU latency?** ANSWERED 2026-08-23. Yes with `small.en`
   (p95 741 ms); `large-v3-turbo` failed (2.7 s). CPU STT viable, no GPU.
   See ADR-042.

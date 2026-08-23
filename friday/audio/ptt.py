@@ -1,12 +1,16 @@
 """Push-to-talk over a unix socket (FR-3, ADR-013).
 
-The bind path, not evdev: a Hyprland `bind`/`bindrelease` runs `friday-ptt
-press|release`, which connects to this socket and sends one line. The daemon
-never observes the keyboard — the compositor tells it a key moved. No
-`input` group, no `grab()`, no keylogging risk (ADR-013).
+The bind path, not evdev: a Hyprland `bind` runs `friday-ptt <cmd>`, which
+connects to this socket and sends one line. The daemon never observes the
+keyboard — the compositor tells it a key moved. No `input` group, no
+`grab()`, no keylogging risk (ADR-013).
 
-    bind        = SUPER SHIFT, XF86Assistant, exec, friday-ptt press
-    bindrelease = SUPER SHIFT, XF86Assistant, exec, friday-ptt release
+`toggle` is the shipped trigger (ADR-044): one bind on a tap-only key
+(XF86Presentation here), flip on each tap — start capture, then stop. The
+older `press`/`release` pair stays for a true hold-to-talk key and for the
+manual `just ptt` client.
+
+    bind = , XF86Presentation, exec, friday-ptt toggle   # tap on / tap off
 
 The wire protocol is one lowercase command per connection, newline optional.
 Only the closed set below is honoured; anything else is ignored (fail
@@ -22,7 +26,7 @@ import socket
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-COMMANDS = frozenset({"press", "release", "cancel"})
+COMMANDS = frozenset({"press", "release", "toggle", "cancel"})
 
 
 def parse_command(raw: bytes) -> str | None:

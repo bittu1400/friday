@@ -1345,5 +1345,62 @@ addressing vars, no wildcard, no param-derived keys; a registry test asserts
 
 **Consequences.** Works on any Wayland compositor, not just Hyprland. If a
 future need requires compositor-side placement (specific workspace/monitor at
-launch), that is a separate decision — add it explicitly, do not reintroduce
+launch), that is a separate decision — do not reintroduce
 the brittle CLI dependency.
+
+## ADR-044 — PTT is a toggle on XF86Presentation, not a hold on the Copilot key
+
+**Status:** Accepted (2026-08-23). Reopens and revises OQ-03 / ADR-013's key
+choice (the *bind* path — no evdev — is unchanged; only the key and the
+press/release model change).
+
+**Context.** OQ-03 shipped `SUPER+SHIFT+XF86Assistant` (the Copilot key) as a
+hold-to-talk chord. Live G6 testing proved it does not work, for two hardware
+reasons found with `wev`:
+
+1. **The Copilot key leaks Super.** Its firmware emits Meta(Super) as part of
+   its own scancode, so pressing it fired the user's plain-`SUPER` launcher
+   bind and mis-triggered other Super chords — the "glitch" reported during
+   live testing. Layering `SUPER+SHIFT` on top of a key that already carries
+   Super produced an unreliable, conflicting chord that never dispatched the
+   PTT exec (empty wrapper log AND no daemon activity on a real press).
+2. **The chosen replacement key is tap-only.** `XF86Presentation` (keycode
+   433, modmask 0 — clean, no modifier leak) does **not** report a sustained
+   hold: held down it machine-guns discrete press/release pairs (~50–140 ms
+   apart) and a single tap can double-fire. Hold-to-talk (one press held to
+   one release) is physically impossible on it.
+
+**Decision.** Drop the Copilot key. Bind **one** Hyprland bind on plain
+`XF86Presentation` (no modifiers) to `friday-ptt toggle`. The daemon's
+`toggle` flips capture: first tap starts (→ CAPTURING), second tap stops and
+transcribes; a toggle during SPEAKING is barge-in (FR-7), same as a press.
+A **trailing debounce** (`PTT_DEBOUNCE_S`, 0.4 s) collapses the key's
+machine-gun burst and any tap bounce into a single flip — the clock is bumped
+on every event, so a sustained burst never advances past one action however
+long the key is held. `press`/`release` stay in the protocol for a future
+true hold-to-talk key and for the manual `just ptt` client.
+
+**Why toggle, not another hold key.** The user picked this key by hand
+(comfort/placement) and it is clean (no Super leak). Its only limitation is
+tap-only, which toggle absorbs. Toggle also removes the release-timing
+fragility that hold had even on a good key: a modified-chord release only
+fires while the modifiers are still held, which had produced empty 15 s-cap
+captures (`heard=''`). Tap-to-tap capture is exactly the speech length.
+
+**Invariants preserved.** #7 (no keylogging — still the bind path, the daemon
+never reads the keyboard, ADR-013); #8 (the socket is local IPC, no network);
+FR-5 (one turn in flight — a toggle while TRANSCRIBING/PLANNING is rejected by
+the FSM, unchanged). The closed command set still fails closed (`toggle`
+added to it; anything else ignored).
+
+**Evidence.** Physical Presentation-key tap → speak "open vlc" → tap:
+capture `00:03.414` (not the 15 s cap), `heard='Open VLC'`,
+`action=open_app dispatched=True spoken='Opened VLC.'`, `vlc` process running.
+`uv run pytest` 150 passed (3 new: toggle start/stop, debounce-collapses-burst,
+toggle-barge-in). The bind lives in the user's `~/.config/caelestia/hypr-user.lua`
+(outside the repo); caelestia watches that file and hot-reloads it on save.
+
+**Consequences.** The trigger is now compositor-key-agnostic and modifier-free.
+If a keyboard with a proper holdable dedicated key appears later, `press`/
+`release` are still wired — bind that key with a `{ release = true }` pair and
+no code changes are needed.

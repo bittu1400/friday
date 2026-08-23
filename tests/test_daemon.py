@@ -233,6 +233,64 @@ def test_confirm_timer_not_orphaned_by_answer_press(monkeypatch):
     asyncio.run(go())
 
 
+def test_toggle_start_then_stop_speaks_outcome(monkeypatch):
+    """ADR-044: tap to start (CAPTURING), tap again to stop -> transcribe+speak.
+    Debounce off here so both taps register (they'd otherwise be same-instant)."""
+    monkeypatch.setattr(daemon_mod.config, "PTT_DEBOUNCE_S", 0.0)
+    _plan(monkeypatch, TurnResult("open_app", {"app": "browser"}, "Opened Brave.", True))
+    d = _daemon()
+
+    async def go():
+        await d.on_ptt("toggle")
+        assert d.state.state is State.CAPTURING
+        await d.on_ptt("toggle")
+        await d._turn_task
+
+    asyncio.run(go())
+    assert d._speaker.said == ["Opened Brave."]
+    assert d.state.state is State.IDLE
+
+
+def test_toggle_debounce_collapses_burst(monkeypatch):
+    """ADR-044: the tap-only trigger machine-guns press events while held; a
+    burst inside the debounce window is one flip, not start-then-stop."""
+    _plan(monkeypatch, TurnResult("none", {}, "(no action)", False))
+    d = _daemon()  # default 0.4 s debounce
+
+    async def go():
+        await d.on_ptt("toggle")  # first tap: start
+        assert d.state.state is State.CAPTURING
+        for _ in range(10):  # machine-gun burst, all within the window
+            await d.on_ptt("toggle")
+        assert d.state.state is State.CAPTURING  # still capturing, not stopped
+        assert d._turn_task is None
+
+    asyncio.run(go())
+
+
+def test_toggle_barge_in_during_speaking(monkeypatch):
+    """A toggle mid-playback is barge-in: stop speaking, go to CAPTURING (FR-7)."""
+    monkeypatch.setattr(daemon_mod.config, "PTT_DEBOUNCE_S", 0.0)
+    _plan(monkeypatch, TurnResult("open_app", {}, "A long spoken line.", True))
+    speaker = FakeSpeaker(block=True)
+    d = _daemon(speaker=speaker)
+
+    async def go():
+        await d.on_ptt("toggle")
+        await d.on_ptt("toggle")
+        for _ in range(200):
+            if d.state.state is State.SPEAKING and speaker.said:
+                break
+            await asyncio.sleep(0.01)
+        assert d.state.state is State.SPEAKING
+        await d.on_ptt("toggle")  # barge-in
+        assert d.state.state is State.CAPTURING
+        assert speaker.stopped == 1
+        await d._turn_task
+
+    asyncio.run(go())
+
+
 def test_release_without_capture_is_ignored():
     d = _daemon()
 

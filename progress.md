@@ -17,18 +17,19 @@ Rules:
 (confirm-first), audit, retention. G5: voice out via kokoro-onnx (fp32/8t,
 af_bella), FR-71 verified, listening test signed off. **G6 (voice in) IN
 PROGRESS** (2026-08-23): STT drill done → small.en int8 beam1 hotwords, p95
-741 ms, CPU (ADR-042); all audio code built + `uv run pytest` **147 passed**.
-**LIVE test started 2026-08-23 — the pipeline runs end to end on hardware:**
-a real mic clip transcribed `heard='open my browser'`, planned `open_app`, and
-Brave **actually launched** (Outcome.OK, 87 ms). Three live bugs found and
-FIXED (ADR-043 + commit fc40f06): (1) app launch — hyprctl `dispatch exec`
-broke on Hyprland 0.56's Lua CLI **and** the env lacked compositor vars → now
-a direct detached spawn with WAYLAND_DISPLAY; (2) the PTT Hyprland bind
-couldn't import `friday` from Hyprland's cwd → bind now sets PYTHONPATH; (3) a
-shared confirm/capture timer handle → separated. **Remaining for G6 PASS:**
-confirm the physical Copilot-key press reaches the daemon live, run the
-20-clip spoken eval, measure TTFA (OQ-09), and settle the Hyprland "glitch"
-the user reported (see NEXT SESSION). Deferred G1 measurements remain optional.
+741 ms, CPU (ADR-042); all audio code built + `uv run pytest` **150 passed**.
+**LIVE end-to-end PROVEN on hardware from the PHYSICAL key** (2026-08-23):
+tap the Presentation key → say "open vlc" → tap → `heard='Open VLC'`,
+`open_app dispatched=True`, VLC launched; capture 3.4 s (not the 15 s cap).
+Path there: (a) app launch fixed — hyprctl `dispatch exec` broke on Hyprland
+0.56's Lua CLI + env lacked compositor vars → direct detached spawn with
+WAYLAND_DISPLAY (ADR-043); (b) **PTT redesigned (ADR-044)** — the Copilot key
+(`XF86Assistant`) leaks Super into every press (the "glitch") and never
+dispatched reliably; `XF86Presentation` is clean but tap-only, so PTT is now a
+**toggle** (tap on / tap off, 0.4 s debounce), one bind, no modifiers.
+**Remaining for G6 PASS:** 20-clip spoken eval, measure TTFA (OQ-09). The
+physical-key check and the "glitch" are now resolved (Copilot key dropped).
+Deferred G1 measurements remain optional.
 
 ```
    G0 REPO        [x]
@@ -39,9 +40,9 @@ the user reported (see NEXT SESSION). Deferred G1 measurements remain optional.
    G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention.
                         eval 20/20, adv 16/16.
    G5 VOICE OUT   [x]   <-- kokoro-onnx/fp32/8t, af_bella, FR-71 verified.
-   G6 VOICE IN    [~]   <-- STT locked (ADR-042); 147 unit. LIVE pipeline
-                        PROVEN (mic→STT→plan→launch, Brave opened, ADR-043).
-                        Left: live key-press confirm, 20-clip eval, TTFA.
+   G6 VOICE IN    [~]   <-- STT locked (ADR-042); 150 unit. LIVE PROVEN from
+                        the PHYSICAL key: tap→"open vlc"→tap launched VLC
+                        (toggle, ADR-044). Left: 20-clip eval, TTFA.
    G7 SEARCH      [ ]
    G8 SERVICE     [ ]
 ```
@@ -50,11 +51,12 @@ the user reported (see NEXT SESSION). Deferred G1 measurements remain optional.
 
 ## NEXT SESSION — START HERE (updated 2026-08-23, live G6 in progress)
 
-G0–G5 DONE. **G6 pipeline PROVEN LIVE end to end** on 2026-08-23: a real mic
-clip → `heard='open my browser'` → plan `open_app` → **Brave launched**
-(Outcome.OK, 87 ms). STT + planning + TTS + the executor all work on hardware.
-`uv run pytest` = **147 passed**. Three live bugs were found and fixed this
-session (commit fc40f06, ADR-043) — do NOT re-introduce them:
+G0–G5 DONE. **G6 pipeline PROVEN LIVE from the PHYSICAL key** on 2026-08-23:
+tap the Presentation key → say "open vlc" → tap → `heard='Open VLC'` →
+`open_app dispatched=True` → **VLC launched** (capture 3.4 s, ~2 s to dispatch).
+STT + planning + TTS + the executor + the real key bind all work on hardware.
+`uv run pytest` = **150 passed**. Key facts this session — do NOT re-introduce
+the reverted approaches:
 
   1. **App launch (ADR-043).** `hyprctl dispatch exec <app>` is DEAD on this
      Hyprland (0.56.2 turned `hyprctl dispatch` into a Lua shorthand;
@@ -62,57 +64,59 @@ session (commit fc40f06, ADR-043) — do NOT re-introduce them:
      the app **binary directly**, detached, fire-and-forget with a 0.4 s
      early-crash grace; env carries `WAYLAND_DISPLAY` + `XDG_RUNTIME_DIR`.
      No hyprctl anywhere. Do NOT "restore" hyprctl.
-  2. **PTT bind import.** `package = false` → `friday` is not installed, so
-     `python -m friday.ptt_cli` only imports when cwd = repo. Hyprland execs
-     from `~`. The bind now sets `PYTHONPATH=<repo>` (see the bind below).
-  3. **Confirm timer.** The 30 s confirm window had its own bug sharing the
-     15 s capture-cap handle; now a separate `_confirm_timer` (daemon.py).
+  2. **PTT is a TOGGLE, not a hold (ADR-044).** The Copilot key
+     (`XF86Assistant`) was DROPPED — its firmware leaks Super into every press
+     (that was the "glitch": it fired the plain-SUPER launcher) and the
+     SUPER+SHIFT chord never dispatched reliably. Shipped instead: one bind on
+     plain `XF86Presentation` → `friday-ptt toggle` (tap on / tap off). That
+     key is clean (modmask 0) but tap-only (machine-guns while held), so the
+     daemon flips capture per tap with a 0.4 s debounce. `press`/`release`
+     stay in the protocol for a future holdable key + the manual client.
+  3. **Confirm timer.** The 30 s confirm window uses a separate
+     `_confirm_timer` (not the capture-cap handle) — see daemon.py.
 
 ### The live Hyprland bind (SHIPPED, in the user's config)
-Lives in `~/.config/caelestia/hypr-user.lua` (Hyprland 0.56 uses a Lua config;
-`hl.bind`, and `{ release = true }` is the `bindrelease` equivalent):
+Lives in `~/.config/caelestia/hypr-user.lua`. Caelestia **watches this file and
+hot-reloads on save** (note: `hyprctl reload` alone does NOT re-run the lua —
+save the file to reload the bind). `hyprctl keyword bind` is refused on this
+non-legacy parser, so runtime bind edits must go through the lua file.
 ```lua
 local friday_repo = "/home/bittusah/Projects/Personal/Intern/friday"
 local friday_ptt = "env PYTHONPATH=" .. friday_repo .. " " .. friday_repo .. "/.venv/bin/python -m friday.ptt_cli "
-hl.bind("SUPER + SHIFT + XF86Assistant", hl.dsp.exec_cmd(friday_ptt .. "press"))
-hl.bind("SUPER + SHIFT + XF86Assistant", hl.dsp.exec_cmd(friday_ptt .. "release"), { release = true })
+hl.bind("XF86Presentation", hl.dsp.exec_cmd(friday_ptt .. "toggle"))
 ```
-Copilot key = `XF86Assistant` (OQ-03). Both binds register (verified
-`hyprctl binds`, modmask 65 = SUPER+SHIFT). After editing: `hyprctl reload`.
+Trigger key = `XF86Presentation` (keycode 433, modmask 0), tap on / tap off
+(ADR-044 / OQ-03). Registers as `bind modmask:0 key:XF86Presentation __lua`.
 
 ### Finish G6 — remaining live steps (need the user at the machine)
 0. **Debug visibility:** run the daemon as `FRIDAY_DEBUG=1 just voice`. It logs
    `[debug] vN heard='...'` and `[debug] vN action=... dispatched=... spoken='...'`
    to the TERMINAL only (never disk — FR-26 holds; `config.DEBUG`). Turn it
-   off (drop the env var) once G6 is signed off.
+   off once G6 is signed off. (Logs go to stderr — invisible in scrollback;
+   for a readable trace redirect to a file: `... 2>&1 | tee /tmp/friday.log`.)
 1. **Start the stack:** terminal 1 `just serve` (wait for health ok), terminal
-   2 `FRIDAY_DEBUG=1 just voice`. Keep BOTH up. `just ptt press|release` from a
-   third shell is the manual client (needs cwd = repo). Socket:
+   2 `FRIDAY_DEBUG=1 just voice`. Keep BOTH up. `just ptt toggle` from a third
+   shell is the manual client (needs cwd = repo). Socket:
    `/run/user/1000/friday/ptt.sock`.
-2. **Confirm the physical key reaches the daemon:** hold SUPER+SHIFT+Copilot,
-   speak, release; the daemon must log a capture. (Manual `just ptt` already
-   proven; the bind PYTHONPATH fix is proven to import from `~`, but a real
-   key press was not yet observed end-to-end — this is the one open live check
-   for the bind.)
-3. **20-clip spoken eval** → fill `SPOKEN EVAL __/20` in the G6 block below.
-   **Measure TTFA** (end of speech → first audio), p50/p95; then answer
-   **OQ-09** (is ~1.4 s a problem / streaming needed?). Note: capture length =
-   PTT hold length; a lone `just ptt press` with no `release` runs to the 15 s
-   cap (that produced the earlier `00:15.000` captures — not a bug).
-4. **Barge-in in the flesh:** press mid-speech, confirm playback cuts and it
+2. **20-clip spoken eval** → fill `SPOKEN EVAL __/20` in the G6 block below.
+   Tap → speak → tap per clip. **Measure TTFA** (end of speech → first audio),
+   p50/p95; then answer **OQ-09** (is ~1.4 s a problem / streaming needed?).
+3. **Fix the planner brand-name gap FIRST** (cheap eval points): STT hears
+   "Open Brave" fine but the planner returned `action=none` — literal app
+   BRAND names (Brave/VLC/Code) don't always map to the app key (`browser`,
+   etc). "open my browser" and "open vlc" work; "open Brave" did not. Check
+   the prompt/registry mapping before the 20-clip run.
+4. **Barge-in in the flesh:** tap mid-speech, confirm playback cuts and it
    re-captures (unit-tested; confirm on hardware).
 5. Then **G6 PASSES** → move to G7 (search, the only egress).
 
-### OPEN — Hyprland "glitch" the user reported (unresolved)
-The user said Hyprland "glitched ~3 times" during live testing. At end of
-session `hyprctl configerrors` was EMPTY and the only Friday change to the
-compositor is the two bind lines (which run `ptt_cli`, no render path) — so no
-identified cause. Two suspects to check next session: (a) `hyprctl reload`
-flash (transient/benign); (b) the user's OWN `~/.config/hypr/custom/keybinds.lua`
-is BROKEN lua — line ~3 `# fan speed` (`#` is not a lua comment) and a stray
-`qq)` on the fan-cycle bind. Offered to fix it or to remove the Friday bind to
-isolate; user had not answered. **Ask what the glitch looks like (flicker /
-freeze / artifacts) before changing anything.**
+### RESOLVED — the Hyprland "glitch"
+Identified: the Copilot key (`XF86Assistant`) leaks Super at the firmware
+level, so pressing it triggered the user's plain-`SUPER` launcher bind and
+other Super chords. Dropping that key (ADR-044) removes the cause. (Aside: the
+user's `~/.config/hypr/custom/keybinds.lua` is BROKEN lua — `# fan speed` and a
+stray `qq` — but nothing `require`s it and `hyprctl configerrors` is empty, so
+it is dead code, not the glitch. Offer to fix it if the F9 fan bind is wanted.)
 
 ### The STT drill is COMPLETE — do NOT re-benchmark
 small.en int8 beam1 hotwords is locked (ADR-042); `faster-whisper` is in
@@ -137,7 +141,7 @@ pyproject, venv still torch-free.
   faster-whisper (CTranslate2) neither pull torch (ADR-039/042). Verified:
   `uv pip list | grep -iE torch|nvidia|cuda` is empty. CPU-torch check moot.
 - `just eval` = 20/20 (last run G5; G6 touched none of the planning path so
-  unaffected by construction). `uv run pytest` = **147 passed**.
+  unaffected by construction). `uv run pytest` = **150 passed**.
 - **No llama-server running** — start with `just serve` for eval or `just voice`.
 - `web_search` still returns "not yet wired" — G7. Memory is now wired.
 
@@ -741,13 +745,14 @@ recorded.
       30 s window); per-stage timeouts (transcribe 5 s, planning 12 s)
 - [x] cancellable TTS (FR-73) — `Speaker.stop()` cancels mid-sentence (flag +
       `sd.stop()`); barge-in wired through the daemon
-- [x] Tests: 40 new + 3 live-bug regressions → **`uv run pytest` 147 passed**
+- [x] Tests: 43 new + 3 live-bug regressions → **`uv run pytest` 150 passed**
 - [x] App launch fixed live (ADR-043): direct detached spawn, no hyprctl,
       WAYLAND_DISPLAY env, fire-and-forget + 0.4 s grace. PROVEN: `open_app
       browser` → Outcome.OK 87 ms, Brave process ran (`/opt/brave-bin/brave`)
-- [~] PTT via Hyprland bind — code + socket + lua bind (PYTHONPATH fix) DONE;
-      manual `just ptt` reaches the daemon; a real physical key press was not
-      yet observed end-to-end (the one open bind check — see NEXT SESSION)
+- [x] PTT via Hyprland bind — TOGGLE on `XF86Presentation` (ADR-044). PROVEN
+      from the physical key: tap→"open vlc"→tap → `heard='Open VLC'`,
+      dispatched=True, VLC launched, capture 3.4 s. Copilot key dropped
+      (Super-leak). daemon `toggle` = flip-per-tap + 0.4 s debounce.
 - [x] Barge-in: PTT during SPEAKING cancels — implemented + unit-tested
       (test_daemon `test_barge_in_cancels_playback_and_recaptures`)
 - [x] FR-5: five rapid submits → one turn + four rejections — unit-tested
@@ -780,22 +785,25 @@ LOCKED (ADR-042): faster-whisper small.en int8, 8t, beam_size=1, hotwords=
   domain vocab. venv torch-free (uv add faster-whisper = 18 pkgs, no torch).
 ```
 
-PTT PATH SHIPPED:  hyprland-bind (evdev NOT needed).
-  Key = Copilot key, chord `SUPER SHIFT, XF86Assistant`. Hyprland 0.56 Lua
-  config: the bind lives in `~/.config/caelestia/hypr-user.lua` as `hl.bind`,
-  with `{ release = true }` for the release half, and MUST set
-  `PYTHONPATH=<repo>` because `package = false` (see NEXT SESSION for the exact
-  lines). Both binds register (`hyprctl binds`, modmask 65). A real physical
-  press was not yet observed reaching the daemon — the one open bind check.
+PTT PATH SHIPPED:  hyprland-bind (evdev NOT needed), TOGGLE model (ADR-044).
+  Key = `XF86Presentation` (NOT the Copilot key — that leaked Super). One bind,
+  no modifiers, in `~/.config/caelestia/hypr-user.lua`:
+    hl.bind("XF86Presentation", hl.dsp.exec_cmd(friday_ptt .. "toggle"))
+  Tap = start capture, tap = stop+transcribe; daemon debounces 0.4 s (the key
+  is tap-only and machine-guns while held). The bind MUST set `PYTHONPATH=<repo>`
+  (`package = false`). Caelestia hot-reloads the lua on file save. `just ptt
+  toggle` is the manual client.
 
-LIVE PIPELINE (2026-08-23, FRIDAY_DEBUG=1, real mic + llama-server up):
-  v_ heard='open my browser'  →  action=open_app dispatched=True
-  Before the ADR-043 fix the outcome was ERROR ("That didn't work") because
-  hyprctl `dispatch exec` is broken on Hyprland 0.56 AND the env lacked
-  compositor vars. After the fix: `open_app browser` → Outcome.OK 87 ms, Brave
-  launched. STT was accurate on every attempt (`heard='open my browser'`).
-  TTS spoke every outcome. So the only numbers still missing are the eval
-  score + TTFA below.
+LIVE PIPELINE (2026-08-23, FRIDAY_DEBUG=1, physical key + llama-server up):
+  tap → "open vlc" → tap:
+    capture 00:03.414 (VAD dropped 0.816 s)
+    v1 heard='Open VLC'
+    v1 action=open_app dispatched=True spoken='Opened VLC.'   → VLC running
+  ~2 s from second tap to dispatch. Earlier "open my browser" also launched
+  Brave (Outcome.OK 87 ms) once ADR-043 landed. STT accurate every attempt;
+  TTS spoke every outcome. Only numbers still missing: the eval score + TTFA.
+  NOTE: planner brand-name gap — `heard='Open Brave'` returned action=none
+  (STT fine; the literal brand didn't map to the `browser` key). Fix before eval.
 
 SPOKEN EVAL: __/20     (pending: needs live daemon + server)
 
@@ -931,6 +939,11 @@ Append a line whenever a measurement changes a document.
    2026-08-23  BUG: confirm timer shared cap handle -> separated    G6/daemon
    2026-08-23  FRIDAY_DEBUG env: log heard/action to terminal only  G6/config
    2026-08-23  open_app browser -> OK 87ms, Brave ran; 147 unit     G6/ADR-043
+   2026-08-23  OQ-03 REOPENED: Copilot key leaks Super (glitch)    OQ-03/ADR-044
+   2026-08-23  PTT = toggle on XF86Presentation (tap on/off)       ADR-044
+   2026-08-23  toggle debounce 0.4s (tap-only key machine-guns)    ADR-044
+   2026-08-23  glitch RESOLVED: Copilot Super-leak, key dropped    ADR-044
+   2026-08-23  G6 physical key PROVEN: tap->"open vlc"->VLC; 150 unit G6/ADR-044
 ```
 
 ## Time log

@@ -12,6 +12,7 @@ from friday.audio import ptt
 def test_parse_valid_commands():
     assert ptt.parse_command(b"press\n") == "press"
     assert ptt.parse_command(b"  RELEASE  ") == "release"  # trimmed, lowered
+    assert ptt.parse_command(b"toggle\n") == "toggle"
     assert ptt.parse_command(b"cancel") == "cancel"
 
 

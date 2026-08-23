@@ -78,6 +78,14 @@ RUNTIME_DIR: Path = Path(
 ) / "friday"
 PTT_SOCKET: Path = RUNTIME_DIR / "ptt.sock"
 
+# Toggle debounce (OQ-03 reopen / ADR-044). The chosen trigger (XF86Presentation
+# on this laptop) is a tap-only key that machine-guns press events while held
+# (~50-140 ms apart) and can double-fire a single tap. `toggle` collapses any
+# events within this window into one, so one deliberate tap = one flip. Must be
+# shorter than the gap between two intentional taps (start, then stop after
+# speaking) — 0.4 s clears the burst without swallowing a real second tap.
+PTT_DEBOUNCE_S: float = float(os.environ.get("FRIDAY_PTT_DEBOUNCE_S", "0.4"))
+
 
 def is_disabled() -> bool:
     """True if the panic switch is engaged (file present or env var set)."""

@@ -68,6 +68,7 @@ class Daemon:
         self._pending: PendingPreference | None = None  # awaiting voice confirm
         self._cap_timer: asyncio.TimerHandle | None = None
         self._confirm_timer: asyncio.TimerHandle | None = None
+        self._last_toggle = 0.0  # debounce clock for the tap-only trigger (ADR-044)
         self._seq = 0
         self.rejected = 0  # FR-5 counter (observable in tests)
 
@@ -78,8 +79,26 @@ class Daemon:
             await self._on_press()
         elif cmd == "release":
             await self._on_release()
+        elif cmd == "toggle":
+            await self._on_toggle()
         elif cmd == "cancel":
             await self._abort()
+
+    async def _on_toggle(self) -> None:
+        # One bind on a tap-only key (ADR-044): flip capture on each tap. The
+        # key machine-guns press events while held and can double-fire one tap,
+        # so collapse anything inside the debounce window into a single flip.
+        # Trailing debounce: bump the clock on EVERY event so a sustained burst
+        # never advances past one action, however long the key is held.
+        loop = asyncio.get_running_loop()
+        now = loop.time()
+        prev, self._last_toggle = self._last_toggle, now
+        if now - prev < config.PTT_DEBOUNCE_S:
+            return
+        if self.state.state is State.CAPTURING:
+            await self._on_release()  # second tap: stop + transcribe
+        else:
+            await self._on_press()  # first tap: start (or barge-in while SPEAKING)
 
     async def _on_press(self) -> None:
         # Barge-in: a press while speaking cancels playback and starts a new

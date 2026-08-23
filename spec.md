@@ -41,7 +41,7 @@ limitation to be lifted later.
 | ID | Requirement | Acceptance |
 | :-- | :-- | :-- |
 | FR-1 | Text mode: read a line from a TUI, produce a turn | 20 typed utterances produce 20 turns, zero crashes |
-| FR-2 | Push-to-talk: hold a key, capture audio, release to submit | Press/release cycle produces a transcript within 5 s |
+| FR-2 | Push-to-talk: a key drives capture — toggle (tap to start, tap to submit) on the shipped tap-only key, or hold/release on a holdable key (ADR-044) | A start/stop cycle produces a transcript within 5 s |
 | FR-3 | PTT is implemented via Hyprland bind signalling the daemon; raw `evdev` only if that is proven impossible | ADR-013 records which path shipped, with evidence |
 | FR-4 | Capture is hard-capped at 15 s | A held key for 60 s yields a 15 s clip and returns to IDLE |
 | FR-5 | Only one turn is in flight at a time; a second request while busy is rejected audibly, not queued | Concurrency test: 5 rapid submits produce 1 turn + 4 rejections |
