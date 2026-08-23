@@ -18,6 +18,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+from . import schema
+
 
 class LlamaUnreachable(Exception):
     """llama-server could not be reached (maps to E_LLM_DOWN)."""
@@ -42,12 +44,21 @@ class LlamaClient:
         grammar: str,
         max_tokens: int = 128,
         temperature: float = 0.0,
+        untrusted: bool = False,
     ) -> str:
         """Return the assistant message content for one constrained turn.
 
         `grammar` is a GBNF string enforced server-side. `temperature=0.0`
         keeps eval runs reproducible.
         """
+        # Invariant #1 (T1, ADR-008): a request that consumed untrusted web data
+        # MUST be grammar-locked to final.gbnf (action name == "none"), so the
+        # model cannot dispatch no matter what the injected text says. Enforced
+        # HERE — the one place every request passes through — not at the call site.
+        if untrusted:
+            assert grammar == schema.build_final_grammar(), (
+                "untrusted turn must use final.gbnf"
+            )
         payload = json.dumps(
             {
                 "messages": [
