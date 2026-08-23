@@ -39,8 +39,9 @@ suggestions, warm/witty/concise. This is a new gate **G8 (Conversation)** —
 design approved and written:
 `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`. **Build
 order reordered: G7 (search) → G8 (conversation) → G9 (service)** — service
-renumbered G8→G9. Next step per brainstorming flow: writing-plans for G8
-Build 1 (in-reply chat). See NEXT SESSION.
+renumbered G8→G9. G7 chosen to build first; its plan is WRITTEN
+(`docs/superpowers/plans/2026-08-23-g7-search.md`, 11 TDD tasks, ADR-045/046/047).
+Next step: execute that plan. See NEXT SESSION.
 
 ```
    G0 REPO        [x]
@@ -64,23 +65,44 @@ Build 1 (in-reply chat). See NEXT SESSION.
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, G6 done, pivot to G8)
+## NEXT SESSION — START HERE (updated 2026-08-23, G6 done, G7 PLANNED)
 
-G0–G6 effectively DONE. **G6 proven live from the PHYSICAL key** + spoken eval
-20/20 planning + TTFA measured (p50 2.16s / p95 2.73s). `uv run pytest` =
-**150 passed**, `just eval` = **24/24**.
+G0–G6 DONE. **G6 proven live from the PHYSICAL key** + spoken eval 20/20
+planning + TTFA measured (p50 2.16s / p95 2.73s). `uv run pytest` = **150
+passed**, `just eval` = **24/24**.
 
-**THE PIVOT — read this.** The user declared **conversation (chit-chat +
-suggestions) the PRIMARY goal**. It is a new gate **G8 (Conversation)**, and
-the build order is now **G7 (search) → G8 (conversation) → G9 (service)**
-(service renumbered from G8). The design is DONE and approved:
-`docs/superpowers/specs/2026-08-23-conversational-chat-design.md` (Approach A —
-a `chat` action + a free-text second stage; staged; Build 1 = in-reply chat).
-**Next action per the brainstorming flow: invoke the `writing-plans` skill to
-turn that design into an implementation plan for G8 Build 1.** But the build
-ORDER says G7 (search) comes first — confirm with the user whether to build G7
-then G8, or start G8 planning now. G7 is small and unblocks the "facts route to
-web_search" path that G8 chat leans on.
+**THE TASK — execute the G7 plan.** Decided 2026-08-23: build order is **G7
+(search) → G8 (conversation) → G9 (service)**; the user chose to build **G7
+FIRST** (it unblocks the "facts route to web_search" path G8 leans on). G7's
+questions were batched and answered, decisions recorded in **ADR-045/046/047**:
+
+  - SearXNG = an always-on `systemd --user` unit (docker underneath), loopback
+    `127.0.0.1:8888` only (ADR-045).
+  - Search defaults to **CONNECTED**; local is the opt-out (ADR-046).
+  - Result UX = **synthesized spoken answer + always-show sources** in the TUI;
+    voice never speaks URLs (ADR-047).
+
+The implementation plan is WRITTEN and self-reviewed (and audited by a fork
+against the source docs — see the audit fixes folded in):
+**`docs/superpowers/plans/2026-08-23-g7-search.md`** — 11 TDD tasks. Start there.
+
+**Next action:** pick an execution mode (the user was asked; if unanswered, ask
+again) — subagent-driven (fresh agent per task, review between) or inline
+(`executing-plans`, batch with checkpoints) — then work the 11 tasks in order.
+
+Key design facts baked into the plan (do NOT relitigate):
+  - The **grounding turn** synthesizes the answer under `final.gbnf` (action
+    name locked to `"none"` → cannot dispatch, invariant #1). The answer rides
+    in `params.answer`. It does NOT use the planning `validate()` —
+    `PARAM_SCHEMA["none"]=={}` so validate() would reject the answer param; the
+    grounding path never dispatches anyway, so it parses the JSON directly and
+    re-checks `name=="none"`. Security = grammar lock (client asserts
+    `untrusted → final.gbnf`) + name re-check + executor never called.
+  - `web_search.params.query` becomes a urlencoded SearXNG query param ONLY,
+    never argv — this is NOT the `youtube_search` exception (invariant #2 holds).
+  - `web_search` NEVER dispatches (`dispatched=False` always).
+  - The grounding turn is the reusable seam G8 (conversation) builds its `chat`
+    second stage on top of — keep it clean.
 
 Key facts from the G6 session — do NOT re-introduce the reverted approaches:
 
@@ -135,12 +157,16 @@ Trigger key = `XF86Presentation` (keycode 433, modmask 0), tap on / tap off
   script, so the executor cannot see if electron actually came up. Inherent.
 - youtube_search opens a SEARCH page, does not autoplay (OQ-24, deferred).
 
-### The real next step — G7, then G8 (conversation)
-1. **G7 (search)** — friday.md §9. SearXNG loopback, sanitizer, `final.gbnf`
-   locked to `none`, injection suite 20/20, egress test. The only egress.
-2. **G8 (conversation)** — the primary goal. Invoke `writing-plans` on the
-   design doc for Build 1 (in-reply chat: `chat` action + `llm/chat.py` +
-   RAM dialogue buffer + the new "conversational speech" ADR). Then build TDD.
+### The real next step — EXECUTE the G7 plan, then G8 (conversation)
+1. **G7 (search)** — PLANNED. `docs/superpowers/plans/2026-08-23-g7-search.md`
+   (11 TDD tasks). SearXNG loopback (systemd unit, ADR-045), sanitizer,
+   `final.gbnf` grounding turn, injection suite 20/20 (asserted on the
+   executor), egress test, connected-default mode (ADR-046), synth answer +
+   sources (ADR-047). The only egress. Just execute the tasks in order.
+2. **G8 (conversation)** — the primary goal, AFTER G7. Invoke `writing-plans` on
+   `docs/superpowers/specs/2026-08-23-conversational-chat-design.md` for Build 1
+   (in-reply chat: `chat` action + `llm/chat.py` + RAM dialogue buffer + the new
+   "conversational speech" ADR). Reuses G7's grounding-turn seam. Then build TDD.
 
 ### RESOLVED — the Hyprland "glitch"
 Identified: the Copilot key (`XF86Assistant`) leaks Super at the firmware
@@ -1004,6 +1030,10 @@ Append a line whenever a measurement changes a document.
    2026-08-23  TTFA debug instrument (say on_play callback)           G6/daemon
    2026-08-23  DIRECTION: chit-chat + suggestions = PRIMARY goal      NEEDS DESIGN
    2026-08-23  youtube autoplay deferred (search-only for now)        OQ-24
+   2026-08-23  G7 chosen before G8 (search unblocks chat facts)       progress
+   2026-08-23  SearXNG = systemd --user unit (docker), loopback only  ADR-045
+   2026-08-23  search default = CONNECTED; local is opt-out           ADR-046
+   2026-08-23  search UX = synth spoken answer + always-show sources  ADR-047
 ```
 
 ## Time log

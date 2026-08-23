@@ -1404,3 +1404,91 @@ toggle-barge-in). The bind lives in the user's `~/.config/caelestia/hypr-user.lu
 If a keyboard with a proper holdable dedicated key appears later, `press`/
 `release` are still wired — bind that key with a `{ release = true }` pair and
 no code changes are needed.
+
+## ADR-045 — SearXNG runs as a systemd --user unit (docker container), loopback-only
+
+**Status:** Accepted (2026-08-23). Decided at the start of G7. Supersedes the
+`docker run` one-liner in friday.md §9.1 as the *lifecycle* (the bind and image
+are unchanged).
+
+**Decision.** SearXNG runs as an always-on `systemd --user` unit that manages a
+docker container bound to `127.0.0.1:8888` only. A `just searxng` target and the
+unit file live in the repo; the container image is pinned by digest and its
+`settings.yml` (JSON format enabled — SearXNG disables the JSON API by default,
+and `tools/search.py` needs it) is committed and mounted read-only.
+
+**Why systemd --user, not manual docker run.** The user chose always-on so
+search is up whenever Friday is, without a manual step per session. It also
+folds cleanly into G9 (service), where `friday.service` and `friday-llm.service`
+already live — SearXNG becomes the third unit in the same ordering graph rather
+than a separate manual chore.
+
+**Invariants preserved.** #8 (nothing binds beyond 127.0.0.1) — the port mapping
+is explicitly `127.0.0.1:8888:8080`, asserted by the G7 egress test and
+`ss -ltnp`. SearXNG is the *only* outbound path in the system (FR-60); the unit
+adds no other egress. The container runs unprivileged.
+
+**Consequences.** G7 delivers the unit + `just searxng` (start/stop/status) now,
+so G9's service work inherits a running, tested unit instead of building one.
+Pinning is by image digest, recorded here when the image is fetched.
+
+## ADR-046 — Search defaults to CONNECTED mode; LOCAL is the opt-out
+
+**Status:** Accepted (2026-08-23). Decided at the start of G7. Answers the
+mode-default half of friday.md §9.5.
+
+**Decision.** Friday boots in **connected** mode: `web_search` works
+immediately. **Local** mode (no egress; search refuses audibly — "I can't
+search in local mode") is the explicit opt-out, toggled by config/env and a TUI
+command, with the current mode always shown in the TUI.
+
+**Why connected default.** Search is the entire point of G7, and G8
+(conversation) leans on the "facts route to web_search" path — a local default
+would make the primary path silently dead until the user discovered the toggle.
+The safety of the egress does not come from defaulting to local; it comes from
+the controls that hold in *both* modes (loopback-only SearXNG, the sanitizer,
+and the `final.gbnf` grounding-turn lock). Local mode remains for deliberate
+air-gapped use, not as the safety net.
+
+**Invariants preserved.** T1 / #1 (a turn that consumed untrusted web data uses
+`final.gbnf` and cannot dispatch) is independent of mode. #8 (loopback-only)
+holds in both. Connected mode changes *when* egress happens, not *what* is
+allowed to leave or *what* the model may do with what returns.
+
+**Consequences.** The mode is a runtime flag with a visible TUI indicator; local
+mode short-circuits `web_search` to a spoken refusal before any network call.
+The default is connected; the flag is persisted per user config.
+
+## ADR-047 — Search UX: synthesized grounding-turn answer, sources always shown, voice URL-free
+
+**Status:** Accepted (2026-08-23). Decided at the start of G7. Answers the
+result-presentation half of friday.md §9.
+
+**Decision.** A `web_search` turn is two stages: (1) query loopback SearXNG,
+sanitize to ≤5 results / ≤1500 tokens with URLs held out of band (§9.2); (2) a
+**grounding turn** under `final.gbnf` (action enum == `none`, cannot dispatch)
+reads the sanitized result bodies and Friday **speaks a short synthesized
+answer**. The TUI **always** prints the source titles/URLs beneath the answer
+so the user can verify; **voice never speaks URLs** (they stay out of band).
+
+**Why synthesize + always show sources.** A voice assistant reading five raw
+results aloud is unusable; a synthesized answer is the natural spoken form. But
+a synthesized answer with no visible provenance is unverifiable and invites
+quiet hallucination — so the TUI always surfaces the sources it was built from.
+Voice stays URL-free because spoken URLs are noise and because holding URLs out
+of the model's context region is itself the control (§9.2): the model never sees
+a URL it could be tricked into emitting.
+
+**Invariants preserved.** #1 / T1 (grounding turn is `final.gbnf`, cannot act) —
+the synthesized answer is *text spoken from an outcome path*, never a dispatch;
+the injection suite (IS-1..IS-20) asserts zero dispatches on the executor
+regardless of answer text. #4 (execute-first / outcome templates) is not
+violated — there is no side effect to execute here; the "outcome" is the spoken
+answer, produced by the grammar-locked grounding turn, not free LLM narration of
+an action. URLs out of band = §9.2, the durable control against URL exfiltration.
+
+**Consequences.** `tools/search.py` returns sanitized bodies + a separate URL
+list; the turn layer runs the grounding turn and returns both the spoken answer
+and the source list; the TUI renders answer-then-sources; the voice path speaks
+only the answer. A network failure inside 8 s yields a spoken fallback (FR-64),
+never a hang.
