@@ -37,6 +37,19 @@ eval-baseline:
 test-adversarial:
     uv run pytest tests/test_adversarial.py tests/test_youtube.py -q
 
+# G7 injection suite: 20 hostile result sets, zero executor dispatches (FR-63).
+test-injection:
+    uv run pytest tests/test_injection.py -v
+
+# G7 egress proof (FR-60, invariant #8): SearXNG is the ONLY outbound path.
+# Confirms no service binds beyond loopback. The block-all-non-loopback half
+# is a manual step (needs privileges) documented in progress.md.
+test-egress:
+    @echo "listening sockets (must be 127.0.0.1 only):"
+    @ss -ltnp | grep -E '8080|8888' || true
+    @echo "asserting no 0.0.0.0 bind on 8080/8888:"
+    @! ss -ltnp | grep -E '0\.0\.0\.0:(8080|8888)'
+
 # Manage stored preferences (FR-56): list | export | forget [--hard] | reset --yes.
 # `just prefs list`; `just prefs forget editor`; `just prefs reset --yes`.
 prefs *ARGS:
