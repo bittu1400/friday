@@ -8,16 +8,18 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: G0–G6 done** (2026-08-23). Voice in works live from the physical
-key (toggle PTT, ADR-044); spoken eval 20/20 planning, TTFA p50 2.16s/p95
-2.73s; `just eval` 24/24, 150 unit tests. `friday/` is a real text+voice
-assistant that launches apps, remembers preferences, and hears you.
-**NEW PRIMARY GOAL: conversation** (chit-chat + suggestions) — now gate **G8**,
-with the build order reordered to **G7 (search) → G8 (conversation) → G9
-(service)**. Design approved:
-`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`; next step is
-`writing-plans` for G8 Build 1. `progress.md` is the only file that says what
-is actually true — start there.
+**Status: G0–G7 done** (2026-08-23, G7 merged to main). `friday/` is a real
+text+voice assistant that launches apps, remembers preferences, hears you
+(toggle PTT, ADR-044; spoken eval 20/20, TTFA p50 2.16s/p95 2.73s), and
+searches the web (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding,
+injection 20/20, egress proof; ADR-045/046/047). `just eval` 24/24, `uv run
+pytest` 176 passed.
+**PRIMARY GOAL: conversation** (chit-chat + suggestions) — gate **G8**, build
+order **G7 (search) ✓ → G8 (conversation) → G9 (service)**. Design:
+`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`; **G8 Build 1
+plan WRITTEN** (`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`,
+10 TDD tasks) — next step is to EXECUTE it. `progress.md` is the only file that
+says what is actually true — start there.
 
 ## Working agreement — how sessions run
 

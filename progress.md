@@ -12,7 +12,12 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
+**Overall status:** **G0–G7 PASSED** (G7 merged to main 2026-08-23). **Next:
+G8 (conversation) Build 1 — PLANNED, ready to execute**
+(`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`, 10 TDD tasks).
+`uv run pytest` **176 passed**, `just eval` **24/24**. History below.
+
+G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
 (2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
 (confirm-first), audit, retention. G5: voice out via kokoro-onnx (fp32/8t,
 af_bella), FR-71 verified, listening test signed off. **G6 (voice in) DONE**
@@ -34,14 +39,13 @@ the eval: mpv idle window (bare mpv exits 0), YouTube outcomes differentiated,
 planner brand-name gap fixed (eval now 24/24). Deferred G1 measurements remain
 optional.
 
-**NEW DIRECTION (2026-08-23): conversation is the PRIMARY goal.** Chit-chat +
-suggestions, warm/witty/concise. This is a new gate **G8 (Conversation)** —
-design approved and written:
-`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`. **Build
-order reordered: G7 (search) → G8 (conversation) → G9 (service)** — service
-renumbered G8→G9. G7 chosen to build first; its plan is WRITTEN
-(`docs/superpowers/plans/2026-08-23-g7-search.md`, 11 TDD tasks, ADR-045/046/047).
-Next step: execute that plan. See NEXT SESSION.
+**PRIMARY goal: conversation.** Chit-chat + suggestions, warm/witty/concise
+(gate **G8**). Build order: **G7 (search) ✓DONE → G8 (conversation) → G9
+(service)**. G7 shipped 2026-08-23 (SearXNG loopback, sanitizer, `final.gbnf`
+grounding, injection 20/20, egress proof; ADR-045/046/047) and merged to main.
+G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`;
+G8 Build 1 plan: `docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`.
+Next step: EXECUTE the G8 Build 1 plan. See NEXT SESSION.
 
 ```
    G0 REPO        [x]
@@ -156,55 +160,55 @@ https://en.wikipedia.org/wiki/Paris` etc. out of band. The full synthesis
     (non-breaking space), which NFKC-folds to a plain space, so the assertion is
     meaningful and true. If you re-copy that test from the plan, re-apply this.
 
-### RESUME HERE — G8 (conversation), the primary goal
+### RESUME HERE — G8 (conversation) Build 1, the primary goal
 
-**G7 is DONE** (all 11 tasks; evidence above). **Next: G8 (conversation).**
-Invoke `writing-plans` on
-**`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`** for
-Build 1 (in-reply chat: `chat` action + `llm/chat.py` + RAM dialogue buffer +
-the new "conversational speech" ADR). G8 reuses G7's grounding-turn seam
-(`friday/llm/grounding.py` — a synthesized answer under `final.gbnf`), so keep
-that seam clean. Then build TDD.
+**G7 is DONE** (all 11 tasks; evidence above) and **MERGED to main + pushed**
+(2026-08-23). **G8 Build 1 is PLANNED — the next action is to EXECUTE it, not
+to re-plan.**
 
-**Before merging G7 to main:** the branch `g7-search` is NOT merged (per the
-commit-and-push policy, the merge + any push is the user's call). Ask the user
-before merging/pushing. The SearXNG unit persists across reboots only if
-`systemctl --user enable friday-searxng` — currently linked+started but NOT
-enabled (offer to enable it).
+**The plan:** `docs/superpowers/plans/2026-08-23-g8-conversation-build1.md` —
+10 TDD tasks, rechecked against the real code. Build 1 = in-reply/in-session
+chat: a new `chat` action + `friday/llm/chat.py` generator + a RAM `Dialogue`
+ring buffer + ADR-048 ("conversational speech" carved out of ADR-009). Reuses
+G7's grounding-turn seam (`friday/llm/grounding.py`) — keep it clean.
 
-The G7 design decisions (ADR-045/046/047) are UNCHANGED — do NOT relitigate:
-  - SearXNG = loopback `systemd --user` unit, `127.0.0.1:8888` only (ADR-045).
-  - Search defaults CONNECTED; local is the opt-out (ADR-046).
+**How to execute:** invoke `superpowers:subagent-driven-development`
+(recommended: fresh subagent per task, two-stage review) or
+`superpowers:executing-plans` (inline, batched with checkpoints). Work tasks in
+order; each is TDD (write failing test → run → implement → run → commit). Live
+steps (Tasks 9-10 eval + end-to-end) need `just serve` up; `just searxng` is
+NOT needed for G8 (search is G7).
+
+**Decision already recorded for G8 (do NOT relitigate):** `none` now SPEAKS a
+DISTINCT line per terminal restriction so the operator can tell live *why*
+there was no action (user decision 2026-08-23; design open-item #4). Deliberate
+in-scope none → `templates.OUT_OF_SCOPE` ("That isn't something I'm able to
+do."); malformed/validation → "I didn't understand."; timeout → "That took too
+long."; unreachable → "My brain's offline."; panic/disabled → existing
+template. Greetings/casual/"who are you" route to `chat`, which is what makes
+narrowing `none` safe. Eval E15/E16 MOVE from `none` to `chat`; E17/E18
+(destructive) and E19 (ambiguous) stay `none`; set re-baselines to 28/28.
+
+**Key G7 facts the G8 chat stage builds on (do NOT relitigate):**
+  - The **grounding turn** (`friday/llm/grounding.py`) synthesizes an answer
+    under `final.gbnf` (action name locked to `"none"` → cannot dispatch,
+    invariant #1). G8's `chat` is a SECOND free-text stage on the same
+    llama-server (invariant #6), reached ONLY when the grammar-locked planner
+    chose `chat` — so chat is structurally unreachable from untrusted data
+    (final.gbnf can only emit `name=="none"`, never `"chat"`). No runtime
+    untrusted-assert is needed on the planning path; the safety is the grammar.
+  - `chat` NEVER dispatches (`dispatched=False`, no executor call).
+  - The `Dialogue` buffer is RAM-only, never on disk (invariant #7); raw
+    transcripts on disk are rejected (durable-injection + privacy). Cross-
+    session continuity is a LATER stage (distilled, inerted summaries), not
+    Build 1.
+
+**G7 as shipped (reference; do NOT relitigate ADR-045/046/047):**
+  - SearXNG = loopback `systemd --user` unit, `127.0.0.1:8888` only, **enabled**
+    (persists across reboots) + active (ADR-045). `just searxng status`.
+  - Search defaults CONNECTED; local is the opt-out `--local` / `/local` (ADR-046).
   - UX = synthesized spoken answer + always-show sources; voice never speaks
     URLs (ADR-047).
-
-Key design facts baked into the plan (do NOT relitigate):
-  - The **grounding turn** synthesizes the answer under `final.gbnf` (action
-    name locked to `"none"` → cannot dispatch, invariant #1). The answer rides
-    in `params.answer`. It does NOT use the planning `validate()` —
-    `PARAM_SCHEMA["none"]=={}` so validate() would reject the answer param; the
-    grounding path never dispatches anyway, so it parses the JSON directly and
-    re-checks `name=="none"`. Security = grammar lock (client asserts
-    `untrusted → final.gbnf`) + name re-check + executor never called.
-  - `web_search.params.query` becomes a urlencoded SearXNG query param ONLY,
-    never argv — this is NOT the `youtube_search` exception (invariant #2 holds).
-  - `web_search` NEVER dispatches (`dispatched=False` always).
-  - The grounding turn is the reusable seam G8 (conversation) builds its `chat`
-    second stage on top of — keep it clean.
-
-Key design facts baked into the plan (do NOT relitigate):
-  - The **grounding turn** synthesizes the answer under `final.gbnf` (action
-    name locked to `"none"` → cannot dispatch, invariant #1). The answer rides
-    in `params.answer`. It does NOT use the planning `validate()` —
-    `PARAM_SCHEMA["none"]=={}` so validate() would reject the answer param; the
-    grounding path never dispatches anyway, so it parses the JSON directly and
-    re-checks `name=="none"`. Security = grammar lock (client asserts
-    `untrusted → final.gbnf`) + name re-check + executor never called.
-  - `web_search.params.query` becomes a urlencoded SearXNG query param ONLY,
-    never argv — this is NOT the `youtube_search` exception (invariant #2 holds).
-  - `web_search` NEVER dispatches (`dispatched=False` always).
-  - The grounding turn is the reusable seam G8 (conversation) builds its `chat`
-    second stage on top of — keep it clean.
 
 Key facts from the G6 session — do NOT re-introduce the reverted approaches:
 
@@ -259,16 +263,12 @@ Trigger key = `XF86Presentation` (keycode 433, modmask 0), tap on / tap off
   script, so the executor cannot see if electron actually came up. Inherent.
 - youtube_search opens a SEARCH page, does not autoplay (OQ-24, deferred).
 
-### The real next step — EXECUTE the G7 plan, then G8 (conversation)
-1. **G7 (search)** — PLANNED. `docs/superpowers/plans/2026-08-23-g7-search.md`
-   (11 TDD tasks). SearXNG loopback (systemd unit, ADR-045), sanitizer,
-   `final.gbnf` grounding turn, injection suite 20/20 (asserted on the
-   executor), egress test, connected-default mode (ADR-046), synth answer +
-   sources (ADR-047). The only egress. Just execute the tasks in order.
-2. **G8 (conversation)** — the primary goal, AFTER G7. Invoke `writing-plans` on
-   `docs/superpowers/specs/2026-08-23-conversational-chat-design.md` for Build 1
-   (in-reply chat: `chat` action + `llm/chat.py` + RAM dialogue buffer + the new
-   "conversational speech" ADR). Reuses G7's grounding-turn seam. Then build TDD.
+### The real next step — EXECUTE the G8 Build 1 plan
+**G7 (search) is DONE + merged to main.** The next step is to EXECUTE
+`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md` (10 TDD tasks) —
+see "RESUME HERE — G8" above for how. Build 1 = in-reply chat: `chat` action +
+`friday/llm/chat.py` + RAM `Dialogue` buffer + ADR-048. After Build 1: G8
+Stage 2 (habit-driven suggestions from the audit log), then G9 (service).
 
 ### RESOLVED — the Hyprland "glitch"
 Identified: the Copilot key (`XF86Assistant`) leaks Super at the firmware
@@ -283,27 +283,30 @@ small.en int8 beam1 hotwords is locked (ADR-042); `faster-whisper` is in
 pyproject, venv still torch-free.
 
 ### What is true right now
-- Branch `main`. G0–G5 passed; G6 pipeline proven live, key-press + eval +
-  TTFA pending. `just run` = text+voice TUI; `FRIDAY_DEBUG=1 just voice` = the
+- Branch `main`. **G0–G7 passed** (G7 merged 2026-08-23). G8 Build 1 PLANNED,
+  not started. `just run` = text+voice TUI; `FRIDAY_DEBUG=1 just voice` = the
   G6 daemon; `just ptt press|release` = the client (cwd must be the repo).
-- `friday/` code: `llm/` (schema, validate, client, prompt, grammars),
-  `tools/` (apps, registry, executor), `store/` (db, prefs, audit,
-  migrations), `ui/` (templates, tui), `audio/` (state[FSM], capture, stt,
-  ptt, tts, say), plus `config.py`, `errors.py`, `turn.py`, `daemon.py`,
-  `voice_main.py`, `prefs_cli.py`, `ptt_cli.py`, `eval_harness.py`,
-  `__main__.py`.
+- `friday/` code: `llm/` (schema, validate, client, prompt, grammars,
+  **grounding** [G7]), `tools/` (apps, registry, executor, **search** [G7]),
+  `store/` (db, prefs, audit, migrations), `ui/` (templates, tui), `audio/`
+  (state[FSM], capture, stt, ptt, tts, say), plus `config.py`, `errors.py`,
+  `turn.py`, `daemon.py`, `voice_main.py`, `prefs_cli.py`, `ptt_cli.py`,
+  `eval_harness.py`, `__main__.py`. (G8 will add `llm/chat.py` + `dialogue.py`.)
 - Persistence: SQLite at `~/.local/state/friday/memory.db` (WAL, 0600 in a
   0700 dir), single-writer (`store/db.py`), forward-only migrations. `just
   prefs list|export|forget [--hard]|reset --yes`.
 - Deps: `textual`, `kokoro-onnx`, `sounddevice`, `soundfile` (G5),
-  **`faster-whisper`** (G6); `pytest` (dev). Store uses stdlib `sqlite3`.
-  Venv is CPU-only and stays **torch-free** — kokoro-onnx (onnxruntime) and
-  faster-whisper (CTranslate2) neither pull torch (ADR-039/042). Verified:
-  `uv pip list | grep -iE torch|nvidia|cuda` is empty. CPU-torch check moot.
-- `just eval` = 20/20 (last run G5; G6 touched none of the planning path so
-  unaffected by construction). `uv run pytest` = **150 passed**.
-- **No llama-server running** — start with `just serve` for eval or `just voice`.
-- `web_search` still returns "not yet wired" — G7. Memory is now wired.
+  **`faster-whisper`** (G6); `pytest` (dev). G7 added NO runtime dep (SearXNG
+  is queried over stdlib `urllib`). Store uses stdlib `sqlite3`. Venv is
+  CPU-only and stays **torch-free** (ADR-039/042); `uv pip list | grep -iE
+  torch|nvidia|cuda` empty.
+- `just eval` = **24/24** (G7 did not touch the planning path). `uv run pytest`
+  = **176 passed**. G8 will move eval to 28/28 (E15/E16→chat + 4 new fixtures).
+- Search: SearXNG loopback unit, **enabled + active**, `127.0.0.1:8888` only.
+  `just searxng status`. `web_search` is WIRED (query→sanitize→ground, never
+  dispatches). Memory is wired.
+- **No llama-server running by default** — start with `just serve` for eval,
+  `just run`, or `just voice`.
 
 ### Memory design as built (G4 — ADR-035/036/037/038)
 - **Keys**: model supplies a free key; `store/prefs.py` slugifies it to
