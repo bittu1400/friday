@@ -1515,3 +1515,36 @@ grammar, temperature > 0). Its output is sanitized before TTS (no markup/URLs/
 control chars, length-capped). The planner's command-vs-chat decision stays in
 the grammar-locked stage; only after the planner has chosen `chat` does free
 text get generated. See the G8 design doc.
+
+## ADR-049 — Habit-driven suggestions mined safely from action audit log (G8 Stage 2)
+
+**Status:** Accepted 2026-08-23.
+
+**Context:** G8 Stage 2 introduces habit-driven suggestions so Friday can offer
+relevant recommendations (e.g. "I'm bored, what should I do?" or contextual suggestions)
+grounded in the user's actual usage patterns without unprompted interrupts or raw
+audio/transcript persistence.
+
+**Decision:** Mine habit patterns deterministically from the local SQLite `action_audit`
+table (`store/audit.py`), which already redacts filesystem paths (FR-57/58).
+Two classes of patterns are extracted:
+1. **Sequential transitions ($A \rightarrow B$ within 30 min):** e.g., opening Brave is
+   consistently followed by opening VS Code.
+2. **Time-of-day affinities:** mapped to granular slots (sunrise/early morning: 05-08,
+   morning: 08-12, afternoon: 12-17, sunset/early evening: 17-20, evening: 20-23,
+   late night: 23-05), e.g. "Late at night, you often search YouTube for 'lo-fi'".
+3. **Threshold:** Require $\ge 2$ occurrences within the lookback window (default 30 days).
+
+The mined habits are rendered as an inert `<user_habits>` block (data-framed, capped at
+10 items, stripping control characters and fences) and passed into `CHAT_SYSTEM` as DATA.
+Suggestions are surfaced exclusively during user-initiated `chat` turns (in-reply only).
+
+**Invariants preserved:**
+- Invariant #7: No raw transcripts or audio on disk. `action_audit` contains only redacted
+  tool IDs, anonymized arguments, and timestamps.
+- Invariant #1 / #4: Suggestions are strictly conversational speech (ADR-048), driving no
+  automatic side effects.
+- Fast & lightweight: SQL aggregation runs in $<2\text{ ms}$.
+
+**Consequences:** Friday personalizes suggestions using verified local activity without
+introducing new storage tables, tracking daemons, or unprompted interruptions.

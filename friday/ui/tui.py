@@ -116,6 +116,13 @@ class FridayTUI(App):
     @work(exclusive=True)
     async def _do_turn(self, text: str) -> None:
         log = self.query_one("#log", RichLog)
+        db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
+        habits_digest = ""
+        if db is not None:
+            from ..store.habits import mine_habits, render_habits_digest
+            habits = mine_habits(db)
+            habits_digest = render_habits_digest(habits)
+
         result = await run_turn(
             text,
             self._client,
@@ -127,7 +134,9 @@ class FridayTUI(App):
             search_client=self._search,
             connected=self._connected,
             history=self._dialogue.render(),
+            habits_digest=habits_digest,
         )
+
         params = f" {result.params}" if result.params else ""
         log.write(f"[dim]→ action: {result.plan_name}{params}[/]")
         log.write(f"[bold green]friday[/] {result.spoken}")

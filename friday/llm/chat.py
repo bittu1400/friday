@@ -45,8 +45,9 @@ def generate_reply(
     *,
     prefs_digest: str = "",
     history: str = "",
+    habits_digest: str = "",
 ) -> str:
-    system = assemble_chat_system(prefs_digest)
+    system = assemble_chat_system(prefs_digest=prefs_digest, habits_digest=habits_digest)
     user = f"{history}\nYou: {utterance}".strip() if history else utterance
     try:
         raw = client.complete(
@@ -60,3 +61,4 @@ def generate_reply(
     except Exception:                   # never leak a raw exception (FR-26)
         return CHAT_FALLBACK
     return _speakable(raw) or CHAT_FALLBACK
+

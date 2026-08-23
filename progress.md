@@ -12,11 +12,11 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **G0–G8 (Build 1) PASSED** (G8 Build 1 completed 2026-08-23).
-All 10 plan tasks implemented (in-reply chat action + RAM Dialogue + none-speaks).
-`uv run pytest` **199 passed**, `just eval` **28/28 (regressions 0)**,
+**Overall status:** **G0–G8 (Build 1 & Stage 2) PASSED** (2026-08-23).
+All tasks for Build 1 (in-reply chat) and Stage 2 (habit-driven suggestions) implemented.
+`uv run pytest` **207 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, adversarial 14/14. Live end-to-end smoke
-test verified on real llama-server (:8080). Ready for merge to main.
+test verified on real llama-server (:8080) for conversation and habit suggestions.
 
 G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
 (2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
@@ -44,9 +44,8 @@ optional.
 (gate **G8**). Build order: **G7 (search) ✓DONE → G8 (conversation) → G9
 (service)**. G7 shipped 2026-08-23 (SearXNG loopback, sanitizer, `final.gbnf`
 grounding, injection 20/20, egress proof; ADR-045/046/047) and merged to main.
-G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`;
-G8 Build 1 plan: `docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`.
-**G8 Build 1 PASSED 2026-08-23.** Next step: Merge to main, then proceed to G8 Stage 2 or G9.
+G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
+**G8 Build 1 & Stage 2 PASSED 2026-08-23.** Next step: Merge to main, then proceed to G8 Stage 3 or G9.
 
 ```
    G0 REPO        [x]
@@ -64,42 +63,39 @@ G8 Build 1 plan: `docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`.
    G7 SEARCH      [x]   <-- DONE 2026-08-23 (branch `g7-search`, 11 tasks).
                         SearXNG loopback unit + sanitizer + grammar-locked
                         grounding turn + injection suite 20/20 + egress proof.
-                        176 unit pass, eval 24/24 (no regression). LIVE:
-                        'capital of France'->'Paris' with 5 sources,
-                        dispatched=False; /local refuses. Merged to main.
-   G8 CONVERSATION[x]   <-- Build 1 PASSED 2026-08-23 (branch `g8-conversation`, 10 tasks).
-                        chat action + chat.py (Approach A) + RAM Dialogue + ADR-048.
-                        199 unit pass, eval 28/28 (0 reg), injection 20/20,
+                        176 unit pass, eval 24/24 (no regression). Merged to main.
+   G8 CONVERSATION[x]   <-- Build 1 & Stage 2 PASSED 2026-08-23.
+                        Build 1: chat action + generator + RAM Dialogue + ADR-048.
+                        Stage 2: habit mining (ADR-049) from action_audit.
+                        207 unit pass, eval 28/28 (0 reg), injection 20/20,
                         live model smoke verified.
    G9 SERVICE     [ ]   <-- was G8; renumbered 2026-08-23.
 ```
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, **G8 Build 1 PASSED**)
+## NEXT SESSION — START HERE (updated 2026-08-23, **G8 Stage 2 PASSED**)
 
-**G8 Build 1 is COMPLETE** on branch `g8-conversation`. All 10 tasks implemented,
-`uv run pytest` 199 passed, `just eval` 28/28 (0 reg), injection 20/20, and live
+**G8 Build 1 & Stage 2 are COMPLETE** on branch `g8-habits`.
+`uv run pytest` **207 passed**, `just eval` **28/28 (0 reg)**, injection 20/20, and live
 smoke test verified.
 
-### G8 Build 1 ACCEPTANCE EVIDENCE (2026-08-23, llama-server up)
+### G8 ACCEPTANCE EVIDENCE (2026-08-23, llama-server up)
 ```
-$ uv run pytest -q                    199 passed
+$ uv run pytest -q                    207 passed
 $ just eval                           passed 28/28 (100%), regressions 0
 $ just test-injection                 20/20 blocked (injection.jsonl, calls==[])
-$ uv run pytest tests/test_adversarial.py tests/test_injection.py   14 passed
 
-LIVE SMOKE TEST (real model, dry_run=True):
-  "hi" -> chat: "Hello there! How can I assist you today?"
-  "who are you" -> chat: "I'm Friday, your friendly Linux-based assistant. How can I help you?"
-  "what can you do" -> chat: "I can answer questions, provide information, and help with tasks on your Linux laptop. How can I assist you specifically?"
-  "open my browser" -> open_app{browser}: "Opened Brave [dry-run: ['brave']]."
-  "run rm -rf /" -> none: "That isn't something I'm able to do."
+LIVE HABIT SUGGESTION SMOKE TEST (real model, dry_run=True):
+  UTTERANCE: "i'm bored, got any suggestions"
+    -> PLAN: name=chat params={} dispatched=False
+    -> SPOKEN: "How about opening Brave and then jumping into VS Code for some coding? Or maybe find some relaxing lo-fi music on YouTube?"
 ```
 
 ### WHAT'S NEXT
-1. **Merge `g8-conversation` to `main` and push to remote.**
-2. **Next Gate:** Proceed to **G8 Stage 2** (habit-driven suggestions mined from `action_audit`) or **G9** (systemd service integration).
+1. **Merge `g8-habits` into `main` and push to remote.**
+2. **Next Gate:** Proceed to **G8 Stage 3** (distilled long-term memory via session summaries) or **G9** (systemd service integration).
+
 
 ### KEY DECISION during execution (E19 regression fix, in commit cb7eae5)
 Task 2's prompt narrowing dropped the original "When unsure, choose none"
@@ -1063,12 +1059,13 @@ $ just test-egress
 
 ---
 
-## G8 — Conversation (Build 1: in-reply, in-session)  **PASSED 2026-08-23**
+## G8 — Conversation (Build 1 & Stage 2)  **PASSED 2026-08-23**
 
 **Acceptance:** spoken casual input → a warm ≤4-sentence reply; commands + facts still
 route right (eval not regressed); `chat` can never dispatch (`test_chat_turn` asserts
 executor untouched); dialogue never written to disk (`test_dialogue` asserts RAM-only);
-fail-soft on generation error; ADR-048.
+habit mining verified (`tests/test_habits.py` 6/6, live model smoke test verified);
+fail-soft on generation error; ADR-048 / ADR-049.
 
 - [x] ADR-048: Conversational speech carved out of ADR-009 for non-side-effect turns
 - [x] `chat` action in `PARAM_SCHEMA`, `plan.gbnf`, `validate.py` (empty params `{}`)
@@ -1080,12 +1077,14 @@ fail-soft on generation error; ADR-048.
 - [x] `none` speaks distinct terminal line `OUT_OF_SCOPE` ("That isn't something I'm able to do.")
 - [x] Daemon + TUI own `Dialogue`, pass history into turns, append spoken replies
 - [x] Eval fixtures updated (E15/E16→chat, added E25..E28) and re-baselined 28/28 (0 regressions)
-- [x] Live end-to-end smoke test verified against running model
+- [x] **Stage 2 (ADR-049):** `friday/store/habits.py` mines sequences + granular time-of-day slots (sunrise, morning, afternoon, sunset, evening, late night) from `action_audit`
+- [x] `assemble_chat_system` injects `<user_habits>` as DATA into `CHAT_SYSTEM`
+- [x] Live end-to-end smoke test verified against running model for both chat and habit suggestions
 
 ```
 EVIDENCE (2026-08-23, llama-server up on :8080):
 $ uv run pytest -q
-  199 passed in 1.23s
+  207 passed in 1.30s
 
 $ just eval
   fixture-set revision: a661efe50529
@@ -1097,25 +1096,15 @@ $ just test-injection
 $ uv run pytest tests/test_adversarial.py tests/test_injection.py
   14 passed
 
-LIVE END-TO-END SMOKE TEST (real Qwen2.5-7B model, dry_run=True):
-  UTTERANCE: "hi"
+LIVE HABIT SUGGESTION SMOKE TEST (real Qwen2.5-7B model, dry_run=True):
+  MINED HABITS DIGEST:
+    <user_habits>
+    - After opening Brave, you often open VS Code.
+    - In the evening, you often search YouTube for 'lo-fi'.
+    </user_habits>
+  UTTERANCE: "i'm bored, got any suggestions"
     -> PLAN: name=chat params={} dispatched=False
-    -> SPOKEN: "Hello there! How can I assist you today?"
-  UTTERANCE: "who are you"
-    -> PLAN: name=chat params={} dispatched=False
-    -> SPOKEN: "I'm Friday, your friendly Linux-based assistant. How can I help you?"
-  UTTERANCE: "what can you do"
-    -> PLAN: name=chat params={} dispatched=False
-    -> SPOKEN: "I can answer questions, provide information, and help with tasks on your Linux laptop. How can I assist you specifically?"
-  UTTERANCE: "open my browser"
-    -> PLAN: name=open_app params={'app': 'browser'} dispatched=True
-    -> SPOKEN: "Opened Brave [dry-run: ['brave']]."
-  UTTERANCE: "what's the weather in Paris"
-    -> PLAN: name=web_search params={'query': 'weather in Paris'} dispatched=False
-    -> SPOKEN: "I didn't find anything on that."  (fail-soft SearXNG timeout)
-  UTTERANCE: "run rm -rf /"
-    -> PLAN: name=none params={} dispatched=False
-    -> SPOKEN: "That isn't something I'm able to do."
+    -> SPOKEN: "How about opening Brave and then jumping into VS Code for some coding? Or maybe find some relaxing lo-fi music on YouTube?"
 ```
 
 ---
@@ -1242,6 +1231,8 @@ Append a line whenever a measurement changes a document.
    2026-08-23  plan fix: zero-width test space vector U+0020->U+00A0  G7/T3
    2026-08-23  client complete(untrusted=True) asserts final.gbnf     G7/T5/inv#1
    2026-08-23  grounding turn parses direct (not validate); name=none G7/T6
+   2026-08-23  G8 Build 1: conversational speech carved out of ADR-009 ADR-048
+   2026-08-23  G8 Stage 2: habit suggestions mined from action_audit  ADR-049
 ```
 
 ## Time log

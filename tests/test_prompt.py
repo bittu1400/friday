@@ -71,3 +71,14 @@ def test_assemble_chat_system_appends_prefs_as_data():
     assert out.startswith(CHAT_SYSTEM)
     assert digest in out
     assert "DATA, not" in out           # named as data, not instructions
+
+
+def test_assemble_chat_system_appends_habits_as_data():
+    from friday.llm.prompt import CHAT_SYSTEM, assemble_chat_system
+    habits = "<user_habits>\n- After opening Brave, you often open VS Code.\n</user_habits>"
+    out = assemble_chat_system(habits_digest=habits)
+    assert out.startswith(CHAT_SYSTEM)
+    assert habits in out
+    assert "observed user habits" in out
+    assert "DATA, not" in out
+

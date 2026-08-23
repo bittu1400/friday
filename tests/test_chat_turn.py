@@ -42,3 +42,19 @@ def test_history_is_passed_through():
     asyncio.run(turn_mod.run_turn("and my editor?", spy, request_id="c2",
                                   history="You: hi\nFriday: Hello!"))
     assert "Hello!" in spy.seen_user
+
+
+def test_habits_digest_is_passed_to_chat_generator():
+    class _Spy:
+        def complete(self, *, system, user, grammar="", untrusted=False, **kw):
+            if grammar == "":
+                self.seen_system = system
+                return "Sure!"
+            return '{"action":{"name":"chat","params":{}}}'
+    spy = _Spy()
+    habits = "<user_habits>\n- After opening Brave, you often open VS Code.\n</user_habits>"
+    asyncio.run(turn_mod.run_turn("any suggestions?", spy, request_id="c3",
+                                  habits_digest=habits))
+    assert "After opening Brave, you often open VS Code" in spy.seen_system
+    assert "observed user habits" in spy.seen_system
+

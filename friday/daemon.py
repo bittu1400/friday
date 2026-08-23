@@ -175,15 +175,24 @@ class Daemon:
                 return
 
             # PLANNING + EXECUTING (execute-first inside run_turn; no speech).
+            db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
+            habits_digest = ""
+            if db is not None:
+                from .store.habits import mine_habits, render_habits_digest
+                habits = mine_habits(db)
+                habits_digest = render_habits_digest(habits)
+
             result = await asyncio.wait_for(
                 run_turn(
                     text, self._client, request_id=rid, dry_run=self._dry_run,
                     prefs=self._prefs, audit=self._audit, speaker=None,
                     search_client=self._search, connected=self._connected,
                     history=self._dialogue.render(),
+                    habits_digest=habits_digest,
                 ),
                 timeout=_PLANNING_TIMEOUT,
             )
+
 
             if result.pending is not None:  # confirm-first (ADR-037)
                 self._pending = result.pending

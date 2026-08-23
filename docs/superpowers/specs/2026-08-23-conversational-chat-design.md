@@ -1,10 +1,9 @@
 # Conversational chat & suggestions — design (gate G8)
 
-**Status:** Build 1 (in-reply, in-session chat) IMPLEMENTED & VERIFIED 2026-08-23
-(199 unit passed, eval 28/28 0 reg, injection 20/20, live model smoke verified).
-Stages 2–4 remain open for future increments. Build order decided 2026-08-23:
-**G7 (search) ✓ → G8 (conversation) → G9 (service)**. Service was renumbered
-G8 → G9 to keep the gate number equal to the execution order.
+**Status:** Build 1 (in-reply chat) & Stage 2 (habit-driven suggestions)
+IMPLEMENTED & VERIFIED 2026-08-23 (207 unit passed, eval 28/28 0 reg,
+injection 20/20, live model smoke verified). Stages 3–4 remain open.
+Build order decided 2026-08-23: **G7 (search) ✓ → G8 (conversation) → G9 (service)**.
 
 ## Context & why
 
@@ -126,12 +125,13 @@ New module **`friday/llm/chat.py`**, one purpose:
 **Build 1 (this gate's first slice) — in-reply, in-session:**
 `chat` action + generator + RAM dialogue ring buffer. Suggestions = the
 persona prompt offering a relevant follow-up using current preferences. No
-new storage.
+new storage. **(DONE 2026-08-23)**
 
-**Stage 2 — habit-driven suggestions:** mine the **audit log** (already on
-disk, args redacted) for patterns ("you open Code after Brave", "lo-fi
-around this hour") and surface them inside a user-triggered turn. Reads
-existing data; no raw transcripts.
+**Stage 2 — habit-driven suggestions (DONE 2026-08-23, ADR-049):**
+Mines the **audit log** (`friday/store/habits.py`, already on disk, args redacted)
+for patterns (sequence transitions, granular time-of-day slots: sunrise, morning,
+afternoon, sunset, evening, late night) and surfaces them as `<user_habits>` DATA
+inside user-triggered chat turns. Reads existing data; no raw transcripts.
 
 **Stage 3 — distilled long-term memory (the answer to "why not log the
 dialogue to disk"):** raw transcripts on disk are rejected — they are a
