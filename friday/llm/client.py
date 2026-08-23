@@ -41,10 +41,11 @@ class LlamaClient:
         *,
         system: str,
         user: str,
-        grammar: str,
+        grammar: str = "",
         max_tokens: int = 128,
         temperature: float = 0.0,
         untrusted: bool = False,
+        stop: list[str] | None = None,
     ) -> str:
         """Return the assistant message content for one constrained turn.
 
@@ -59,18 +60,20 @@ class LlamaClient:
             assert grammar == schema.build_final_grammar(), (
                 "untrusted turn must use final.gbnf"
             )
-        payload = json.dumps(
-            {
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "grammar": grammar,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "cache_prompt": True,
-            }
-        ).encode()
+        body: dict[str, object] = {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "cache_prompt": True,
+        }
+        if grammar:                 # empty grammar == unconstrained (chat, G8)
+            body["grammar"] = grammar
+        if stop:
+            body["stop"] = stop
+        payload = json.dumps(body).encode()
 
         last_exc: Exception | None = None
         for attempt in range(self.connect_retries):
