@@ -62,6 +62,104 @@ condition). Lock one, record it in ADR-005.
 
 ---
 
+### OQ-18 — Preference key vocabulary
+**Decider:** USER · **Blocks:** G4 · **Status:** OPEN
+
+`schema.py` currently lets the model supply `remember_preference.key` as
+free text. That decides how predictable the digest is and whether
+`forget_preference` can reliably find the key the user means.
+
+```
+   (a) Closed enum      fixed keys (name, editor, browser, terminal,
+                        media_player, ...). Model maps to a known key or
+                        the write fails closed. Predictable digest, forget
+                        always matches. New pref kind = code change.
+   (b) Free, normalized any key, slugified (lowercase, spaces->_, strip).
+                        Flexible; risk of near-dupes (my_name vs name).
+   (c) Free, raw        store verbatim. Most flexible, least findable.
+```
+
+**Default if undecided:** (a) closed enum — smallest T2 surface, matches
+the "model supplies an opaque ID from a closed set" invariant in spirit,
+digest is deterministic for the FR-55 snapshot test.
+
+**On answer:** update `schema.py` PARAM_SCHEMA, `validate.py`, the digest
+renderer, and `forget_preference` matching; write ADR-035.
+
+---
+
+### OQ-19 — `forget_preference` / `prefs reset`: hard-delete vs soft-expire
+**Decider:** USER · **Blocks:** G4 · **Status:** OPEN
+
+Hard-deleting user data is a prohibited-by-default action in the safety
+rules. This is the user's own local prefs, user-initiated, so it is
+allowed — but the *mechanism* is a real choice.
+
+```
+   (a) Soft-expire     set expires_at=now; row stops being injected at
+                       once, survives until retention sweep. Recoverable,
+                       audit-friendly.
+   (b) Hard delete     DELETE the row. Literal 'forget', nothing lingers.
+                       Not recoverable.
+   (c) Split           voice forget_preference soft-expires (safe on a
+                       mishear); CLI `prefs forget --hard` / `reset --yes`
+                       hard-deletes when explicit at the keyboard.
+```
+
+**Default if undecided:** (c) split — protects against a misheard voice
+command while giving the keyboard an explicit hard path.
+
+**On answer:** write ADR-036; wire into the tool + the `prefs` CLI.
+
+---
+
+### OQ-20 — Confirm a spoken preference before storing?
+**Decider:** USER · **Blocks:** G4 · **Status:** OPEN
+
+Decides what the `source` column means (`user_confirmed` vs `user_typed`,
+per the schema CHECK) and whether the turn loop grows a handshake.
+
+```
+   (a) Store directly  remember_preference writes, then speaks the
+                       confirmation template (execute-first, ADR-009).
+                       source='user_typed'. No new turn machinery.
+   (b) Confirm first   'Remember that your browser is brave?' -> writes
+                       only on yes. source='user_confirmed'. Adds a
+                       two-turn handshake + pending state this gate.
+```
+
+**Default if undecided:** (a) store directly — a misheard pref is cheap to
+forget, and (b) is real new turn-loop machinery not otherwise needed at G4.
+
+**On answer:** if (b), the turn loop + a pending-preference state are G4
+work; note in ADR-034/architecture §3.1. Record in ADR-037.
+
+---
+
+### OQ-21 — Retention scope: do preferences auto-expire by age?
+**Decider:** USER · **Blocks:** G4 · **Status:** OPEN
+
+The retention job caps at 90 days / 50 MB (config.toml `[memory]`). Audit
+rows and session summaries are logs; preferences are user data with a
+lifecycle.
+
+```
+   (a) Logs only       purge action_audit + session_summaries only.
+                       Preferences never expire by age — they live until
+                       forgotten or their own expires_at fires.
+   (b) Everything      preferences also age out at 90 days unless
+                       pinned=1. Smallest DB; a set-and-forgotten pref
+                       vanishes.
+```
+
+**Default if undecided:** (a) logs only — a preference the user stated
+should not silently disappear; the `pinned` column then only matters if
+(b) is ever chosen.
+
+**On answer:** scope the retention job accordingly; record in ADR-038.
+
+---
+
 ## Answered by measurement (no opinion needed)
 
 ### OQ-07 — Does whisper meet latency on CPU?

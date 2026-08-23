@@ -51,22 +51,47 @@ persistence** (the SQLite memory layer). Nothing above G4 is blocked.
 - Memory tools (`remember_preference`/`forget_preference`) and `web_search`
   currently return a "not yet wired" line — G4 wires memory, G7 wires search.
 
-### Before writing G4 code (CLAUDE.md working agreement)
-1. **Read G4** in this file + friday.md §6 (the 001_init.sql schema is
-   already drafted there) + ADR-010 (SQLite/WAL/single-writer), ADR-028
-   (in-memory ring buffer, no transcripts on disk), ADR-031 (disk boundary,
-   OQ-05 stays OPEN), architecture.md §3/§7.
-2. **Batch every G4 question up front.** Likely ones: preference key
-   vocabulary + how `remember_preference` params map to rows; the digest
-   `key=value` rendering + 300-token cap; retention policy (90 days / 50 MB
-   — confirm numbers); whether `forget_preference` hard-deletes or expires
-   (note: hard delete of user data is a prohibited-by-default action — spec
-   the CLI `friday prefs forget/reset` path carefully).
-3. **G4 acceptance:** 100 parallel writes, 0 `database is locked`; perms
+### ASK THESE FOUR QUESTIONS FIRST — before any G4 code
+The G4 question batch is already worked out and written up as
+**OQ-18..OQ-21** in `open-questions.md`. Ask all four in ONE round, then
+record each answer (ADR + close the OQ + progress decision log) in the
+same turn per the CLAUDE.md working agreement. Summary:
+
+```
+   OQ-18  preference KEY vocabulary   (a closed enum / b free-normalized /
+          c free-raw)          default: (a) closed enum
+   OQ-19  forget/reset mechanism      (a soft-expire / b hard-delete /
+          c split voice=soft, CLI=hard)  default: (c) split
+   OQ-20  confirm spoken pref?        (a store directly / b confirm-first)
+                                      default: (a) store directly
+   OQ-21  retention scope             (a logs only / b everything incl prefs)
+                                      default: (a) logs only
+```
+
+Defaults ALREADY agreed for the rest (do NOT re-ask — just apply):
+- `value_json` = scalar strings only in Phase 1 (`json.dumps("brave")`).
+- `expires_at` = NULL (never) on a normal `remember_preference`.
+- Write flow = execute-first (ADR-009): write row, THEN speak template.
+- Digest overflow at 300 tok = pinned first, then most-recent `updated_at`,
+  drop oldest; deterministic order for the FR-55 snapshot test.
+- `prefs reset` (all) requires explicit `--yes`; `prefs forget <key>`
+  does not.
+
+If OQ-20 answer is (b) confirm-first, the turn loop grows a pending-
+preference handshake — that is extra G4 work; scope it in before coding.
+
+### Then read, then build
+1. **Read G4** in this file + friday.md §6 (001_init.sql drafted there) +
+   ADR-010 (SQLite/WAL/single-writer), ADR-028 (in-memory ring buffer, no
+   transcripts on disk), ADR-031 (disk boundary, OQ-05 stays OPEN),
+   architecture.md §3/§7. FRs: FR-50..FR-59 in spec.md.
+2. **G4 acceptance:** 100 parallel writes, 0 `database is locked`; perms
    0600/0700 verified by self-test; export/delete/reset work; no `thought`
    or raw payloads in any column (grep-enforced).
-4. Wire the memory tools into `friday/turn.py` (they are stubs today) and
-   add eval fixtures for them if phrasing coverage grows.
+3. Wire the memory tools into `friday/turn.py` (stubs today: they return
+   `NOT_YET_WIRED`) and inject the `<preferences>` digest into the prompt
+   (architecture §4) so a remembered pref actually influences planning.
+   Add eval fixtures if phrasing coverage grows.
 
 ### Carried-over, still optional (blocks nothing)
 - The 4 deferred G1 measurements (VRAM peak under desktop load, exact KV
