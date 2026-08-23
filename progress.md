@@ -96,17 +96,30 @@ LIVE RECALL SMOKE TEST (real model, dry_run=True):
     -> SPOKEN: "We were searching for lo-fi music in VS Code. Want to find some more tracks?"
 ```
 
-### WHAT'S NEXT
-1. **Merge `g8-memory` into `main` and push to remote.**
-2. **Next Gate:** Proceed to **G9** (systemd service integration & resilience).
-
-
+### WHAT'S NEXT — Gate G9: Service Layer & Resilience
+1. **Systemd User Units (`deploy/systemd/`)**:
+   - `friday-llm.service`: manages `llama-server` on `127.0.0.1:8080` with restart backoff.
+   - `friday.service`: manages the orchestrator daemon (`python -m friday.voice_main`).
+   - Ordering with a tolerant health ping — orchestrator survives model startup latency without crash-looping.
+2. **CLI Self-Test (`friday --selftest` / `just selftest`)**:
+   - Checks `llama-server` loopback reachability
+   - Verifies GPU architecture (`sm_120`)
+   - Checks DB schema version and permissions (`0600` file, `0700` dir)
+   - Verifies PipeWire audio device availability
+   - Verifies panic switch state (`~/.local/state/friday/DISABLED`)
+   - Asserts no wildcard `0.0.0.0` binds (loopback only)
+   - Non-zero exit code on any failure
+3. **Log Rotation & Resilience Testing**:
+   - Log rotation (`10 MB x 5`)
+   - Test daemon recovery on `kill -9 $(pgrep llama-server)`
+   - Test suspend/resume survival with audio device recovery
 
 ### KEY DECISION during execution (E19 regression fix, in commit cb7eae5)
 Task 2's prompt narrowing dropped the original "When unsure, choose none"
 anchor, flipping E19 "open the thing" to open_app{browser} at temp 0. Restored
 an explicit "vague / unknown app → none" clause in SYSTEM_POLICY. Do NOT drop it
 again — E19 depends on it. E14 (forget) cleared with the same fix.
+
 
 ### SDD LEDGER (rulings + parked items)
 `.superpowers/sdd/2026-08-23-g8-conversation-build1/progress.md` (git-ignored)

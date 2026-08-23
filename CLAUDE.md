@@ -112,7 +112,7 @@ evidence, not defaults. A dependency added without this drill is not done.
 
 ```
    progress.md        what is ACTUALLY done.  start here, always.
-   friday.md  the build plan, gate by gate, with commands
+   friday.md          the build plan, gate by gate, with commands
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
    adr.md             decisions + why + what they cost

@@ -397,3 +397,14 @@ months.)_
   `DMIC Raw` array (index can move). Recorded here to close the
   docs/"DMIC array" mismatch. (OQ-06 was the *voice* preset, closed by
   OQ-22 — do not confuse.)
+- **OQ-25 — Habit pattern categories and threshold?** ANSWERED 2026-08-23.
+  Mined deterministically from `action_audit` table; sequential transitions
+  ($A \rightarrow B \le 30\text{ min}$) + granular time-of-day slots (sunrise/early
+  morning 05-08, morning 08-12, afternoon 12-17, sunset/early evening 17-20, evening
+  20-23, late night 23-05); threshold $\ge 2$. Rendered as `<user_habits>` DATA.
+  See ADR-049.
+- **OQ-26 — Distilled long-term memory trigger and context limit?** ANSWERED 2026-08-23.
+  Distilled at session shutdown when $\ge 2$ in-RAM dialogue turns exist; 1-2 concise
+  sentences saved in SQLite `session_summaries`; the 2 most recent summaries are
+  injected as `<past_sessions>` DATA in future chat turns. See ADR-050.
+

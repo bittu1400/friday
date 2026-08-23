@@ -340,14 +340,15 @@ language      = "en"
 max_capture_s = 15
 
 [tts]
-voice         = "TBD_AT_G5"
-cpu_threads   = 4
+voice         = "af_bella"
+cpu_threads   = 8
 
 [search]
-enabled       = false
+enabled       = true
 endpoint      = "http://127.0.0.1:8888"
 max_results   = 5
 timeout_s     = 8
+
 
 [memory]
 retention_days = 90

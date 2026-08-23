@@ -684,7 +684,8 @@ except search still works.
 
 ---
 
-## 10. G8 — Conversation  *** the primary goal (Build 1 & Stage 2 DONE 2026-08-23) ***
+## 10. G8 — Conversation  *** the primary goal (DONE 2026-08-23) ***
+
 
 Full design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
 Reordered ahead of service 2026-08-23 — chit-chat + suggestions is the point
