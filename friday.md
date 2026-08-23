@@ -601,14 +601,22 @@ rejections.
 
 ---
 
-## 9. G7 — Search
+## 9. G7 — Search  *** DONE 2026-08-23 ***
 
-Last, because it is the only egress and the only untrusted input.
+Last (before G8), because it is the only egress and the only untrusted input.
+**As built:** lifecycle is a `systemd --user` unit (ADR-045), search defaults
+to CONNECTED with LOCAL as the opt-out (ADR-046), and the UX is a synthesized
+spoken answer plus always-shown sources — voice never speaks URLs (ADR-047).
 
 ### 9.1 SearXNG on loopback
 
+Runs as a loopback `systemd --user` unit (ADR-045), the first of the three G9
+service units. Image pinned by digest; host side of the port map is
+`127.0.0.1:8888` ONLY (invariant #8). See `docs/searxng-setup.md`.
+
 ```bash
-docker run -d --name searxng -p 127.0.0.1:8888:8080 searxng/searxng
+systemctl --user link "$PWD/deploy/searxng/friday-searxng.service"
+just searxng start      # or: systemctl --user start friday-searxng
 ```
 
 Bind to `127.0.0.1` explicitly. Not `-p 8888:8080`.
@@ -629,11 +637,18 @@ Bind to `127.0.0.1` explicitly. Not `-p 8888:8080`.
 
 ```gbnf
 # final.gbnf
-action-name ::= "\"none\""
+name   ::= "\"none\""
+params ::= "{" ws "\"answer\"" ws ":" ws string ws "}"
 ```
 
-Unit test: parse `final.gbnf`, assert the action-name production has
-exactly one alternative. If that test ever fails, the build fails.
+Unit test: parse `final.gbnf`, assert the `name` production has exactly one
+alternative. If that test ever fails, the build fails.
+
+**As built:** `params` is forced to exactly the required key `answer` (a
+string) — the synthesized spoken answer rides there (§9.3). The generic
+string:string `params` used for planning let the model emit `{}` and skip
+answering; requiring the key makes it answer. The trailing root `ws` is
+dropped so generation stops at the closing brace, not at max_tokens.
 
 `llm/client.py` asserts before every request:
 
@@ -656,9 +671,10 @@ If any fixture dispatches, stop. That is stop condition #4.
 ### 9.5 Modes
 
 ```
-   local mode      no egress.  search refuses audibly.
-   connected mode  opt-in, visibly indicated in the TUI.
-                   SearXNG is the only outbound path in the system.
+   connected mode  the DEFAULT (ADR-046).  SearXNG is the only outbound
+                   path in the system.  visibly indicated in the TUI.
+   local mode      the opt-out (`--local` / `/local`).  no egress;
+                   search refuses audibly.
 ```
 
 Verify by blocking all non-loopback egress and confirming everything

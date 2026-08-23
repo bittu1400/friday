@@ -56,10 +56,12 @@ Next step: execute that plan. See NEXT SESSION.
                         PHYSICAL key (toggle, ADR-044); spoken eval 20/20
                         planning, TTFA p50 2.16s/p95 2.73s. Sign-off pending
                         only a final user nod; functionally complete.
-   G7 SEARCH      [~]   <-- IN PROGRESS. Tasks 1-6 of 11 DONE on branch
-                        `g7-search` (infra + config + sanitizer + client +
-                        grammar lock + grounding). Resume at Task 7 (wire
-                        web_search into the turn loop). 170 unit pass.
+   G7 SEARCH      [x]   <-- DONE 2026-08-23 (branch `g7-search`, 11 tasks).
+                        SearXNG loopback unit + sanitizer + grammar-locked
+                        grounding turn + injection suite 20/20 + egress proof.
+                        176 unit pass, eval 24/24 (no regression). LIVE:
+                        'capital of France'->'Paris' with 5 sources,
+                        dispatched=False; /local refuses. NOT merged to main.
    G8 CONVERSATION[ ]   <-- PRIMARY goal (reordered before service). design:
                         docs/superpowers/specs/2026-08-23-conversational-
                         chat-design.md. Approach A, staged, Build 1 first.
@@ -68,13 +70,47 @@ Next step: execute that plan. See NEXT SESSION.
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, G7 Tasks 1-6 DONE)
+## NEXT SESSION — START HERE (updated 2026-08-23, **G7 DONE**)
 
-G0–G6 DONE. G7 **Tasks 1-6 of 11 DONE** on branch **`g7-search`** (NOT merged
-to main). `uv run pytest` = **170 passed**. `just eval` untouched (still 24/24 —
-G7 has not touched the planning path).
+G0–G7 DONE. **G7 all 11 tasks DONE** on branch **`g7-search`** (NOT merged to
+main — merge decision + push is the user's). `uv run pytest` = **176 passed**,
+`just eval` = **24/24 (no regression, NFR-6)**. **Next gate is G8
+(conversation)** — the primary goal.
 
-### G7 progress — what is DONE (branch `g7-search`, 6 commits)
+### G7 ACCEPTANCE EVIDENCE (2026-08-23, both servers up)
+
+```
+$ uv run pytest -q                    176 passed
+$ just test-injection                 IS-1..IS-20 20/20 blocked, calls==[]
+$ just eval                           passed 24/24 (100%), regressions 0
+$ just test-egress                    8080+8888 = 127.0.0.1 ONLY, no 0.0.0.0 (exit 0)
+$ uv run pytest tests/test_grammar_lock.py   final.gbnf name == "none", enum==1
+
+LIVE end-to-end (real llama-server + real SearXNG, run_turn):
+  "what is the capital of France"  -> spoken "Paris"
+       dispatched=False, 5 sources (Paris-Wikipedia, Britannica, ...)
+  "who wrote Romeo and Juliet"     -> "William Shakespeare wrote Romeo and Juliet."
+       dispatched=False, 5 sources
+  connected=False (/local)         -> "I can't search the web in local mode."
+       dispatched=False
+```
+
+**MID-EXECUTION FIX (commit 571fa22):** the shared generic `params` grammar
+let the grounding model emit `params:{}` and skip answering (live returned
+NO_ANSWER despite correct sources). `build_final_grammar()` now forces
+`params ::= {"answer": string}` and drops the trailing root `ws` (generation
+stops at the closing brace, no whitespace padding to max_tokens). `plan.gbnf`
+is byte-identical; eval unaffected. Do NOT revert to the generic params for
+the final grammar.
+
+**TWO test/plan adjustments during Task 7-8:** (a) the plan's Task-7 test file
+was pre-written by a prior session as untracked RED tests — implementation was
+the resume work; (b) `tests/test_turn.py::test_not_yet_wired_action_is_not_
+dispatched` was REMOVED — it used `web_search` as the not-yet-wired example,
+but `NOT_YET_WIRED` is now empty (web_search is wired); the web_search path is
+covered by `tests/test_web_search_turn.py`.
+
+### G7 progress — what is DONE (branch `g7-search`, 11 tasks)
 
   1. **Task 1 — SearXNG loopback unit (ADR-045).** `deploy/searxng/settings.yml`,
      `deploy/searxng/friday-searxng.service`, `just searxng`, `docs/searxng-setup.md`.
@@ -120,20 +156,21 @@ https://en.wikipedia.org/wiki/Paris` etc. out of band. The full synthesis
     (non-breaking space), which NFKC-folds to a plain space, so the assertion is
     meaningful and true. If you re-copy that test from the plan, re-apply this.
 
-### RESUME HERE — Task 7 onward
+### RESUME HERE — G8 (conversation), the primary goal
 
-**Next action:** on branch `g7-search`, continue `executing-plans` on
-**`docs/superpowers/plans/2026-08-23-g7-search.md`** starting at **Task 7**
-(wire `web_search` into the turn loop). Remaining: Task 7 (turn wiring +
-sources + mode), Task 8 (templates), Task 9 (TUI/daemon surface + `--local`),
-Task 10 (injection suite IS-1..20), Task 11 (egress test + docs + acceptance).
-Tasks 7-11 are pure code/tests EXCEPT the live evidence steps (Task 10 Step 5,
-Task 11 Steps 2/4) which need `just serve` + `just searxng start`.
+**G7 is DONE** (all 11 tasks; evidence above). **Next: G8 (conversation).**
+Invoke `writing-plans` on
+**`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`** for
+Build 1 (in-reply chat: `chat` action + `llm/chat.py` + RAM dialogue buffer +
+the new "conversational speech" ADR). G8 reuses G7's grounding-turn seam
+(`friday/llm/grounding.py` — a synthesized answer under `final.gbnf`), so keep
+that seam clean. Then build TDD.
 
-**Before Task 7:** confirm SearXNG is still up (`just searxng status`; start it
-with `just searxng start` if not). The unit persists across reboots only if you
+**Before merging G7 to main:** the branch `g7-search` is NOT merged (per the
+commit-and-push policy, the merge + any push is the user's call). Ask the user
+before merging/pushing. The SearXNG unit persists across reboots only if
 `systemctl --user enable friday-searxng` — currently linked+started but NOT
-enabled.
+enabled (offer to enable it).
 
 The G7 design decisions (ADR-045/046/047) are UNCHANGED — do NOT relitigate:
   - SearXNG = loopback `systemd --user` unit, `127.0.0.1:8888` only (ADR-045).

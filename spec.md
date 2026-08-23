@@ -173,11 +173,11 @@ nowhere else. See ADR-027 and threat T2.
 
 | ID | Requirement | Acceptance |
 | :-- | :-- | :-- |
-| FR-60 | Search provider is a self-hosted SearXNG on `127.0.0.1:8888`. No other egress exists anywhere in the system | Network test: block all non-loopback egress, everything except search still works |
-| FR-61 | Connected mode is opt-in and visibly indicated in the TUI | Manual check at G7 |
-| FR-62 | Search results are sanitized: markup stripped, control chars stripped, max 5 results, max 1500 tokens, URLs held out of band | Sanitizer unit tests |
-| FR-63 | The grounding turn that consumes search output uses `final.gbnf` and therefore cannot dispatch an action | Injection suite IS-1..IS-20, 20/20 blocked |
-| FR-64 | Network failure produces a spoken fallback within the 8 s timeout, never a hang | Test with SearXNG stopped |
+| FR-60 | Search provider is a self-hosted SearXNG on `127.0.0.1:8888`. No other egress exists anywhere in the system | **MET (G7):** `just test-egress` — 8080/8888 bind 127.0.0.1 only, no 0.0.0.0 |
+| FR-61 | Search defaults to CONNECTED (ADR-046); LOCAL is the opt-out (`--local` / `/local`). Current mode visibly indicated in the TUI | **MET (G7):** mode in sub_title; `/local` `/connected` toggle; live local-mode refusal |
+| FR-62 | Search results are sanitized: markup stripped, control chars stripped, max 5 results, max 1500 tokens, URLs held out of band | **MET (G7):** `tests/test_search_sanitize.py` 6/6 |
+| FR-63 | The grounding turn that consumes search output uses `final.gbnf` and therefore cannot dispatch an action | **MET (G7):** `just test-injection` IS-1..IS-20, 20/20 blocked, zero executor dispatches |
+| FR-64 | Network failure produces a spoken fallback within the 8 s timeout, never a hang | **MET (G7):** `SearchUnavailable`→`SEARCH_UNAVAILABLE`; `tests/test_web_search_turn.py` |
 | FR-65 | Recommendations are stated as advisory and cite the source titles when available | Prompt + template review |
 
 ### 2.8 Text-to-speech
