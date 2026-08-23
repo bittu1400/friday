@@ -23,6 +23,17 @@ PANIC_ENV: str = "FRIDAY_DISABLED"
 
 LLAMA_BASE_URL: str = os.environ.get("FRIDAY_LLAMA_URL", "http://127.0.0.1:8080")
 
+# Search (G7, ADR-045/046). SearXNG on loopback is the ONLY egress (FR-60,
+# invariant #8). The URL is fixed to 127.0.0.1 — not configurable to a remote
+# host by design; the env override exists only to move the local port.
+SEARXNG_URL: str = os.environ.get("FRIDAY_SEARXNG_URL", "http://127.0.0.1:8888")
+SEARCH_TIMEOUT_S: float = float(os.environ.get("FRIDAY_SEARCH_TIMEOUT_S", "8.0"))  # FR-64
+SEARCH_MAX_RESULTS: int = 5     # FR-62
+SEARCH_MAX_TOKENS: int = 1500   # FR-62 (a word-count proxy in the sanitizer)
+# Connected by default (ADR-046): web_search works out of the box. Local mode
+# (no egress; search refuses audibly) is the opt-out, toggled at runtime.
+SEARCH_CONNECTED_DEFAULT: bool = os.environ.get("FRIDAY_SEARCH_LOCAL") is None
+
 # The persistence store (FR-50). Mode 0600, in the 0700 state dir; both are
 # enforced by store/db.py on open, not assumed.
 MEMORY_DB: Path = STATE_DIR / "memory.db"
