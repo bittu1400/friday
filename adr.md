@@ -1196,3 +1196,41 @@ integration shape, decided with the user 2026-08-23.
   lines; revisited at G6.
 
 **Status:** Accepted.
+
+---
+
+## ADR-041 — Every dependency is independently researched and benchmarked
+
+**Context.** ADR-039 (Kokoro) showed that the "obvious" or blog-recommended
+choice is often wrong on THIS hardware: the PyTorch Kokoro path would have
+pulled the entire CUDA stack and broken FR-71, int8 quantization was ~4×
+SLOWER than fp32 on this AVX-512-less CPU, and fp16 was silently broken.
+Every one of those was invisible until measured. The user asked that this
+be the standing method for all future packages, not a one-off.
+
+**Decision.** Adopting any package, model, or runtime for Friday requires,
+in order, BEFORE it is wired in:
+
+1. **Enumerate real options** — backends, quantization levels, configs — not
+   the first one found.
+2. **Footprint check before install** — `uv pip install --dry-run <pkg>`.
+   A dependency that pulls torch/CUDA or otherwise touches a hard invariant
+   (especially #6, "only llama-server touches CUDA") can be disqualified on
+   that alone.
+3. **Benchmark the survivors on this laptop** — real latency/RTF, RAM, VRAM,
+   thread scaling — never the datasheet figure.
+4. **Pick most-optimal AND robust**, pin it (SHA256 for downloaded weights),
+   and record the numbers + the rejected alternatives in an ADR.
+
+This is codified as working-agreement rule #7 in CLAUDE.md. It generalizes
+the Kokoro drill (ADR-039) to the STT stack (G6), SearXNG (G7), and anything
+later.
+
+**Consequences.** Each new dependency costs an hour or two of benchmarking
+up front. In exchange, Friday's stack is chosen from measured evidence on
+the actual machine, invariant violations are caught before install rather
+than in production, and every choice has a written, revisitable rationale.
+The cost is deliberate — the same friction the static tool registry (ADR-007)
+imposes, applied to dependencies.
+
+**Status:** Accepted.

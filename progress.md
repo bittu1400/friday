@@ -12,12 +12,14 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** G0 PASSED. G1 core risk RETIRED (2026-08-22). G2 PASSED
-(2026-08-23). G3 PASSED (2026-08-23) — text mode works: `just run` launches
-the 5 apps + youtube, eval 20/20, adversarial 16/16, zero `shell=True`, no
-irreversible tools, `thought` removed. Next is G4 (persistence). Four G1
-measurements remain deferred (VRAM under desktop load, exact KV size,
-whisper CPU bench, CPU-torch check) — none block G4.
+**Overall status:** G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
+(2026-08-23): text mode, eval 20/20, adv 16/16. G4 (2026-08-23): SQLite
+memory, prefs (confirm-first), audit, retention — 104 unit tests. G5
+(2026-08-23): voice out via kokoro-onnx (fp32/8t, af_bella), spoken in the
+loop, FR-71 verified, listening test signed off. **Next is G6 (voice in).**
+Deferred G1 measurements (VRAM under desktop load, exact KV size, whisper
+CPU bench) remain optional; the CPU-torch check is now moot (venv is
+torch-free, ADR-039). None block G6.
 
 ```
    G0 REPO        [x]
@@ -26,8 +28,8 @@ whisper CPU bench, CPU-torch check) — none block G4.
    G3 TEXT+REG    [x]   <-- registry+executor+TUI. eval 20/20, adv 16/16.
    G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention. 98 unit,
                         eval 20/20, adv 16/16.
-   G5 VOICE OUT   [~]   <-- code done: kokoro-onnx/fp32/8t, af_bella, wired
-                        into loop, FR-71 verified. USER listening test pending.
+   G5 VOICE OUT   [x]   <-- kokoro-onnx/fp32/8t, af_bella, wired into loop,
+                        FR-71 verified, listening test signed off 2026-08-23.
    G6 VOICE IN    [ ]
    G7 SEARCH      [ ]
    G8 SERVICE     [ ]
@@ -35,21 +37,35 @@ whisper CPU bench, CPU-torch check) — none block G4.
 
 ---
 
-## NEXT SESSION — START HERE (written 2026-08-23, after G4)
+## NEXT SESSION — START HERE (written 2026-08-23, after G5)
 
-G4 is done. `just run` is a working text assistant that now remembers
-preferences (confirm-first), forgets them, and injects a `<preferences>`
-digest into planning. Next is **G5 — Voice out** (Kokoro TTS). Per the
-build order `{G4,G5}`, G5 is the remaining half; G6 (voice in) follows.
+G0–G5 are DONE. `just run` is a working text+voice assistant: it plans,
+launches the 5 apps + youtube, remembers/forgets preferences (confirm-
+first), and SPEAKS its outcomes (af_bella, kokoro-onnx CPU). **Next is
+G6 — Voice in** (whisper STT on CPU, PTT, mic gate, barge-in).
 
-**G5 is CODE-COMPLETE (2026-08-23, ADR-039/040).** Benchmarked, built, and
-wired: `kokoro-onnx` (ONNX/CPU) fp32 8-thread, voice af_bella (fallback
-af_heart), spoken in the turn loop, `--no-voice` opt-out, FR-71 verified
-(0 VRAM). The ONLY thing left for G5 is the USER LISTENING TEST — run
-`just audition`, then `just say "..."` / `just run`, and confirm 20
-utterances sound clean (no clipping). Then tick G5 and start G6. If the
-next session opens here: do the listening sign-off first, then read G6
-(friday.md §8) and batch its questions.
+**Before adopting ANY new package at G6 (faster-whisper, sounddevice
+capture, etc.): run the independent research+benchmark drill** — it is now
+a standing rule (CLAUDE.md working agreement §7, ADR-041). Kokoro is the
+worked example (ADR-039): benchmark real variants/configs on THIS laptop,
+check the dependency's true footprint (`uv pip install --dry-run`) against
+the invariants, and record the winner with numbers before wiring it in.
+
+### Build G6 — read then batch questions
+1. **Read** friday.md §8 + ADR-004 (STT on CPU, int8, 8 threads) + ADR-012
+   (wake word cut — PTT only) + ADR-014 (half-duplex mic gate) + ADR-020
+   (barge-in/latency) + diagram 05 (audio pipeline). FRs: FR-60..FR-69,
+   FR-73 (cancellable playback lands here).
+2. **Independent-research the STT stack** (ADR-041): benchmark
+   `faster-whisper` `large-v3-turbo` int8 on CPU — p95 must be ≤ 800 ms on
+   20 real mic clips (that's deferred G1 item #3, do it here). If it fails,
+   ADR-004/ADR-018 reopen (CUDA arm). Confirm no torch is pulled.
+3. **Batch the G6 questions** (working agreement rule #2): PTT key (OQ-03 —
+   Menu vs Right-Ctrl, is it free in Hyprland?), mic device selection,
+   barge-in behaviour (cancel current TTS on speech? — FR-73), and whether
+   the FSM couples capture→STT→turn→TTS now.
+4. **Wire cancellable TTS** (FR-73, deferred from G5 per ADR-040) — the mic
+   that triggers barge-in exists at G6.
 
 ### What is true right now
 - Branch `main`. G0/G1(core)/G2/G3/G4 all passed. `just run` launches the 5
@@ -620,9 +636,8 @@ into the turn loop.
 - [x] CLI: `just say "…"`, `just audition`, `just fetch-voice`; `--no-voice`
       flag on `just run`
 - [x] `nvidia-smi` during synth = **2 MiB, zero compute apps** (FR-71 held)
-- [ ] **USER listening test: 20 utterances, no clipping** — run `just
-      audition` then `just say "…"` / `just run` and judge by ear. Only the
-      user can sign this off.
+- [x] **USER listening test — SIGNED OFF 2026-08-23.** User auditioned and
+      confirmed af_bella sounds good, no clipping. G5 accepted.
 
 ```
 VOICE CHOSEN:        af_bella (fallback af_heart) — OQ-22 / ADR-005
@@ -640,8 +655,8 @@ NOTE: eval unaffected by construction — eval_harness imports schema/client/
   prompt/validate only; G5 touched none of the planning path. Last run 20/20.
 ```
 
-**G5 status:** code complete + FR-71 verified. Gate PASSES once the user
-confirms the listening test (20 utterances, no clipping). Nothing blocks G6.
+**G5 status:** PASSED 2026-08-23. Code complete, FR-71 verified, listening
+test signed off (af_bella). Next is G6 (voice in). Nothing blocks it.
 
 ---
 
@@ -775,6 +790,8 @@ Append a line whenever a measurement changes a document.
    2026-08-23  voice = af_bella primary / af_heart fallback        OQ-22/ADR-005
    2026-08-23  G5 playback = sounddevice; cancel deferred to G6    ADR-040
    2026-08-23  TTS wired into turn loop (run_turn speaks)          ADR-040
+   2026-08-23  G5 PASSED: af_bella signed off, 104 unit, FR-71 ok  G5
+   2026-08-23  standing rule: research+bench every new dependency  ADR-041/CLAUDE§7
 ```
 
 ## Time log

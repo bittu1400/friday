@@ -73,6 +73,30 @@ note the fix in `progress.md`.
 Nothing is reported as done without the command output pasted into
 `progress.md`. "It should work" is not a status.
 
+### 7. Research every new dependency independently, on THIS machine.
+
+Before adopting ANY package, model, or runtime — not just the obvious ones —
+run the drill Kokoro established (ADR-039, ADR-041):
+
+```
+   1. Enumerate the real options (backends, quant levels, configs), not the
+      first one a blog names.
+   2. Check the true footprint BEFORE installing: `uv pip install --dry-run
+      <pkg>`. If it drags in torch/CUDA or anything that touches an
+      invariant (esp. #6 "only llama-server touches CUDA"), that alone can
+      disqualify it. Kokoro's PyTorch path pulled 99 pkgs + the CUDA stack;
+      kokoro-onnx pulled 8 and none.
+   3. Benchmark the survivors on THIS laptop — real latency/RTF, RAM, VRAM,
+      thread scaling — never trust the datasheet number. Measured beats
+      "should be faster": int8 Kokoro was 4x SLOWER here, fp16 was broken.
+   4. Pick the most optimal AND robust option, pin it (SHA256 for weights),
+      and record the numbers + the rejected alternatives in an ADR before
+      wiring it in.
+```
+
+The goal is the most optimal, robust system for Friday — chosen from
+evidence, not defaults. A dependency added without this drill is not done.
+
 ## Document map — read in this order
 
 ```
