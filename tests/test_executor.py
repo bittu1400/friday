@@ -48,9 +48,17 @@ def test_not_found_when_binary_absent() -> None:
     assert r.outcome is Outcome.NOT_FOUND
 
 
-def test_timeout_kills_and_reports() -> None:
-    r = _run(executor.execute(_spec(["sleep", "5"], "sleep", timeout=0.2), {}, RID))
-    assert r.outcome is Outcome.TIMEOUT
+def test_long_running_launch_returns_ok_promptly() -> None:
+    # ADR-043: a GUI app never exits, so "still running after the grace" is a
+    # successful launch. We must return on the grace, NOT wait the app out and
+    # NOT kill it.
+    import time
+
+    start = time.monotonic()
+    r = _run(executor.execute(_spec(["sleep", "5"], "sleep"), {}, RID))
+    elapsed = time.monotonic() - start
+    assert r.outcome is Outcome.OK
+    assert elapsed < 2.0  # returned on the 0.4 s grace, not after 5 s
 
 
 def test_dry_run_does_not_launch() -> None:

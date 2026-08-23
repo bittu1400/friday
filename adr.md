@@ -1294,3 +1294,56 @@ matters more than latency, distil-large-v3 is the tested fallback (accept
 ~2.6 s) — but confirm-first already mitigates the one case that matters.
 
 **Status:** Accepted. Supersedes the FR-10 `large-v3-turbo` pin.
+
+
+## ADR-043 — App launch by direct spawn, not `hyprctl dispatch exec`
+
+**Status:** Accepted (2026-08-23). Supersedes the launch mechanism assumed by
+ADR-007/ADR-034 (the argv still comes from code, not the model — that part is
+unchanged; only the wrapper is dropped).
+
+**Context.** G6 live testing surfaced two runtime failures behind every
+"That didn't work." on `open my browser`:
+
+1. The executor's minimal env (`{PATH, HOME}`) omitted the variables the
+   launcher needs to reach the compositor. Under that env
+   `hyprctl dispatch exec brave` exits 1 (`HYPRLAND_INSTANCE_SIGNATURE not
+   set!`).
+2. Even with the compositor vars restored, **Hyprland 0.56.2 changed
+   `hyprctl dispatch` into a Lua shorthand**: the CLI now wraps args as
+   `return hl.dispatch(exec brave)`, which fails to parse
+   (`')' expected near 'brave'`). No classic `dispatch exec <app>` form works
+   on this version; `hl.dsp.exec` is nil. The documented `dispatch
+   <dispatcher> [args]` and the parser disagree — a transitional/broken CLI.
+
+**Decision.** Stop shelling out to `hyprctl`. The executor spawns the app
+**binary directly** (`["brave"]`, `["foot"]`, …; youtube = `[browser, url]`)
+as a detached process (`start_new_session=True`, stdio to `DEVNULL`). The env
+carries `PATH, HOME` plus the two Wayland-client vars — `WAYLAND_DISPLAY` and
+`XDG_RUNTIME_DIR` — copied from the daemon's own environment, never built from
+params. A launch is **fire-and-forget**: wait a 0.4 s grace only to catch a
+binary that dies on startup (→ ERROR), then treat "still running" as a
+successful launch and leave it alone (→ OK). The old wait-for-exit +
+kill-on-timeout path is removed (`_kill_group` gone).
+
+**Why this is not a regression.** `hyprctl dispatch exec` was itself
+fire-and-forget — it returned 0 the moment it told the compositor to exec,
+never observing whether the app stayed up. Direct spawn has the same
+failure-detection surface (the `which()` preflight) plus early-crash
+detection the grace adds. It is also compositor- and CLI-version-independent
+— nothing here depends on Hyprland's shifting Lua interface.
+
+**Invariants preserved.** #2 (model never supplies a path/argv — code still
+builds argv from the closed `APPS`/registry table; youtube_url hardening
+unchanged, ADR-027); #3 (argv list, `shell=False`, minimal explicit env,
+bounded grace, no retry). The env is still explicit and minimal — two
+addressing vars, no wildcard, no param-derived keys; a registry test asserts
+`env ⊆ {PATH, HOME, WAYLAND_DISPLAY, XDG_RUNTIME_DIR}`.
+
+**Evidence.** `open_app browser` → `Outcome.OK`, 87 ms, Brave process running
+(`/opt/brave-bin/brave`). `uv run pytest` 147 passed.
+
+**Consequences.** Works on any Wayland compositor, not just Hyprland. If a
+future need requires compositor-side placement (specific workspace/monitor at
+launch), that is a separate decision — add it explicitly, do not reintroduce
+the brittle CLI dependency.

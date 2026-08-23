@@ -865,6 +865,14 @@ Append a line whenever a measurement changes a document.
    2026-08-23  int8 > fp32 for CT2 whisper (no AVX-512 penalty)    ADR-042
    2026-08-23  barge-in target: IDLE -> CAPTURING (diagram 01 fix) FR-7
    2026-08-23  G6 audio code + 40 tests (144 total); live pending  G6
+   2026-08-23  G6 live: STT+plan+TTS proven; heard='open my browser' G6
+   2026-08-23  BUG: hyprctl dispatch broke (Hyprland 0.56 lua CLI)  ADR-043
+   2026-08-23  launch = direct spawn, no hyprctl; WAYLAND_DISPLAY   ADR-043
+   2026-08-23  launch fire-and-forget, 0.4s grace; _kill_group gone ADR-043
+   2026-08-23  BUG: PTT bind needs PYTHONPATH (package=false, cwd~) G6/bind
+   2026-08-23  BUG: confirm timer shared cap handle -> separated    G6/daemon
+   2026-08-23  FRIDAY_DEBUG env: log heard/action to terminal only  G6/config
+   2026-08-23  open_app browser -> OK 87ms, Brave ran; 147 unit     G6/ADR-043
 ```
 
 ## Time log

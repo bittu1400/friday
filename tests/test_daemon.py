@@ -190,6 +190,49 @@ def test_confirm_handshake_yes_writes(monkeypatch):
     assert d.state.state is State.IDLE
 
 
+def test_confirm_timer_not_orphaned_by_answer_press(monkeypatch):
+    """BUG-3 regression: the 30 s confirm window uses its OWN timer handle, so
+    pressing the key to speak the answer (which arms the 15 s capture cap) does
+    not orphan it, and resolving the confirm cancels it — no stray timer is
+    left to reset the FSM mid-future-turn."""
+    from friday.store.prefs import PendingPreference
+
+    pending = PendingPreference(key="name", value="Subham")
+    _plan(monkeypatch, TurnResult(
+        "remember_preference", {}, "Remember your name is Subham?", False, pending=pending))
+
+    async def fake_confirm(p, prefs, audit, *, request_id):
+        return "Okay."
+    monkeypatch.setattr(daemon_mod, "confirm_preference", fake_confirm)
+
+    d = _daemon()
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        # Confirm window open on its own handle, separate from the cap timer.
+        confirm_timer = d._confirm_timer
+        assert confirm_timer is not None
+        assert confirm_timer is not d._cap_timer
+
+        # Press to answer: arms the capture cap. The confirm timer must survive
+        # unchanged (old bug overwrote the shared handle here).
+        d._transcriber = FakeTranscriber(text="yes")
+        await d.on_ptt("press")
+        assert d._confirm_timer is confirm_timer  # not clobbered
+        assert d._cap_timer is not None and d._cap_timer is not confirm_timer
+
+        await d.on_ptt("release")
+        await d._turn_task
+        # Resolved: the confirm timer is cancelled, not left to fire later.
+        assert d._confirm_timer is None
+        assert confirm_timer.cancelled()
+        assert d.state.state is State.IDLE
+
+    asyncio.run(go())
+
+
 def test_release_without_capture_is_ignored():
     d = _daemon()
 

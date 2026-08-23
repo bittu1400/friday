@@ -17,6 +17,7 @@ exists.
 
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -62,13 +63,27 @@ def youtube_url(query: str) -> str:
     return url
 
 
-# Minimal explicit env (FR-32): PATH so hyprctl and the target resolve, HOME
-# so a launched terminal/editor lands somewhere sane. Nothing inherited.
-_HYPR_ENV = MappingProxyType({"PATH": "/usr/bin:/bin", "HOME": _HOME})
+# Minimal explicit env (FR-32): PATH + HOME so the binary resolves and lands
+# somewhere sane, plus the two variables a Wayland client needs to reach the
+# compositor — WAYLAND_DISPLAY (the socket name) and XDG_RUNTIME_DIR (its dir).
+# Nothing else is inherited. We spawn the app binary DIRECTLY, not through
+# `hyprctl dispatch exec` (ADR-043): Hyprland 0.56 turned `hyprctl dispatch`
+# into a Lua shorthand and the old `dispatch exec <app>` form no longer parses
+# (`')' expected near '<app>'`). A direct detached spawn is compositor- and
+# CLI-version-independent, and matches hyprctl's old fire-and-forget semantics
+# (it never detected whether the app stayed up either). These vars are
+# compositor addressing copied from the daemon's own environment, never built
+# from params, so the env stays explicit and minimal.
+def _build_app_env() -> Mapping[str, str]:
+    env = {"PATH": "/usr/bin:/bin", "HOME": _HOME}
+    for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+        val = os.environ.get(key)
+        if val:
+            env[key] = val
+    return MappingProxyType(env)
 
 
-def _hypr(*args: str) -> list[str]:
-    return ["hyprctl", "dispatch", "exec", *args]
+_APP_ENV = _build_app_env()
 
 
 REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
@@ -76,31 +91,31 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
         "open_app": ToolSpec(
             tool_id="open_app",
             risk="reversible",
-            build_argv=lambda p: _hypr(*APPS[p["app"]].argv),
+            build_argv=lambda p: list(APPS[p["app"]].argv),
             target_binary=lambda p: APPS[p["app"]].argv[0],
             display=lambda p: APPS[p["app"]].display,
             cwd=_HOME,
-            env=_HYPR_ENV,
+            env=_APP_ENV,
             timeout_s=5.0,
         ),
         "open_youtube": ToolSpec(
             tool_id="open_youtube",
             risk="reversible",
-            build_argv=lambda p: _hypr(_BROWSER, "https://www.youtube.com"),
+            build_argv=lambda p: [_BROWSER, "https://www.youtube.com"],
             target_binary=lambda p: _BROWSER,
             display=lambda p: "YouTube",
             cwd=_HOME,
-            env=_HYPR_ENV,
+            env=_APP_ENV,
             timeout_s=5.0,
         ),
         "youtube_search": ToolSpec(  # ADR-027, THE exception
             tool_id="youtube_search",
             risk="reversible",
-            build_argv=lambda p: _hypr(_BROWSER, youtube_url(p["query"])),
+            build_argv=lambda p: [_BROWSER, youtube_url(p["query"])],
             target_binary=lambda p: _BROWSER,
             display=lambda p: "YouTube",
             cwd=_HOME,
-            env=_HYPR_ENV,
+            env=_APP_ENV,
             timeout_s=5.0,
         ),
     }

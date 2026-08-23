@@ -15,9 +15,7 @@ Guarantees (architecture.md §3.3, FR-32, FR-41):
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
-import signal
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -32,6 +30,10 @@ from ..errors import (
     PolicyRejected,
 )
 from .registry import ToolSpec
+
+# A launch is fire-and-forget: wait only long enough to catch a binary that
+# dies on startup, then treat "still running" as a successful launch (ADR-043).
+_LAUNCH_GRACE_S = 0.4
 
 
 @dataclass(frozen=True)
@@ -67,8 +69,9 @@ async def execute(
         # caught this; fail closed rather than trust it.
         return ToolResult(Outcome.DENIED, "", E_POLICY_DENIED)
 
-    # Preflight: hyprctl returns 0 even when the target app does not exist,
-    # so exit code cannot tell us "not installed". Check the real binary.
+    # Preflight the real binary so a missing app is NOT_FOUND up front, before
+    # the spawn — a clearer signal than catching the exec error, and the same
+    # verdict either way (the spawn's FileNotFoundError also maps to NOT_FOUND).
     if shutil.which(target) is None:
         return ToolResult(Outcome.NOT_FOUND, display, E_TOOL_NOTFOUND)
 
@@ -82,31 +85,25 @@ async def execute(
             *argv,
             cwd=spec.cwd,
             env=dict(spec.env),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,  # own process group, killable as a unit
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,  # detach: the GUI app outlives this turn
         )
     except (FileNotFoundError, PermissionError):
         return ToolResult(Outcome.NOT_FOUND, display, E_TOOL_NOTFOUND)
 
+    # Fire-and-forget launch (ADR-043). A GUI app does not exit, so we do NOT
+    # wait for it — we give it a short grace to surface an IMMEDIATE failure
+    # (bad binary, missing lib -> quick non-zero exit), then treat "still
+    # running" as success and leave it alone. This is the semantics hyprctl's
+    # `dispatch exec` had; the grace only adds early-crash detection.
     try:
-        _, _ = await asyncio.wait_for(proc.communicate(), timeout=spec.timeout_s)
+        rc = await asyncio.wait_for(proc.wait(), timeout=_LAUNCH_GRACE_S)
     except asyncio.TimeoutError:
-        _kill_group(proc)
-        await proc.wait()  # reap so the transport is cleaned up on this loop
-        return ToolResult(Outcome.TIMEOUT, display, E_TOOL_TIMEOUT)
-    finally:
         dur = int((loop.time() - start) * 1000)
-
-    if proc.returncode == 0:
+        return ToolResult(Outcome.OK, display, None, dur)  # launched, running
+    dur = int((loop.time() - start) * 1000)
+    if rc == 0:
         return ToolResult(Outcome.OK, display, None, dur)
     return ToolResult(Outcome.ERROR, display, E_TOOL_FAILED, dur)
-
-
-def _kill_group(proc: asyncio.subprocess.Process) -> None:
-    """Kill the whole process group so a wrapper that forked children dies
-    with the timeout, not just the direct child."""
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass

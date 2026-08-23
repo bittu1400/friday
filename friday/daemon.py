@@ -67,6 +67,7 @@ class Daemon:
         self._speak_task: asyncio.Task | None = None
         self._pending: PendingPreference | None = None  # awaiting voice confirm
         self._cap_timer: asyncio.TimerHandle | None = None
+        self._confirm_timer: asyncio.TimerHandle | None = None
         self._seq = 0
         self.rejected = 0  # FR-5 counter (observable in tests)
 
@@ -130,6 +131,8 @@ class Daemon:
             if text is None:  # timeout already handled
                 return
             self.state.got_transcript(nonempty=bool(text))
+            if config.DEBUG:
+                log.info("[debug] %s heard=%r", rid, text)
             if not text:  # FR-12 empty / FR-13 over-limit -> IDLE, silent
                 return
 
@@ -154,6 +157,11 @@ class Daemon:
                 self._open_confirm_window()
                 return
 
+            if config.DEBUG:
+                log.info(
+                    "[debug] %s action=%s dispatched=%s spoken=%r",
+                    rid, result.plan_name, result.dispatched, result.spoken,
+                )
             will_speak = bool(result.spoken) and result.spoken != "(no action)"
             self.state.got_plan(will_speak=will_speak)
             if will_speak:
@@ -185,17 +193,28 @@ class Daemon:
     # --- confirm-first voice handshake ------------------------------------
 
     def _open_confirm_window(self) -> None:
+        # A DISTINCT timer from the 15 s capture cap: pressing the key to speak
+        # the yes/no answer arms the capture cap, and sharing one handle would
+        # orphan this 30 s timer (it would then fire mid-future-turn and reset
+        # the FSM). Keep them separate.
         loop = asyncio.get_running_loop()
-        self._cap_timer = loop.call_later(_CONFIRM_WINDOW, self._expire_confirm)
+        self._confirm_timer = loop.call_later(_CONFIRM_WINDOW, self._expire_confirm)
+
+    def _disarm_confirm(self) -> None:
+        if self._confirm_timer is not None:
+            self._confirm_timer.cancel()
+            self._confirm_timer = None
 
     def _expire_confirm(self) -> None:
         # 30 s with no answer -> cancel silently (diagram 01).
+        self._confirm_timer = None
         self._pending = None
         if self.state.state is not State.IDLE:
             self.state.reset()
 
     async def _resolve_confirm(self, text: str, rid: str) -> None:
         pending, self._pending = self._pending, None
+        self._disarm_confirm()
         self._disarm_capture_cap()
         if is_affirmation(text):
             spoken = await confirm_preference(
@@ -243,6 +262,7 @@ class Daemon:
     async def _abort(self) -> None:
         self._cancel_speak()
         self._disarm_capture_cap()
+        self._disarm_confirm()
         self._pending = None
         self.state.reset()
 

@@ -33,12 +33,11 @@ def test_as14_overlong_query_rejected() -> None:
 
 def test_as15_query_cannot_inject_a_second_argv_element() -> None:
     # Even a multi-word query stays a single argv element; argv is always
-    # exactly [hyprctl, dispatch, exec, <browser>, <one url>].
+    # exactly [<browser>, <one url>] (ADR-043: direct spawn, no hyprctl).
     argv = SPEC.build_argv({"query": "lo fi jazz beats"})
-    assert len(argv) == 5
-    assert argv[:3] == ["hyprctl", "dispatch", "exec"]
-    assert argv[4].startswith("https://www.youtube.com/results?search_query=")
-    assert " " not in argv[4]  # the space was percent-encoded, not split
+    assert len(argv) == 2
+    assert argv[1].startswith("https://www.youtube.com/results?search_query=")
+    assert " " not in argv[1]  # the space was percent-encoded, not split
 
 
 def test_as16_query_cannot_change_the_netloc() -> None:

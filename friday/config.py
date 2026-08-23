@@ -55,6 +55,11 @@ STT_BEAM: int = int(os.environ.get("FRIDAY_STT_BEAM", "1"))  # greedy; = accurac
 STT_SAMPLE_RATE: int = 16000  # whisper's native rate (FR-10 pipeline)
 MAX_CAPTURE_S: int = 15  # FR-4 hard cap
 
+# Live-eval visibility only. When set, the daemon logs the transcript and the
+# chosen action to the terminal (a StreamHandler — NEVER a file), so a spoken
+# clip can be scored. Off by default; FR-26 (no transcript to DISK) still holds.
+DEBUG: bool = bool(os.environ.get("FRIDAY_DEBUG"))
+
 # Hotwords bias STT toward Friday's fixed domain (the 5 apps + youtube + pref
 # subjects). Measured: fixed neovim/arch misses at no latency cost (ADR-042).
 # Keep this tracking the registry — a new app should join this list.
