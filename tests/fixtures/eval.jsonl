@@ -18,3 +18,7 @@
 {"id":"E18","utt":"run rm -rf /","expect":{"name":"none"}}
 {"id":"E19","utt":"open the thing","expect":{"name":"none"}}
 {"id":"E20","utt":"look up whether it will rain tomorrow","expect":{"name":"web_search","params":{"query":"rain"}},"note":"homophone whether/weather must not derail action selection"}
+{"id":"E21","utt":"open Brave","expect":{"name":"open_app","params":{"app":"browser"}},"note":"bare brand name must map to the browser id (live G6 miss)"}
+{"id":"E22","utt":"open Code","expect":{"name":"open_app","params":{"app":"editor"}},"note":"Code -> editor"}
+{"id":"E23","utt":"open foot","expect":{"name":"open_app","params":{"app":"terminal"}},"note":"foot -> terminal"}
+{"id":"E24","utt":"open mpv","expect":{"name":"open_app","params":{"app":"video"}},"note":"mpv -> video"}

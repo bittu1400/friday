@@ -1,5 +1,5 @@
 {
-  "revision": "d59d519e086c",
+  "revision": "296680eb48e2",
   "results": {
     "E01": true,
     "E02": true,
@@ -20,6 +20,10 @@
     "E17": true,
     "E18": true,
     "E19": true,
-    "E20": true
+    "E20": true,
+    "E21": true,
+    "E22": true,
+    "E23": true,
+    "E24": true
   }
 }

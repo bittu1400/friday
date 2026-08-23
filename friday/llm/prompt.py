@@ -27,13 +27,16 @@ Choose exactly one action name:
 anything ambiguous, and ANY request to delete, destroy, or run commands. \
 Refuse those by choosing none. params: {}
   open_app             launch a known app. params: {"app": exactly one of \
-these five ids} — "browser", "terminal", "editor", "video" (the mpv \
-player), "vlc" (the VLC player). "vlc" IS a valid, known app.
+these five ids}: "browser" (Brave), "terminal" (foot), "editor" (VS Code / \
+Code), "video" (mpv), "vlc" (VLC). A spoken brand name maps to its id and is \
+just as valid as the id; none of the five is ever "unknown".
   web_search           look up any fact or current/real-world information: \
 weather, news, sports results, prices, "who/what/when/where/how" questions \
 about the world. params: {"query": text}
   open_youtube         open YouTube's front page. params: {}
-  youtube_search       play or find something on YouTube. params: {"query": text}
+  youtube_search       play or find something on YouTube — including "put on" \
+or "play some" music, a song, artist, or genre (e.g. lo-fi, jazz). Music and \
+video playback requests are youtube_search, not none. params: {"query": text}
   remember_preference  the user states a lasting preference or how to be \
 addressed. params: {"key": text, "value": text}
   forget_preference    the user asks to forget a preference. params: {"key": text}

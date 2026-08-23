@@ -944,6 +944,9 @@ Append a line whenever a measurement changes a document.
    2026-08-23  toggle debounce 0.4s (tap-only key machine-guns)    ADR-044
    2026-08-23  glitch RESOLVED: Copilot Super-leak, key dropped    ADR-044
    2026-08-23  G6 physical key PROVEN: tap->"open vlc"->VLC; 150 unit G6/ADR-044
+   2026-08-23  planner brand-name gap fixed (Brave/Code/foot/mpv->id) G6/prompt
+   2026-08-23  youtube_search strengthened (music/"put on") re E11    G6/prompt
+   2026-08-23  eval set 20->24 (+brand fixtures E21-24); 24/24         G6/eval
 ```
 
 ## Time log
