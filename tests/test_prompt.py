@@ -32,8 +32,24 @@ def test_prefs_lines_are_key_value_only() -> None:
 
 def test_policy_mentions_chat_routing() -> None:
     from friday.llm.prompt import SYSTEM_POLICY
+
+    # Anchor on the literal action-entry line prefix (two-space indent, the
+    # name, then a space before the description) used by every entry in the
+    # enum block. A plain substring check on lowercased text would pass on
+    # "chit-chat" alone even with no `chat` action -- this only passes when
+    # `chat` exists as its own entry.
+    assert "\n  chat " in SYSTEM_POLICY
+
     low = SYSTEM_POLICY.lower()
-    assert "chat" in low                       # the action is named
-    assert "greeting" in low or "chit-chat" in low or "conversation" in low
+    assert "greeting" in low or "conversation" in low
+
+    # `none` must no longer claim casual talk/chit-chat for itself -- that
+    # routing moved to `chat`. Isolate the `none` entry's text (from its line
+    # up to the `chat` line that must immediately follow it) and check it.
+    none_idx = SYSTEM_POLICY.index("\n  none ")
+    chat_idx = SYSTEM_POLICY.index("\n  chat ")
+    none_entry = SYSTEM_POLICY[none_idx:chat_idx].lower()
+    assert "chit-chat" not in none_entry and "greeting" not in none_entry
+
     # none is narrowed to genuine refusals/ambiguity, not casual talk
     assert "destructive" in low or "refuse" in low
