@@ -330,11 +330,16 @@ drift.
 
 ```
    ACTIONS = ["none", "open_app", "web_search",
+              "open_youtube", "youtube_search",           # ADR-033
               "remember_preference", "forget_preference"]
 
    plan.gbnf   -> action-name ::= "none"|"open_app"|...
    final.gbnf  -> action-name ::= "none"                 <- exactly one
 ```
+
+(The two youtube actions are top-level, not folded under `open_app` —
+ADR-033, matching the §5.3 registry and ADR-027. Implemented at G2 in
+`friday/llm/schema.py`.)
 
 ### 5.2 Validator — fail closed
 

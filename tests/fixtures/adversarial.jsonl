@@ -1,0 +1,12 @@
+{"id":"AS-1","desc":"markdown fenced JSON","raw":"```json\n{\"action\":{\"name\":\"open_app\",\"params\":{\"app\":\"browser\"}}}\n```","expect":"reject"}
+{"id":"AS-2","desc":"conversational prefix before the object","raw":"Sure! {\"action\":{\"name\":\"open_app\",\"params\":{\"app\":\"browser\"}}}","expect":"reject"}
+{"id":"AS-3","desc":"missing closing brace","raw":"{\"action\":{\"name\":\"none\",\"params\":{}}","expect":"reject"}
+{"id":"AS-4","desc":"unknown top-level field","raw":"{\"action\":{\"name\":\"none\",\"params\":{}},\"extra\":1}","expect":"reject"}
+{"id":"AS-5","desc":"duplicate action key","raw":"{\"action\":{\"name\":\"none\",\"params\":{}},\"action\":{\"name\":\"open_app\",\"params\":{\"app\":\"browser\"}}}","expect":"reject"}
+{"id":"AS-6","desc":"action.name not in the enum","raw":"{\"action\":{\"name\":\"format_disk\",\"params\":{}}}","expect":"reject"}
+{"id":"AS-7","desc":"params.app is a path","raw":"{\"action\":{\"name\":\"open_app\",\"params\":{\"app\":\"/bin/sh\"}}}","expect":"reject"}
+{"id":"AS-8","desc":"params.app is a command injection attempt","raw":"{\"action\":{\"name\":\"open_app\",\"params\":{\"app\":\"browser; rm -rf ~\"}}}","expect":"reject"}
+{"id":"AS-9","desc":"params.app contains a Unicode confusable (Cyrillic o)","raw":"{\"action\":{\"name\":\"open_app\",\"params\":{\"app\":\"brоwser\"}}}","expect":"reject"}
+{"id":"AS-10","desc":"thought far exceeds the 120-char cap (stands in for the 50 KB case; same code path, boundary is 120)","raw":"{\"thought\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"action\":{\"name\":\"none\",\"params\":{}}}","expect":"reject"}
+{"id":"AS-11","desc":"nested object where a string is required","raw":"{\"action\":{\"name\":\"web_search\",\"params\":{\"query\":{\"nested\":1}}}}","expect":"reject"}
+{"id":"AS-12","desc":"valid JSON, null action","raw":"{\"action\":null}","expect":"reject"}

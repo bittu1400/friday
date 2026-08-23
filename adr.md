@@ -241,7 +241,20 @@ the delta here. Until then this decision is a hypothesis.
 The latency objection is deferred to ADR-020 (do not optimize before
 measuring).
 
-**Status:** Accepted provisionally; revisit with G2 evidence.
+**G2 evidence (2026-08-23).** OQ-08 measured on the 20-fixture seed set,
+Qwen2.5-7B-Instruct-Q4_K_M, temperature 0: **18/20 with `thought`, 18/20
+without — delta 0 fixtures** (the two failures, E05 and E07, are identical
+in both arms). The pre-committed rule was "delta < 2 -> delete the field
+and close the privacy question permanently." The delta is 0. `thought`
+does not measurably help tool selection on this set, and deleting it also
+removes the sensitive-record concern entirely rather than managing it by
+lifetime. **Recommendation: remove `thought` from schema/grammar/prompt at
+the start of G3.** Not done in the G2 commit (it touches the grammar and
+warrants a clean re-baseline); flagged for user confirmation. The suite
+will grow, so this can be re-measured if a later fixture set disagrees.
+
+**Status:** Resolved provisionally by G2 data — delete recommended,
+removal pending at G3.
 
 ---
 
@@ -792,5 +805,58 @@ the one binary.
 narrower T2 surface. Adding firefox or kitty back is a code change plus an
 eval fixture, by design — not a config edit. No behaviour change to
 `youtube_search` or to the "model never supplies argv" invariant.
+
+**Status:** Accepted.
+
+---
+
+## ADR-033 — G2 eval harness: schema shape, scoring, and suite scope
+
+**Context.** G2 builds the eval harness before any implementation. The
+harness's runner is `fixture -> prompt -> llama-server -> validator ->
+compare`, but the validator and grammar were nominally G3 deliverables, and
+the adversarial suite feeds hostile output *straight into the validator* —
+so a real validator has to exist at G2. Several smaller choices also had no
+single right answer and were decided with the user, 2026-08-23.
+
+**Decisions (user, 2026-08-23).**
+
+1. **Build scope — minimal-but-real, no throwaway.** `llm/schema.py` is
+   written now as the single source of truth; it generates `plan.gbnf` and
+   drives `llm/validate.py`. `llm/client.py` is a small synchronous
+   stdlib-only llama client (connect-retry only, never on generate). G3
+   layers registry/executor/templates on top. Nothing built here is
+   discarded at G3.
+
+2. **YouTube is two top-level actions**, `open_youtube` and
+   `youtube_search`, alongside `open_app`/`web_search`/`remember_preference`
+   /`forget_preference`/`none`. This resolves the drift where friday.md
+   §5.1 listed 5 actions (no youtube) while §5.3 registered the two youtube
+   tools. Matches the registry and ADR-027. friday.md §5.1 corrected.
+
+3. **App enum is the semantic vocabulary a user speaks** — `browser`,
+   `terminal`, `editor`, `video`, `vlc` — already the ADR-032 table. A
+   fixture says `{"app":"browser"}`, not `{"app":"brave"}`; brand
+   resolution lives in the G3 registry. Fixtures track how the user talks,
+   so swapping the browser brand later does not rewrite the eval set.
+
+4. **Scoring: enum params exact, free-text params lenient.** Action name
+   must match exactly. Enum params (`app`) match exactly after NFKC.
+   Free-text params (`web_search.query`, `youtube_search.query`, remember
+   `value`) score by normalized case-insensitive containment — the
+   expected substring must appear in the model's value. Tolerates phrasing
+   while still catching a wrong extraction. Fixtures that pin only the name
+   (memory actions) check only the name.
+
+5. **G2 adversarial suite is AS-1..AS-12 (12), not 16.** These test the
+   plan-shape validator (FR-24). AS-13..AS-16 test the youtube query
+   builder (FR-39x) which is registry code — they land at G3 with the URL
+   builder, as progress.md G3 and architecture.md's layout already state.
+   spec.md §5.2's "16" is the grown total; a note was added there.
+
+**Consequences.** A working `just eval` at G2 with a committed baseline and
+a regression map. The validator is real from day one, so the adversarial
+suite is a genuine control, not a stub. The synchronous client is rewritten
+to async only when the turn loop needs it — an intentional, contained cost.
 
 **Status:** Accepted.

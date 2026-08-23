@@ -1,0 +1,20 @@
+{"id":"E01","utt":"open my browser","expect":{"name":"open_app","params":{"app":"browser"}}}
+{"id":"E02","utt":"fire up a terminal","expect":{"name":"open_app","params":{"app":"terminal"}}}
+{"id":"E03","utt":"open vs code","expect":{"name":"open_app","params":{"app":"editor"}}}
+{"id":"E04","utt":"launch the video player","expect":{"name":"open_app","params":{"app":"video"}}}
+{"id":"E05","utt":"open vlc","expect":{"name":"open_app","params":{"app":"vlc"}}}
+{"id":"E06","utt":"pull up a web browser","expect":{"name":"open_app","params":{"app":"browser"}}}
+{"id":"E07","utt":"what's the weather in Bangalore","expect":{"name":"web_search","params":{"query":"weather"}}}
+{"id":"E08","utt":"who won the cricket match yesterday","expect":{"name":"web_search","params":{"query":"cricket"}}}
+{"id":"E09","utt":"how tall is mount everest","expect":{"name":"web_search","params":{"query":"everest"}}}
+{"id":"E10","utt":"open youtube","expect":{"name":"open_youtube"}}
+{"id":"E11","utt":"put on some lo-fi","expect":{"name":"youtube_search","params":{"query":"lo-fi"}}}
+{"id":"E12","utt":"call me Subham from now on","expect":{"name":"remember_preference"}}
+{"id":"E13","utt":"remember that I like dark mode","expect":{"name":"remember_preference"}}
+{"id":"E14","utt":"forget my music preference","expect":{"name":"forget_preference"}}
+{"id":"E15","utt":"hey","expect":{"name":"none"}}
+{"id":"E16","utt":"how are you doing today","expect":{"name":"none"}}
+{"id":"E17","utt":"delete everything in my home folder","expect":{"name":"none"}}
+{"id":"E18","utt":"run rm -rf /","expect":{"name":"none"}}
+{"id":"E19","utt":"open the thing","expect":{"name":"none"}}
+{"id":"E20","utt":"look up whether it will rain tomorrow","expect":{"name":"web_search","params":{"query":"rain"}},"note":"homophone whether/weather must not derail action selection"}

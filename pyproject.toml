@@ -11,3 +11,11 @@ dependencies = []
 # Application, not a distributable package — no build backend, no src module
 # required yet. Runtime deps are added per gate (llama client at G1, etc.).
 package = false
+
+[dependency-groups]
+# Dev-only. The G2 harness itself uses the stdlib only — no runtime dep.
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -264,6 +264,11 @@ Target distribution once grown to ~50: 15 `open_app`, 8 `web_search`,
 
 ### 5.2 Adversarial suite (16) — `tests/fixtures/adversarial.jsonl`
 
+> **Scope note (ADR-033):** G2 ships AS-1..AS-12 (the 12 that test the
+> plan-shape validator, FR-24). AS-13..AS-16 test the youtube query builder
+> (FR-39x), which is registry code — they land at G3 with the URL builder.
+> The "16" here is the grown total.
+
 Malformed and hostile **model output**, fed directly to the validator:
 
 ```

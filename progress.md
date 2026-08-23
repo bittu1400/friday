@@ -12,16 +12,17 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** G0 PASSED. G1 core risk RETIRED (2026-08-22) — the
-sm_120a llama.cpp build runs on the GPU and answers curl; that was the
-whole point of the gate. Four G1 measurements are deferred to next session
-(VRAM under desktop load, exact KV size, whisper CPU bench, CPU-torch
-check) — none blocks starting G2. No app code exists.
+**Overall status:** G0 PASSED. G1 core risk RETIRED (2026-08-22). G2
+PASSED (2026-08-23) — `just eval` prints a baseline (18/20 on the 20-fixture
+seed), the adversarial validator is real (12/12 rejected), OQ-08 answered
+(delta 0). First app code now exists under `friday/`. Four G1 measurements
+remain deferred (VRAM under desktop load, exact KV size, whisper CPU bench,
+CPU-torch check) — none blocked G2, none block G3.
 
 ```
    G0 REPO        [x]
    G1 TOOLCHAIN   [~]   <-- sm_120a PROVEN. measurements deferred (see G1).
-   G2 EVAL        [ ]
+   G2 EVAL        [x]   <-- harness + baseline + adversarial. OQ-08 done.
    G3 TEXT+REG    [ ]
    G4 PERSIST     [ ]
    G5 VOICE OUT   [ ]
@@ -32,7 +33,28 @@ check) — none blocks starting G2. No app code exists.
 
 ---
 
-## NEXT SESSION — START HERE (written 2026-08-22)
+## NEXT SESSION — START HERE (written 2026-08-23)
+
+G2 is done. The harness exists and prints a baseline. Next is **G3 — text
+mode and the tool registry**. Before writing G3 code:
+
+1. **Confirm the OQ-08 removal.** Delta was 0, so ADR-011's pre-committed
+   rule says delete `thought`. It was NOT removed in the G2 commit. First
+   G3 task (pending your yes): drop `thought` from `friday/llm/schema.py`,
+   the prompt, regenerate the grammars (`just grammar`), re-run
+   `just eval-baseline`. Keeps 18/20 (both arms already equal).
+2. **Read G3** in this file + friday.md §5 + ADR-006/007/008/009 + ADR-033.
+   Batch every G3 question up front (CLAUDE.md working agreement).
+3. **The E05/E07 failures are the first G3 targets** — they are prompt/
+   registry tuning, and G3's gate is eval >= 90% + adversarial 16/16.
+4. `just serve` to bring llama-server back (it is stopped at end of G2).
+
+The old G1-deferred block below still stands (VRAM peak, KV size, whisper
+bench) — optional, blocks nothing.
+
+---
+
+## PRIOR SESSION NOTE (written 2026-08-22)
 
 Everything below is verified state, not intention. Read this block, then
 `git log --oneline -8` to see the commits it refers to.
@@ -277,27 +299,58 @@ EVIDENCE (must show 127.0.0.1 only):
 **Acceptance:** `just eval` prints a pass count. Any count. The number is
 the baseline; it does not need to be good yet.
 
-- [ ] `tests/fixtures/eval.jsonl` — 20 seed fixtures (ADR-030), drafted by Claude, edited by user
-- [ ] `tests/fixtures/adversarial.jsonl` — 16 malformed/hostile model outputs (incl. AS-13..AS-16)
-- [ ] Runner: fixture -> prompt -> llama-server -> validator -> compare
-- [ ] Baseline recorded
+- [x] `tests/fixtures/eval.jsonl` — 20 seed fixtures (ADR-030), drafted by Claude (awaiting user phrasing edits)
+- [x] `tests/fixtures/adversarial.jsonl` — 12 (AS-1..AS-12); AS-13..AS-16 deferred to G3 with the youtube URL builder (ADR-033)
+- [x] Runner: fixture -> prompt -> llama-server -> validator -> compare — `friday/eval_harness.py`
+- [x] Baseline recorded — `tests/fixtures/baseline.json`
+
+New code (G2, minimal-but-real per ADR-033):
+```
+   friday/llm/schema.py        single source of truth (grammar + validator)
+   friday/llm/grammars/*.gbnf   generated: plan.gbnf, plan_no_thought.gbnf
+   friday/llm/validate.py      fail-closed plan validator
+   friday/llm/client.py        sync stdlib llama client (connect-retry only)
+   friday/llm/prompt.py        SYSTEM POLICY (planning prompt)
+   friday/eval_harness.py      the runner; prints the 3 ADR-030 numbers
+   tests/test_{schema,validate,adversarial}.py
+   justfile                    serve / eval / eval-thought / test targets
+```
 
 ```
 BASELINE:
-  fixture-set revision:  ____   (git short sha of eval.jsonl)
-  eval:        __/__   (___%)
-  known-failing: __
-  adversarial: __/16
+  fixture-set revision:  d59d519e086c   (sha1 of eval.jsonl)
+  eval:        18/20   (90%)   [with thought]  -- E05, E07 the two failures
+  known-failing: 0
+  adversarial: 12/12  (all AS-1..12 rejected; `uv run pytest` -> 22 passed)
   model artifact: bartowski Qwen2.5-7B-Instruct-Q4_K_M
-  date:
+  date: 2026-08-23
+
+EVIDENCE:
+$ uv run python -m friday.eval_harness --both
+  === with thought ===     passed 18/20 (90%)  known-failing 0  regressions 0
+  === without thought ===  passed 18/20 (90%)  known-failing 0  regressions 0
+  OQ-08 delta (thought - no-thought): 0 fixtures
+
+$ uv run pytest -q
+  22 passed
+
+FAILURES (baseline reality, tuning targets for G3 — not G2 blockers):
+  E05 "open vlc"                     -> none. Model said "vlc is not in the
+                                        list of known apps" though vlc IS in
+                                        the enum. Prompt-clarity fix at G3.
+  E07 "what's the weather in ..."    -> none. Weather query not routed to
+                                        web_search. Prompt-tuning at G3.
 ```
 
-- [ ] OQ-08 answered: `thought` on vs off
+- [x] OQ-08 answered: `thought` on vs off
 
 ```
-   with thought:    __/__
-   without thought: __/__
-   DECISION (updates ADR-011):
+   with thought:    18/20
+   without thought: 18/20
+   DECISION (updates ADR-011): delta 0 (< 2) -> `thought` earns nothing.
+   Remove it from schema/grammar/prompt at the start of G3 (deferred out of
+   the G2 commit for a clean re-baseline; flagged for user confirmation).
+   OQ-08 closed. See ADR-011, ADR-033.
 ```
 
 ---
@@ -498,6 +551,11 @@ Append a line whenever a measurement changes a document.
    2026-08-22  llama.cpp sm_120a build runs on GPU; risk gone   G1/ADR-021
    2026-08-22  CUDA 13.3 needs g++-15 host (gcc16 too new)      G1 build note
    2026-08-22  b21e4de log dropped "compute capability" strings G1 doc-drift
+   2026-08-23  G2 harness built; baseline 18/20, adversarial 12/12  G2/ADR-033
+   2026-08-23  youtube = 2 top-level actions (fixes §5.1 drift)     ADR-033
+   2026-08-23  eval scoring: enum exact, free-text lenient          ADR-033
+   2026-08-23  G2 adversarial = AS-1..12; AS-13..16 to G3           ADR-033
+   2026-08-23  OQ-08 delta 0: drop `thought` (removal at G3)        ADR-011
 ```
 
 ## Time log

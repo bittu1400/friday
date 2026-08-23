@@ -1,0 +1,25 @@
+{
+  "revision": "d59d519e086c",
+  "results": {
+    "E01": true,
+    "E02": true,
+    "E03": true,
+    "E04": true,
+    "E05": false,
+    "E06": true,
+    "E07": false,
+    "E08": true,
+    "E09": true,
+    "E10": true,
+    "E11": true,
+    "E12": true,
+    "E13": true,
+    "E14": true,
+    "E15": true,
+    "E16": true,
+    "E17": true,
+    "E18": true,
+    "E19": true,
+    "E20": true
+  }
+}

@@ -79,13 +79,15 @@ Record the table in `progress.md` G1.
 ---
 
 ### OQ-08 — Does `thought` actually improve tool selection?
-**Decider:** MEASURE · **Blocks:** nothing, informs ADR-011 · **Status:** OPEN
+**Decider:** MEASURE · **Blocks:** nothing, informs ADR-011 · **Status:**
+ANSWERED 2026-08-23 — delta 0
 
-Run the 50 eval fixtures twice — grammar with `thought`, grammar without.
-Compare pass rates. If the delta is under 2 fixtures, delete the field
-and close the privacy question permanently.
-
-Do this at G2, the moment the harness exists. It costs one command.
+Ran the seed set twice, with and without `thought`, temperature 0:
+**18/20 both ways, delta 0 fixtures.** Under the pre-committed threshold of
+2, so the field earns nothing. Recommendation recorded in ADR-011: remove
+`thought` from schema/grammar/prompt at the start of G3 (removal deferred
+out of the G2 commit for a clean re-baseline; flagged for confirmation).
+Re-measurable if the grown suite ever disagrees.
 
 ---
 
