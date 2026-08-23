@@ -24,7 +24,10 @@ APPS = MappingProxyType(
         "browser": App(("brave",), "Brave"),
         "terminal": App(("foot",), "the terminal"),
         "editor": App(("code",), "VS Code"),
-        "video": App(("mpv",), "mpv"),
+        # Bare `mpv` with no file prints its version and exits 0 (verified),
+        # so a launch flashed nothing. --idle=yes keeps it running and
+        # --force-window=yes shows an empty player ready for content.
+        "video": App(("mpv", "--idle=yes", "--force-window=yes"), "mpv"),
         "vlc": App(("vlc",), "VLC"),
     }
 )

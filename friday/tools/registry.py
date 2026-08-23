@@ -113,7 +113,10 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
             risk="reversible",
             build_argv=lambda p: [_BROWSER, youtube_url(p["query"])],
             target_binary=lambda p: _BROWSER,
-            display=lambda p: "YouTube",
+            # Distinct from open_youtube's flat "YouTube" and echoes the query,
+            # so "Opened YouTube for jazz." differs per search (user ask). The
+            # query is the model's own short text field; speaking it is safe.
+            display=lambda p: f"YouTube for {' '.join(p['query'].split())[:40]}",
             cwd=_HOME,
             env=_APP_ENV,
             timeout_s=5.0,

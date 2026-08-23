@@ -22,6 +22,7 @@ audio hardware.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -86,12 +87,16 @@ class Speaker:
             return None
         return cls(kokoro, chosen)
 
-    def say(self, text: str) -> bool:
+    def say(self, text: str, on_play: Callable[[], None] | None = None) -> bool:
         """Synthesize `text` and play it, blocking until finished or cancelled.
         Returns True if it played to the end, False if it produced nothing or
         was cut short by `stop()`. A failure to synthesize or reach the audio
         device is swallowed (returns False) — a silent turn beats a crash, and
-        the text was already printed by the caller."""
+        the text was already printed by the caller.
+
+        `on_play`, if given, is called once at the instant audio starts (after
+        synthesis, before the first sample) — the daemon uses it to measure
+        TTFA. It must not raise; it runs on the worker thread."""
         if not text or not text.strip():
             return False
         self._cancel.clear()
@@ -104,6 +109,8 @@ class Speaker:
                 return False
             import sounddevice as sd
 
+            if on_play is not None:
+                on_play()
             sd.play(samples, sr)
             sd.wait()  # returns early if stop() -> sd.stop() runs elsewhere
         except Exception:

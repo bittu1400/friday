@@ -32,8 +32,10 @@ class FakeSpeaker:
         self._block = block
         self._gate = threading.Event()
 
-    def say(self, text):
+    def say(self, text, on_play=None):
         self.said.append(text)
+        if on_play is not None:
+            on_play()  # mirror the real Speaker: fire at audio start
         if self._block:
             self._gate.wait(timeout=2.0)
             return False  # cancelled

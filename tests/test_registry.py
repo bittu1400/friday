@@ -24,7 +24,10 @@ def test_open_app_builds_direct_binary_argv_per_app() -> None:
     spec = REGISTRY["open_app"]
     for key, app in APPS.items():
         argv = spec.build_argv({"app": key})
-        assert argv == [app.argv[0]]
+        # argv is the fixed table entry verbatim (binary + any fixed flags,
+        # e.g. mpv's idle flags); never the model's enum key, and the binary
+        # is argv[0] for the which() preflight.
+        assert argv == list(app.argv)
         assert spec.target_binary({"app": key}) == app.argv[0]
 
 

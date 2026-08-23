@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from . import config
 from .audio import ptt
@@ -69,6 +70,7 @@ class Daemon:
         self._cap_timer: asyncio.TimerHandle | None = None
         self._confirm_timer: asyncio.TimerHandle | None = None
         self._last_toggle = 0.0  # debounce clock for the tap-only trigger (ADR-044)
+        self._capture_end = 0.0  # monotonic mark at end of speech, for TTFA (OQ-09)
         self._seq = 0
         self.rejected = 0  # FR-5 counter (observable in tests)
 
@@ -123,6 +125,7 @@ class Daemon:
             return  # release without a capture — ignore
         self._disarm_capture_cap()
         self.state.end_capture()
+        self._capture_end = time.monotonic()  # end of speech -> TTFA clock start
         pcm = self._recorder.collect()
         self._turn_task = asyncio.create_task(self._run_turn(pcm))
 
@@ -184,7 +187,7 @@ class Daemon:
             will_speak = bool(result.spoken) and result.spoken != "(no action)"
             self.state.got_plan(will_speak=will_speak)
             if will_speak:
-                await self._speak(result.spoken)
+                await self._speak(result.spoken, measure=True)
         except asyncio.TimeoutError:
             await self._fail_speak("That took too long.")  # E_LLM_TIMEOUT
         except asyncio.CancelledError:
@@ -246,12 +249,15 @@ class Daemon:
 
     # --- speaking (cancellable) -------------------------------------------
 
-    async def _speak(self, text: str) -> None:
+    async def _speak(self, text: str, *, measure: bool = False) -> None:
         if self._speaker is None:
             if self.state.state is State.SPEAKING:
                 self.state.done_speaking()
             return
-        self._speak_task = asyncio.create_task(asyncio.to_thread(self._speaker.say, text))
+        on_play = self._ttfa_logger() if (measure and config.DEBUG) else None
+        self._speak_task = asyncio.create_task(
+            asyncio.to_thread(self._speaker.say, text, on_play)
+        )
         try:
             await self._speak_task
         except asyncio.CancelledError:
@@ -260,6 +266,18 @@ class Daemon:
             self._speak_task = None
         if self.state.state is State.SPEAKING:
             self.state.done_speaking()
+
+    def _ttfa_logger(self):  # noqa: ANN202 - returns a thread callback
+        """A one-shot callback for `Speaker.say(on_play=...)` that logs TTFA —
+        end of speech (`_capture_end`) to the first audio sample. Runs on the
+        TTS worker thread; logging is thread-safe and it never raises."""
+        start = self._capture_end
+        seq = self._seq
+
+        def on_play() -> None:
+            log.info("[debug] v%d TTFA %.0f ms", seq, (time.monotonic() - start) * 1000)
+
+        return on_play
 
     async def _say_now(self, text: str) -> None:
         """Speak a line that is not tied to SPEAKING-state bookkeeping (errors

@@ -805,13 +805,31 @@ LIVE PIPELINE (2026-08-23, FRIDAY_DEBUG=1, physical key + llama-server up):
   NOTE: planner brand-name gap — `heard='Open Brave'` returned action=none
   (STT fine; the literal brand didn't map to the `browser` key). Fix before eval.
 
-SPOKEN EVAL: __/20     (pending: needs live daemon + server)
+SPOKEN EVAL: 20/20 planning (2026-08-23, physical key, FRIDAY_DEBUG).
+  Every clip: STT accurate + correct action chosen. Brand names all mapped
+  live (Brave->browser, foot->terminal, code->editor, mpv->video, VLC->vlc);
+  lo-fi/jazz/piano->youtube_search; weather/football/bitcoin->web_search;
+  open youtube->open_youtube; hello/rm-rf/fridge->none. VLC needed one retry.
+  EXECUTION issues found (planning was clean):
+   - mpv exited immediately (bare `mpv` prints version + exits 0) -> FIXED:
+     --idle=yes --force-window=yes keeps a window (apps.py, verified).
+   - all YouTube outcomes said "Opened YouTube." -> FIXED: youtube_search now
+     "Opened YouTube for <query>." (registry display), open_youtube unchanged.
+   - 2 STT timeouts (v10/v11) right after launching ~9 apps: CPU saturation
+     starved faster-whisper past the 5 s cap. Real-usage edge; both retried
+     OK. Watch if it recurs; a load-aware timeout is a future option.
+   - VS Code "opened" but not always visible: `code` is a fork+exit-0 shell
+     script, so the executor can't see if electron actually came up. Inherent
+     to fork-launchers; no clean fix at the executor.
 
-TTFA (end of speech -> first audio):
-  p50 ____ ms     p95 ____ ms    (pending live run)
-  target 1400 / hard fail 4400
+TTFA (end of speech -> first audio), 19 samples, physical key:
+  p50 2156 ms     p95 2731 ms   (min 1815, max 2731, mean 2150)
+  target 1400 / hard fail 4400  -> PASSES the hard gate, MISSES soft target.
 
-OQ-09 DECISION (streaming needed?):  (pending TTFA measurement)
+OQ-09 DECISION (streaming needed?): NOT required — p95 2.7 s is well under the
+  4.4 s hard fail. Breakdown: transcribe ~1 s + plan ~0.5 s + synth ~0.4 s.
+  Streaming TTS (ADR-020) would shave ~0.4 s only; the bigger cost is STT.
+  Deferred; revisit if the primary chit-chat path (below) needs faster turns.
 
 ---
 
@@ -947,6 +965,13 @@ Append a line whenever a measurement changes a document.
    2026-08-23  planner brand-name gap fixed (Brave/Code/foot/mpv->id) G6/prompt
    2026-08-23  youtube_search strengthened (music/"put on") re E11    G6/prompt
    2026-08-23  eval set 20->24 (+brand fixtures E21-24); 24/24         G6/eval
+   2026-08-23  SPOKEN EVAL 20/20 planning; TTFA p50 2.16s/p95 2.73s   G6
+   2026-08-23  OQ-09: no streaming (p95 2.7s < 4.4s hard fail)        OQ-09
+   2026-08-23  mpv --idle --force-window (bare mpv exits 0)           G6/apps
+   2026-08-23  youtube_search outcome echoes query (differentiated)   G6/registry
+   2026-08-23  TTFA debug instrument (say on_play callback)           G6/daemon
+   2026-08-23  DIRECTION: chit-chat + suggestions = PRIMARY goal      NEEDS DESIGN
+   2026-08-23  youtube autoplay deferred (search-only for now)        OQ-24
 ```
 
 ## Time log
