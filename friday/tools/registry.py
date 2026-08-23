@@ -4,10 +4,11 @@ params; CODE in this file — never the model — builds the argv. Adding a
 capability is a code change plus a test, by design (that friction is the
 feature).
 
-Only tools that actually *execute* at G3 live here: the launch tools.
-`web_search` (needs SearXNG, G7) and the memory tools (need the DB, G4) are
-valid plan actions but have no registry entry yet — the caller shows them
-as not-yet-wired rather than dispatching.
+Only tools that dispatch a *subprocess* live here: the launch tools. The
+memory tools (`remember_preference`/`forget_preference`) act on the SQLite
+store, not a subprocess, so they are handled in the turn loop (G4), not
+through this registry. `web_search` (needs SearXNG, G7) is a valid plan
+action with no entry yet — the caller shows it as not-yet-wired.
 
 Risk classes are `read_only`, `reversible`, `irreversible`. Phase 1 ships
 only the first two (FR-33); a registry test asserts no irreversible entry
@@ -106,10 +107,9 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
 )
 
 # Plan actions that are valid but not executable yet (wired at later gates).
+# Memory (remember/forget) is wired at G4 in the turn loop, so it is NOT here.
 NOT_YET_WIRED: Mapping[str, str] = MappingProxyType(
     {
         "web_search": "web search arrives at G7",
-        "remember_preference": "memory arrives at G4",
-        "forget_preference": "memory arrives at G4",
     }
 )

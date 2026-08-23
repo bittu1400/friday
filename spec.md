@@ -161,13 +161,13 @@ nowhere else. See ADR-027 and threat T2.
 | FR-51 | One writer. All writes go through a single async queue/connection | Concurrency test: 100 parallel writes, zero `database is locked` |
 | FR-52 | Parameterized SQL only | Grep for f-string SQL returns zero |
 | FR-53 | Versioned migrations, forward-only, applied at startup | Fresh DB and an existing DB both reach the same schema version |
-| FR-54 | Preferences carry `source`, `updated_at`, `expires_at`, `revision` | Schema test |
+| FR-54 | Preferences carry `source`, `updated_at`, `expires_at`, `revision`. Keys are slugified with a curated alias map (ADR-035); a spoken preference is confirmed before it is stored, `source='user_confirmed'` (ADR-037) | Schema test; slugify/alias unit test; confirm-handshake test |
 | FR-55 | Preferences are injected as `key=value` data inside a fence, never as prose instructions | Prompt snapshot test |
-| FR-56 | User can list, export (JSON), delete one, and reset all preferences | Four CLI subcommands, each tested |
+| FR-56 | User can list, export (JSON), delete one, and reset all preferences. `forget_preference` (voice) soft-expires; the CLI hard-deletes only with `--hard` / `reset --yes` (ADR-036) | Four CLI subcommands, each tested; soft-vs-hard test |
 | FR-57 | `thought`, raw prompts, raw transcripts, raw audio, raw key events, and unredacted tool payloads are never persisted | Schema has no column for them |
 | FR-57a | A debug transcript ring buffer may hold the last 20 turns **in memory only**, off by default, cleared on exit, and visibly indicated in the TUI while on | Test: enabling it creates no file; disabling clears it |
 | FR-58 | Audit rows: `request_id`, `tool_id`, redacted args, policy decision, outcome, duration, timestamp | One row per dispatch, asserted in the eval runner |
-| FR-59 | Session summaries and audit rows are retention-capped (default 90 days) and size-capped (default 50 MB) with rotation | Retention job unit test |
+| FR-59 | Session summaries and audit rows **only** are retention-capped (default 90 days) and size-capped (default 50 MB) with rotation; preferences never age out (ADR-038) | Retention job unit test: purges audit/summaries, leaves preferences |
 
 ### 2.7 Search
 

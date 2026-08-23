@@ -21,3 +21,32 @@ TEMPLATES: dict[Outcome, str] = {
 
 def render(outcome: Outcome, display: str) -> str:
     return TEMPLATES[outcome].format(display=display)
+
+
+# --- memory templates (ADR-037 confirm-first) ------------------------------
+# Fixed strings, never the LLM: the confirm question and its follow-ups are
+# direct-action speech (ADR-009). `value` is rendered inert by the store
+# before it reaches here.
+
+
+def confirm_preference(key: str, value: str) -> str:
+    return f"Remember that your {key} is {value}? (yes/no)"
+
+
+def remembered(key: str, value: str) -> str:
+    return f"Okay, I'll remember that your {key} is {value}."
+
+
+def cancelled_preference() -> str:
+    return "Okay, I won't remember that."
+
+
+def forgotten(key: str) -> str:
+    return f"Okay, I've forgotten your {key}."
+
+
+def forget_unknown(key: str) -> str:
+    return f"I don't have a preference for {key}."
+
+
+MEMORY_UNAVAILABLE = "My memory isn't available right now."

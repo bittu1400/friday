@@ -922,3 +922,136 @@ used from an event loop via `asyncio.to_thread`; it becomes a native async
 client when the turn loop needs it.
 
 **Status:** Accepted.
+
+---
+
+## ADR-035 — Preference keys: curated-canonical, confirmed-free (OQ-18)
+
+**Context.** `schema.py` lets the model supply `remember_preference.key`
+as free text. That decides how predictable the `<preferences>` digest is
+(FR-55 snapshot) and whether `forget_preference` can reliably find the key
+the user means. The prepared options were (a) closed enum, (b) free +
+normalized, (c) free + raw.
+
+**Decision (user, 2026-08-23) — a fourth option (d): free key, slugified,
+with a curated canonical-alias anchor set, and every write confirmed.**
+
+1. **The model supplies a free-text `key` and a free-text `value`.** New
+   kinds of preference can be learned over runs without a code change —
+   "the more interaction the better." The *value* is stored raw (verbatim
+   user words), preserving intent.
+
+2. **The key is slugified on store**, never the value: NFKC, casefold,
+   strip, spaces/hyphens -> `_`, collapse repeats, and restricted to
+   `[a-z0-9_]` (any other character is dropped). An empty slug fails
+   closed to `E_SCHEMA`. Slugging the key — not freezing it — is the
+   dedup mechanism the user asked for ("closed enums for some fixed so
+   duplicates don't crash on us"): `My Name` and `my  name` both become
+   `my_name`.
+
+3. **A curated ALIAS map folds common synonyms onto canonical keys** so the
+   digest is deterministic for the frequent cases: e.g. `my_name`,
+   `call_me` -> `name`; `text_editor`, `code_editor` -> `editor`;
+   `web_browser` -> `browser`; `music_player`, `music`, `media` ->
+   `media_player`; `terminal_emulator` -> `terminal`. A slug not in the map
+   is stored as-is (the learned tail). The map is data in `store/prefs.py`,
+   extended when a near-dupe shows up — not a schema migration.
+
+4. **Every write is confirmed first (see ADR-037).** The confirmation is
+   also the human dedup backstop: the user sees the resolved key before it
+   is stored.
+
+This is NOT a T2/invariant-#2 violation. Invariant #2 governs strings that
+reach a *command* (argv, path, URL); a preference key is data written to a
+parameterized SQLite column and rendered into a fenced `key=value` digest,
+never into a command. The slug charset and the digest fence (FR-55) are the
+controls that keep it inert.
+
+**On answer (done this gate).** `schema.py` keeps `key` as `text`;
+`store/prefs.py` owns `slugify_key()` + `ALIAS`; the digest renderer and
+`forget_preference` match on the canonical slug.
+
+**Status:** Accepted.
+
+---
+
+## ADR-036 — forget/reset: voice soft-expires, keyboard hard-deletes (OQ-19)
+
+**Context.** Hard-deleting user data is prohibited-by-default in the safety
+rules; this is the user's own local prefs, user-initiated, so it is
+allowed — but the *mechanism* is a real choice, and a misheard voice
+command must not be able to destroy data irrecoverably.
+
+**Decision (user, 2026-08-23) — (c) split.**
+
+1. **The `forget_preference` tool soft-expires**: it sets `expires_at =
+   now`, so the row stops being injected into the digest immediately but
+   survives in the DB (recoverable, audit-friendly). This is the path a
+   voice mishear can reach, so it is the safe one.
+
+2. **The `prefs` CLI hard-deletes when explicit at the keyboard**: `prefs
+   forget <key> --hard` issues a real `DELETE`; `prefs reset --yes` clears
+   all preferences. The explicit flag / `--yes` is required — a bare
+   `prefs forget` without `--hard` soft-expires, matching the tool.
+
+`expires_at = now` (soft) vs `DELETE` (hard) both satisfy FR-56's "delete
+one / reset all"; the split just decides which surface gets which.
+
+**Status:** Accepted.
+
+---
+
+## ADR-037 — Spoken preferences are confirmed before storing (OQ-20)
+
+**Context.** Decides what the `source` column means and whether the turn
+loop grows a handshake. Options were (a) store directly, (b) confirm first.
+
+**Decision (user, 2026-08-23) — (b) confirm first.** A
+`remember_preference` plan does NOT write on the spot. The turn resolves
+the canonical key + value (ADR-035), enters a *pending-preference* state,
+and speaks a confirm template — "Remember that your {key} is {value}?".
+The preference is written only on an explicit affirmation, with
+`source='user_confirmed'`.
+
+**Mechanics (this gate).**
+
+- The confirmation is a **deterministic UI handshake, not a second model
+  turn.** The follow-up input is matched against a small affirmation set
+  (`yes/y/yeah/yep/sure/ok/okay/correct/do it`) vs a negation set; anything
+  else cancels (fail safe — no write). No second planning generation, so
+  "one turn in flight" (FR-5) is preserved and no injection surface opens.
+- `turn.py` returns a `pending_preference` on the `remember_preference`
+  path instead of dispatching; `ui/tui.py` holds the pending state and, on
+  the next input, calls a `confirm_preference()` that performs the write
+  (execute-first: write, THEN speak "Okay, I'll remember that.").
+- `source='user_typed'` is reserved for a future keyboard `prefs set`; the
+  CHECK constraint keeps both legal.
+
+**Consequences.** The turn loop gains a two-step pending state at G4, as
+architecture.md §3.1 anticipated ("ui/tui.py … confirm prompt"). A misheard
+preference costs one "no", never a bad durable write that steers every
+later turn.
+
+**Status:** Accepted.
+
+---
+
+## ADR-038 — Retention purges logs only; preferences never age out (OQ-21)
+
+**Context.** The retention job caps at 90 days / 50 MB (`config.toml
+[memory]`). Audit rows and session summaries are logs; preferences are
+user data with their own lifecycle.
+
+**Decision (user, 2026-08-23) — (a) logs only.** The retention sweep
+purges `action_audit` and `session_summaries` by age/size only.
+Preferences never expire by age — a preference the user stated should not
+silently disappear. A preference leaves the digest only when the user
+forgets it (soft-expire, ADR-036) or a future explicit `expires_at` fires;
+it leaves the DB only via a keyboard hard-delete (ADR-036).
+
+**Consequence.** The `pinned` column is inert under this decision (it would
+only matter if preferences aged out); it is kept in the schema so the
+policy can change without a migration. FR-59's "retention-capped" now reads
+explicitly as *audit + summaries*, and spec.md is updated to say so.
+
+**Status:** Accepted.

@@ -23,6 +23,13 @@ PANIC_ENV: str = "FRIDAY_DISABLED"
 
 LLAMA_BASE_URL: str = os.environ.get("FRIDAY_LLAMA_URL", "http://127.0.0.1:8080")
 
+# The persistence store (FR-50). Mode 0600, in the 0700 state dir; both are
+# enforced by store/db.py on open, not assumed.
+MEMORY_DB: Path = STATE_DIR / "memory.db"
+
+# Retention (FR-59 / ADR-038): audit rows + session summaries only.
+RETENTION_DAYS: int = int(os.environ.get("FRIDAY_RETENTION_DAYS", "90"))
+
 
 def is_disabled() -> bool:
     """True if the panic switch is engaged (file present or env var set)."""

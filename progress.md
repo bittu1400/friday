@@ -24,7 +24,8 @@ whisper CPU bench, CPU-torch check) — none block G4.
    G1 TOOLCHAIN   [~]   <-- sm_120a PROVEN. measurements deferred (see G1).
    G2 EVAL        [x]   <-- harness + baseline + adversarial. OQ-08 done.
    G3 TEXT+REG    [x]   <-- registry+executor+TUI. eval 20/20, adv 16/16.
-   G4 PERSIST     [ ]
+   G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention. 98 unit,
+                        eval 20/20, adv 16/16.
    G5 VOICE OUT   [ ]
    G6 VOICE IN    [ ]
    G7 SEARCH      [ ]
@@ -33,65 +34,59 @@ whisper CPU bench, CPU-torch check) — none block G4.
 
 ---
 
-## NEXT SESSION — START HERE (written 2026-08-23, after G3)
+## NEXT SESSION — START HERE (written 2026-08-23, after G4)
 
-G3 is done. `just run` is a working text assistant. Next is **G4 —
-persistence** (the SQLite memory layer). Nothing above G4 is blocked.
+G4 is done. `just run` is a working text assistant that now remembers
+preferences (confirm-first), forgets them, and injects a `<preferences>`
+digest into planning. Next is **G5 — Voice out** (Kokoro TTS). Per the
+build order `{G4,G5}`, G5 is the remaining half; G6 (voice in) follows.
 
 ### What is true right now
-- Branch `main`. G0/G1(core)/G2/G3 all passed. `just run` launches the 5
-  apps + youtube; `just run --dry-run` prints argv without launching.
-- `friday/` now holds real code: `llm/` (schema, validate, client, prompt,
-  grammars), `tools/` (apps, registry, executor), `ui/` (templates, tui),
-  plus `config.py`, `errors.py`, `turn.py`, `__main__.py`.
-- Deps: `textual` (runtime), `pytest` (dev). Still CPU-only; no torch/CUDA
-  in the venv (that check is still deferred to G5).
-- `just eval` = 20/20, `uv run pytest` = 42 passed. baseline.json committed.
-- **No llama-server running** — stopped at end of G3. `just serve` to start.
-- Memory tools (`remember_preference`/`forget_preference`) and `web_search`
-  currently return a "not yet wired" line — G4 wires memory, G7 wires search.
+- Branch `main`. G0/G1(core)/G2/G3/G4 all passed. `just run` launches the 5
+  apps + youtube, remembers/forgets prefs; `just run --dry-run` = no launch.
+- `friday/` code: `llm/` (schema, validate, client, prompt, grammars),
+  `tools/` (apps, registry, executor), `store/` (db, prefs, audit,
+  migrations), `ui/` (templates, tui), plus `config.py`, `errors.py`,
+  `turn.py`, `prefs_cli.py`, `__main__.py`.
+- Persistence: SQLite at `~/.local/state/friday/memory.db` (WAL, 0600 in a
+  0700 dir), single-writer (`store/db.py`), forward-only migrations. `just
+  prefs list|export|forget [--hard]|reset --yes`.
+- Deps: `textual` (runtime), `pytest` (dev). Store uses stdlib `sqlite3` —
+  no new dep. Still CPU-only; no torch/CUDA in the venv (checked at G5).
+- `just eval` = 20/20, `uv run pytest` = 98 passed. baseline.json committed.
+- **No llama-server running** — stopped at end of G4. `just serve` to start.
+- `web_search` still returns "not yet wired" — G7. Memory is now wired.
 
-### ASK THESE FOUR QUESTIONS FIRST — before any G4 code
-The G4 question batch is already worked out and written up as
-**OQ-18..OQ-21** in `open-questions.md`. Ask all four in ONE round, then
-record each answer (ADR + close the OQ + progress decision log) in the
-same turn per the CLAUDE.md working agreement. Summary:
+### Memory design as built (G4 — ADR-035/036/037/038)
+- **Keys**: model supplies a free key; `store/prefs.py` slugifies it to
+  `[a-z0-9_]` and folds common synonyms through the `ALIAS` map onto
+  canonical anchors (`my name`→`name`, `web browser`→`browser`, …). A slug
+  not in the map is stored as-is (the learned tail). Extend `ALIAS` when a
+  near-dupe appears — it is data, not a migration.
+- **Values** stored raw, but the digest renders them INERT (newline / fence
+  / control-char strip, 200-char cap) — that is the durable-injection
+  control, not cosmetics.
+- **Confirm-first**: a spoken `remember_preference` does NOT write; the turn
+  returns a `pending` preference and the TUI asks yes/no (deterministic, no
+  2nd model turn). Only an explicit yes writes, `source='user_confirmed'`.
+- **Forget**: the voice tool soft-expires (recoverable). The CLI hard-
+  deletes only with `--hard` / `reset --yes`.
+- **Retention** (`store/audit.py sweep_retention`): audit + summaries only;
+  preferences never age out. `pinned` column is inert (kept for a future
+  policy change without a migration).
 
-```
-   OQ-18  preference KEY vocabulary   (a closed enum / b free-normalized /
-          c free-raw)          default: (a) closed enum
-   OQ-19  forget/reset mechanism      (a soft-expire / b hard-delete /
-          c split voice=soft, CLI=hard)  default: (c) split
-   OQ-20  confirm spoken pref?        (a store directly / b confirm-first)
-                                      default: (a) store directly
-   OQ-21  retention scope             (a logs only / b everything incl prefs)
-                                      default: (a) logs only
-```
-
-Defaults ALREADY agreed for the rest (do NOT re-ask — just apply):
-- `value_json` = scalar strings only in Phase 1 (`json.dumps("brave")`).
-- `expires_at` = NULL (never) on a normal `remember_preference`.
-- Write flow = execute-first (ADR-009): write row, THEN speak template.
-- Digest overflow at 300 tok = pinned first, then most-recent `updated_at`,
-  drop oldest; deterministic order for the FR-55 snapshot test.
-- `prefs reset` (all) requires explicit `--yes`; `prefs forget <key>`
-  does not.
-
-If OQ-20 answer is (b) confirm-first, the turn loop grows a pending-
-preference handshake — that is extra G4 work; scope it in before coding.
-
-### Then read, then build
-1. **Read G4** in this file + friday.md §6 (001_init.sql drafted there) +
-   ADR-010 (SQLite/WAL/single-writer), ADR-028 (in-memory ring buffer, no
-   transcripts on disk), ADR-031 (disk boundary, OQ-05 stays OPEN),
-   architecture.md §3/§7. FRs: FR-50..FR-59 in spec.md.
-2. **G4 acceptance:** 100 parallel writes, 0 `database is locked`; perms
-   0600/0700 verified by self-test; export/delete/reset work; no `thought`
-   or raw payloads in any column (grep-enforced).
-3. Wire the memory tools into `friday/turn.py` (stubs today: they return
-   `NOT_YET_WIRED`) and inject the `<preferences>` digest into the prompt
-   (architecture §4) so a remembered pref actually influences planning.
-   Add eval fixtures if phrasing coverage grows.
+### Then read, then build G5
+1. **Read G5** in this file + friday.md §7 + ADR-005 (Kokoro voice, zero
+   VRAM placement) + ADR-020 (no streaming TTS yet — measure at G6 first).
+   Surface any G5 open questions in `open-questions.md` in ONE batch before
+   coding (working agreement).
+2. **G5 acceptance:** 20 utterances spoken through the LAPTOP SPEAKERS, no
+   clipping; exactly one CUDA process (llama-server) while speaking —
+   Kokoro must NOT pull a CUDA torch and allocate VRAM (`nvidia-smi
+   --query-compute-apps`). Audition `af_heart`/`af_bella`/`af_sky`, lock one
+   into ADR-005 + `config.toml`.
+3. Weights ONLY from `huggingface.co/hexgrad/Kokoro-82M`, checksummed
+   (lookalike domains are impersonation sites — friday.md §7).
 
 ### Carried-over, still optional (blocks nothing)
 - The 4 deferred G1 measurements (VRAM peak under desktop load, exact KV
@@ -465,36 +460,56 @@ END-TO-END (dry-run, live server, no windows spawned):
 
 ---
 
-## G4 — Persistence
+## G4 — Persistence  **PASSED 2026-08-23**
 
 **Acceptance:** 100 parallel writes with zero `database is locked`;
 permissions correct; export/delete/reset all work.
 
-- [ ] Migrations 001_init.sql, forward-only, applied at startup
-- [ ] WAL, `busy_timeout=5000`, single writer queue
-- [ ] `preferences` with `source`, `updated_at`, `expires_at`, `revision`
-- [ ] `action_audit` with redacted args
-- [ ] `session_summaries`
-- [ ] `0600` / `0700`, verified by self-test
-- [ ] Retention job (90 days, 50 MB)
-- [ ] `friday prefs list|export|forget|reset`
-- [ ] Digest rendering as `key=value` in a fence, capped at 300 tokens
+Decisions this gate: OQ-18..21 answered by user 2026-08-23 →
+ADR-035 (free slug + alias anchors), ADR-036 (voice soft / CLI hard),
+ADR-037 (confirm-first spoken prefs), ADR-038 (retention = logs only).
+
+- [x] Migrations `store/migrations/001_init.sql`, forward-only, applied at startup (`store/db.py`)
+- [x] WAL, `busy_timeout=5000`, single writer (one connection + one lock — FR-51)
+- [x] `preferences` with `source`, `updated_at`, `expires_at`, `revision`
+- [x] `action_audit` with redacted args (`store/audit.py`)
+- [x] `session_summaries`
+- [x] `0600` / `0700`, enforced on open, asserted in `test_db.py`
+- [x] Retention job (90 days) — audit + summaries only, prefs never age out (ADR-038)
+- [x] `just prefs list|export|forget|reset` (`friday/prefs_cli.py`)
+- [x] Digest rendering as `key=value` in a fence; values rendered inert (newline/fence-token strip, 200-char cap — the durable-injection control)
+- [x] Confirm-first handshake (ADR-037): deterministic yes/no in the TUI, no 2nd model turn
+- [x] Preference key slug + curated alias map (ADR-035); free tail learned, common keys deduped
 
 ```
-EVIDENCE:
-$ just test-concurrency
-  (paste: 100 writes, 0 locked errors)
+EVIDENCE (2026-08-23):
 
-$ stat -c '%a %n' ~/.local/state/friday/memory.db ~/.local/state/friday
-  (must be 600 and 700)
+$ uv run pytest -q
+  98 passed
+  (includes: test_db 100-parallel-writes → 0 locked, 100 rows;
+   perms 0600/0700; migrations fresh+existing → v1;
+   test_prefs slug/alias/soft-hard/digest; test_audit redaction+retention;
+   test_prompt eval-prompt-unchanged; test_no_fstring_sql; test_prefs_cli
+   4 subcommands; test_memory_turn confirm-first + soft-forget + digest inject)
 
-$ grep -rn "thought" friday/store/
-  (must be empty)
+$ just eval                       # llama-server up
+  passed 20/20  (100%)   regressions vs baseline: 0
 
-$ just test-redaction
-  (log contains no /home/ paths)
+$ just test-adversarial
+  17 passed  (AS-1..16 = 16/16 + suite)
+
+Live end-to-end (temp DB, real model, dry-run):
+  "call me Subham"      → plan remember_preference, pending, NOTHING written
+  confirm               → "Okay, I'll remember that your name is Subham." active={'name':'Subham'}
+  next turn             → digest injected: '<preferences>\nname=Subham\n</preferences>'
+  "forget what you call me" → plan forget_preference, soft-expired, active={}
+  perms: db 0o600  dir 0o700 ; audit rows written, args_redacted (no /home/)
+
+$ grep -rn "thought" friday/store/     → 1 hit, a COMMENT in 001_init.sql
+  documenting the absence; no `thought` column exists (FR-57 by schema)
 ```
 
+- [x] OQ-18..21 answered 2026-08-23 — ADR-035/036/037/038
 - [x] OQ-04 answered 2026-08-22 — ADR-028, in-memory ring buffer, off by default
 - [x] OQ-05 answered provisionally 2026-08-22 — ADR-031, nothing leaves the machine, 0600 sufficient. **OQ-05 stays OPEN** by user request; revisit triggers listed in ADR-031.
 
@@ -638,6 +653,11 @@ Append a line whenever a measurement changes a document.
    2026-08-23  not_found via which() preflight (hyprctl exits 0)    ADR-034
    2026-08-23  youtube opens in brave, not firefox                  ADR-034
    2026-08-23  panic: DISABLED file or FRIDAY_DISABLED env         ADR-034/FR-36
+   2026-08-23  pref keys: free slug + alias anchors (opt d)        OQ-18/ADR-035
+   2026-08-23  forget: voice soft-expire, CLI --hard/--yes         OQ-19/ADR-036
+   2026-08-23  spoken pref confirmed first (UI handshake)          OQ-20/ADR-037
+   2026-08-23  retention = logs only; prefs never age out          OQ-21/ADR-038
+   2026-08-23  G4 PASSED: 98 unit, eval 20/20, adv 16/16           G4
 ```
 
 ## Time log

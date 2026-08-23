@@ -31,6 +31,11 @@ eval-baseline:
 test-adversarial:
     uv run pytest tests/test_adversarial.py tests/test_youtube.py -q
 
+# Manage stored preferences (FR-56): list | export | forget [--hard] | reset --yes.
+# `just prefs list`; `just prefs forget editor`; `just prefs reset --yes`.
+prefs *ARGS:
+    uv run python -m friday.prefs_cli {{ARGS}}
+
 # Full unit suite (schema drift, validator, registry, executor, turn, adversarial).
 test:
     uv run pytest -q
