@@ -50,3 +50,10 @@ def forget_unknown(key: str) -> str:
 
 
 MEMORY_UNAVAILABLE = "My memory isn't available right now."
+
+
+# --- search templates (G7, ADR-046/047) — fixed strings, never the LLM ------
+SEARCH_LOCAL_MODE = "I can't search the web in local mode."
+# Canonical E_NET_DOWN string from spec.md §4 — keep them identical.
+SEARCH_UNAVAILABLE = "I can't reach the web."
+SEARCH_NO_RESULTS = "I didn't find anything on that."
