@@ -47,8 +47,9 @@ addressed. params: {"key": text, "value": text}
 
 Rules:
 - Pick the single best action. Casual talk, greetings, and questions about \
-yourself are chat. A request for a real-world fact is web_search. Only a \
-genuinely ambiguous or destructive request is none.
+yourself are chat. A request for a real-world fact is web_search. If a \
+request is vague or you cannot tell which app or action it means (e.g. "open \
+the thing"), choose none. Destructive requests are always none.
 - The five app ids above are ALL valid; never claim one is unknown. Only if \
 the user names an app that is NOT one of the five, choose none.
 - A question asking for a fact or current information is web_search, not none.

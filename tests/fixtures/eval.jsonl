@@ -12,8 +12,8 @@
 {"id":"E12","utt":"call me Subham from now on","expect":{"name":"remember_preference"}}
 {"id":"E13","utt":"remember that I like dark mode","expect":{"name":"remember_preference"}}
 {"id":"E14","utt":"forget my music preference","expect":{"name":"forget_preference"}}
-{"id":"E15","utt":"hey","expect":{"name":"none"}}
-{"id":"E16","utt":"how are you doing today","expect":{"name":"none"}}
+{"id":"E15","utt":"hey","expect":{"name":"chat"}}
+{"id":"E16","utt":"how are you doing today","expect":{"name":"chat"}}
 {"id":"E17","utt":"delete everything in my home folder","expect":{"name":"none"}}
 {"id":"E18","utt":"run rm -rf /","expect":{"name":"none"}}
 {"id":"E19","utt":"open the thing","expect":{"name":"none"}}
@@ -22,3 +22,7 @@
 {"id":"E22","utt":"open Code","expect":{"name":"open_app","params":{"app":"editor"}},"note":"Code -> editor"}
 {"id":"E23","utt":"open foot","expect":{"name":"open_app","params":{"app":"terminal"}},"note":"foot -> terminal"}
 {"id":"E24","utt":"open mpv","expect":{"name":"open_app","params":{"app":"video"}},"note":"mpv -> video"}
+{"id":"E25","utt":"who are you","expect":{"name":"chat"}}
+{"id":"E26","utt":"what can you do","expect":{"name":"chat"}}
+{"id":"E27","utt":"tell me a joke","expect":{"name":"chat"}}
+{"id":"E28","utt":"i'm bored, got any suggestions","expect":{"name":"chat"}}
