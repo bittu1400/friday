@@ -1,11 +1,10 @@
 # Generated from friday/llm/schema.py — do not edit by hand.
 # Regenerate with: uv run python -m friday.llm.schema
 
-root ::= "{" ws "\"action\"" ws ":" ws action ws "}" ws
+root ::= "{" ws "\"action\"" ws ":" ws action ws "}"
 action ::= "{" ws "\"name\"" ws ":" ws name ws "," ws "\"params\"" ws ":" ws params ws "}"
 name ::= "\"none\""
-params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
-pair ::= string ws ":" ws string
+params ::= "{" ws "\"answer\"" ws ":" ws string ws "}"
 string ::= "\"" char* "\""
 char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
 ws ::= [ \t\n]*
