@@ -1,0 +1,20 @@
+[Unit]
+Description=SearXNG for Friday (loopback-only, ADR-045)
+# dockerd is a SYSTEM service; a --user unit cannot depend on it by name (user
+# scope has no docker.service). It is enabled at boot, so we rely on it being
+# up rather than express an unresolvable cross-scope dependency.
+
+[Service]
+# Pin by digest once fetched (Step 4 records it). --rm so a restart is clean.
+# The host side of the port map is 127.0.0.1 ONLY (invariant #8 / FR-60).
+ExecStartPre=-/usr/bin/docker rm -f friday-searxng
+ExecStart=/usr/bin/docker run --rm --name friday-searxng \
+  -p 127.0.0.1:8888:8080 \
+  -v %h/Projects/Personal/Intern/friday/deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro \
+  docker.io/searxng/searxng@sha256:11a9b34cdc0b1ec2b991470a2762ecb5a1a531898289fb51dcd015260450729e
+ExecStop=/usr/bin/docker stop friday-searxng
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

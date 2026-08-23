@@ -12,7 +12,12 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
+**Overall status:** **G0–G7 PASSED** (G7 merged to main 2026-08-23). **Next:
+G8 (conversation) Build 1 — PLANNED, ready to execute**
+(`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`, 10 TDD tasks).
+`uv run pytest` **176 passed**, `just eval` **24/24**. History below.
+
+G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
 (2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
 (confirm-first), audit, retention. G5: voice out via kokoro-onnx (fp32/8t,
 af_bella), FR-71 verified, listening test signed off. **G6 (voice in) DONE**
@@ -34,14 +39,13 @@ the eval: mpv idle window (bare mpv exits 0), YouTube outcomes differentiated,
 planner brand-name gap fixed (eval now 24/24). Deferred G1 measurements remain
 optional.
 
-**NEW DIRECTION (2026-08-23): conversation is the PRIMARY goal.** Chit-chat +
-suggestions, warm/witty/concise. This is a new gate **G8 (Conversation)** —
-design approved and written:
-`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`. **Build
-order reordered: G7 (search) → G8 (conversation) → G9 (service)** — service
-renumbered G8→G9. G7 chosen to build first; its plan is WRITTEN
-(`docs/superpowers/plans/2026-08-23-g7-search.md`, 11 TDD tasks, ADR-045/046/047).
-Next step: execute that plan. See NEXT SESSION.
+**PRIMARY goal: conversation.** Chit-chat + suggestions, warm/witty/concise
+(gate **G8**). Build order: **G7 (search) ✓DONE → G8 (conversation) → G9
+(service)**. G7 shipped 2026-08-23 (SearXNG loopback, sanitizer, `final.gbnf`
+grounding, injection 20/20, egress proof; ADR-045/046/047) and merged to main.
+G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`;
+G8 Build 1 plan: `docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`.
+Next step: EXECUTE the G8 Build 1 plan. See NEXT SESSION.
 
 ```
    G0 REPO        [x]
@@ -56,7 +60,12 @@ Next step: execute that plan. See NEXT SESSION.
                         PHYSICAL key (toggle, ADR-044); spoken eval 20/20
                         planning, TTFA p50 2.16s/p95 2.73s. Sign-off pending
                         only a final user nod; functionally complete.
-   G7 SEARCH      [ ]   <-- next. only egress + only untrusted input.
+   G7 SEARCH      [x]   <-- DONE 2026-08-23 (branch `g7-search`, 11 tasks).
+                        SearXNG loopback unit + sanitizer + grammar-locked
+                        grounding turn + injection suite 20/20 + egress proof.
+                        176 unit pass, eval 24/24 (no regression). LIVE:
+                        'capital of France'->'Paris' with 5 sources,
+                        dispatched=False; /local refuses. NOT merged to main.
    G8 CONVERSATION[ ]   <-- PRIMARY goal (reordered before service). design:
                         docs/superpowers/specs/2026-08-23-conversational-
                         chat-design.md. Approach A, staged, Build 1 first.
@@ -65,44 +74,141 @@ Next step: execute that plan. See NEXT SESSION.
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, G6 done, G7 PLANNED)
+## NEXT SESSION — START HERE (updated 2026-08-23, **G7 DONE**)
 
-G0–G6 DONE. **G6 proven live from the PHYSICAL key** + spoken eval 20/20
-planning + TTFA measured (p50 2.16s / p95 2.73s). `uv run pytest` = **150
-passed**, `just eval` = **24/24**.
+G0–G7 DONE. **G7 all 11 tasks DONE** on branch **`g7-search`** (NOT merged to
+main — merge decision + push is the user's). `uv run pytest` = **176 passed**,
+`just eval` = **24/24 (no regression, NFR-6)**. **Next gate is G8
+(conversation)** — the primary goal.
 
-**THE TASK — execute the G7 plan.** Decided 2026-08-23: build order is **G7
-(search) → G8 (conversation) → G9 (service)**; the user chose to build **G7
-FIRST** (it unblocks the "facts route to web_search" path G8 leans on). G7's
-questions were batched and answered, decisions recorded in **ADR-045/046/047**:
+### G7 ACCEPTANCE EVIDENCE (2026-08-23, both servers up)
 
-  - SearXNG = an always-on `systemd --user` unit (docker underneath), loopback
-    `127.0.0.1:8888` only (ADR-045).
-  - Search defaults to **CONNECTED**; local is the opt-out (ADR-046).
-  - Result UX = **synthesized spoken answer + always-show sources** in the TUI;
-    voice never speaks URLs (ADR-047).
+```
+$ uv run pytest -q                    176 passed
+$ just test-injection                 IS-1..IS-20 20/20 blocked, calls==[]
+$ just eval                           passed 24/24 (100%), regressions 0
+$ just test-egress                    8080+8888 = 127.0.0.1 ONLY, no 0.0.0.0 (exit 0)
+$ uv run pytest tests/test_grammar_lock.py   final.gbnf name == "none", enum==1
 
-The implementation plan is WRITTEN and self-reviewed (and audited by a fork
-against the source docs — see the audit fixes folded in):
-**`docs/superpowers/plans/2026-08-23-g7-search.md`** — 11 TDD tasks. Start there.
+LIVE end-to-end (real llama-server + real SearXNG, run_turn):
+  "what is the capital of France"  -> spoken "Paris"
+       dispatched=False, 5 sources (Paris-Wikipedia, Britannica, ...)
+  "who wrote Romeo and Juliet"     -> "William Shakespeare wrote Romeo and Juliet."
+       dispatched=False, 5 sources
+  connected=False (/local)         -> "I can't search the web in local mode."
+       dispatched=False
+```
 
-**Next action:** pick an execution mode (the user was asked; if unanswered, ask
-again) — subagent-driven (fresh agent per task, review between) or inline
-(`executing-plans`, batch with checkpoints) — then work the 11 tasks in order.
+**MID-EXECUTION FIX (commit 571fa22):** the shared generic `params` grammar
+let the grounding model emit `params:{}` and skip answering (live returned
+NO_ANSWER despite correct sources). `build_final_grammar()` now forces
+`params ::= {"answer": string}` and drops the trailing root `ws` (generation
+stops at the closing brace, no whitespace padding to max_tokens). `plan.gbnf`
+is byte-identical; eval unaffected. Do NOT revert to the generic params for
+the final grammar.
 
-Key design facts baked into the plan (do NOT relitigate):
-  - The **grounding turn** synthesizes the answer under `final.gbnf` (action
-    name locked to `"none"` → cannot dispatch, invariant #1). The answer rides
-    in `params.answer`. It does NOT use the planning `validate()` —
-    `PARAM_SCHEMA["none"]=={}` so validate() would reject the answer param; the
-    grounding path never dispatches anyway, so it parses the JSON directly and
-    re-checks `name=="none"`. Security = grammar lock (client asserts
-    `untrusted → final.gbnf`) + name re-check + executor never called.
-  - `web_search.params.query` becomes a urlencoded SearXNG query param ONLY,
-    never argv — this is NOT the `youtube_search` exception (invariant #2 holds).
-  - `web_search` NEVER dispatches (`dispatched=False` always).
-  - The grounding turn is the reusable seam G8 (conversation) builds its `chat`
-    second stage on top of — keep it clean.
+**TWO test/plan adjustments during Task 7-8:** (a) the plan's Task-7 test file
+was pre-written by a prior session as untracked RED tests — implementation was
+the resume work; (b) `tests/test_turn.py::test_not_yet_wired_action_is_not_
+dispatched` was REMOVED — it used `web_search` as the not-yet-wired example,
+but `NOT_YET_WIRED` is now empty (web_search is wired); the web_search path is
+covered by `tests/test_web_search_turn.py`.
+
+### G7 progress — what is DONE (branch `g7-search`, 11 tasks)
+
+  1. **Task 1 — SearXNG loopback unit (ADR-045).** `deploy/searxng/settings.yml`,
+     `deploy/searxng/friday-searxng.service`, `just searxng`, `docs/searxng-setup.md`.
+     Image PINNED by digest:
+     `docker.io/searxng/searxng@sha256:11a9b34cdc0b1ec2b991470a2762ecb5a1a531898289fb51dcd015260450729e`.
+     Unit is **installed + running** (`systemctl --user is-active friday-searxng`
+     = active). EVIDENCE: `ss -ltnp | grep 8888` → `LISTEN 127.0.0.1:8888` only,
+     no `0.0.0.0` (invariant #8 holds). Live query "capital of France" returned
+     27 raw results.
+  2. **Task 2 — search config** (`SEARXNG_URL`, `SEARCH_TIMEOUT_S=8.0`,
+     `SEARCH_MAX_RESULTS=5`, `SEARCH_MAX_TOKENS=1500`, `SEARCH_CONNECTED_DEFAULT`).
+     2/2 pass.
+  3. **Task 3 — sanitizer** (`friday/tools/search.py`: `SearchResult`, `sanitize`).
+     6/6 pass. Markup/control/zero-width strip, NFKC, caps, URLs out of band.
+  4. **Task 4 — SearXNG JSON client** (`SearchClient`, `SearchUnavailable`→E_NET_DOWN).
+     3/3 pass. Monkeypatched `urlopen`, no real network in the test.
+  5. **Task 5 — grammar lock + client assertion.** `final.gbnf` name == exactly
+     `"none"`; `LlamaClient.complete(..., untrusted=True)` asserts the grammar
+     IS `build_final_grammar()` (invariant #1, enforced in the one place every
+     request passes through). 4/4 pass.
+  6. **Task 6 — grounding turn** (`friday/llm/grounding.py`: `ground()`, `NO_ANSWER`).
+     5/5 pass. Synthesizes the answer under `final.gbnf`, parses directly (NOT
+     `validate()`), re-checks `name=="none"`, strips URLs/markup from the spoken
+     answer, fails closed to `NO_ANSWER`.
+
+**LIVE evidence (Task 6 session, real running SearXNG — no llama-server needed):**
+`SearchClient.query("capital of France")` → 27 raw → `sanitize()` → 5 clean
+bodies; bodies carried NO URLs; sources kept `Paris - Wikipedia —
+https://en.wikipedia.org/wiki/Paris` etc. out of band. The full synthesis
+(grounding LLM) was NOT run live — it needs `just serve` + Task 7 wiring.
+
+### TWO PLAN DEFECTS found + FIXED (do not re-introduce)
+
+  - **Task 1 unit:** the plan's `[Unit]` had `Requires=docker.service` /
+    `After=docker.service`. That FAILS for a `--user` unit — `dockerd` is a
+    SYSTEM service, invisible in user scope (`Failed to start ...: Unit
+    docker.service not found`). FIX: dropped both lines; the committed unit
+    relies on dockerd being up (it is enabled at boot). Do NOT restore them.
+  - **Task 3 test:** the plan's zero-width test used a plain ASCII space (U+0020)
+    as its middle "special space" vector — the real special char was lost in the
+    plan's markdown copy — making `assert " " not in body` a FALSE assertion
+    (sanitized text legitimately has spaces). FIX: the committed test uses U+00A0
+    (non-breaking space), which NFKC-folds to a plain space, so the assertion is
+    meaningful and true. If you re-copy that test from the plan, re-apply this.
+
+### RESUME HERE — G8 (conversation) Build 1, the primary goal
+
+**G7 is DONE** (all 11 tasks; evidence above) and **MERGED to main + pushed**
+(2026-08-23). **G8 Build 1 is PLANNED — the next action is to EXECUTE it, not
+to re-plan.**
+
+**The plan:** `docs/superpowers/plans/2026-08-23-g8-conversation-build1.md` —
+10 TDD tasks, rechecked against the real code. Build 1 = in-reply/in-session
+chat: a new `chat` action + `friday/llm/chat.py` generator + a RAM `Dialogue`
+ring buffer + ADR-048 ("conversational speech" carved out of ADR-009). Reuses
+G7's grounding-turn seam (`friday/llm/grounding.py`) — keep it clean.
+
+**How to execute:** invoke `superpowers:subagent-driven-development`
+(recommended: fresh subagent per task, two-stage review) or
+`superpowers:executing-plans` (inline, batched with checkpoints). Work tasks in
+order; each is TDD (write failing test → run → implement → run → commit). Live
+steps (Tasks 9-10 eval + end-to-end) need `just serve` up; `just searxng` is
+NOT needed for G8 (search is G7).
+
+**Decision already recorded for G8 (do NOT relitigate):** `none` now SPEAKS a
+DISTINCT line per terminal restriction so the operator can tell live *why*
+there was no action (user decision 2026-08-23; design open-item #4). Deliberate
+in-scope none → `templates.OUT_OF_SCOPE` ("That isn't something I'm able to
+do."); malformed/validation → "I didn't understand."; timeout → "That took too
+long."; unreachable → "My brain's offline."; panic/disabled → existing
+template. Greetings/casual/"who are you" route to `chat`, which is what makes
+narrowing `none` safe. Eval E15/E16 MOVE from `none` to `chat`; E17/E18
+(destructive) and E19 (ambiguous) stay `none`; set re-baselines to 28/28.
+
+**Key G7 facts the G8 chat stage builds on (do NOT relitigate):**
+  - The **grounding turn** (`friday/llm/grounding.py`) synthesizes an answer
+    under `final.gbnf` (action name locked to `"none"` → cannot dispatch,
+    invariant #1). G8's `chat` is a SECOND free-text stage on the same
+    llama-server (invariant #6), reached ONLY when the grammar-locked planner
+    chose `chat` — so chat is structurally unreachable from untrusted data
+    (final.gbnf can only emit `name=="none"`, never `"chat"`). No runtime
+    untrusted-assert is needed on the planning path; the safety is the grammar.
+  - `chat` NEVER dispatches (`dispatched=False`, no executor call).
+  - The `Dialogue` buffer is RAM-only, never on disk (invariant #7); raw
+    transcripts on disk are rejected (durable-injection + privacy). Cross-
+    session continuity is a LATER stage (distilled, inerted summaries), not
+    Build 1.
+
+**G7 as shipped (reference; do NOT relitigate ADR-045/046/047):**
+  - SearXNG = loopback `systemd --user` unit, `127.0.0.1:8888` only, **enabled**
+    (persists across reboots) + active (ADR-045). `just searxng status`.
+  - Search defaults CONNECTED; local is the opt-out `--local` / `/local` (ADR-046).
+  - UX = synthesized spoken answer + always-show sources; voice never speaks
+    URLs (ADR-047).
 
 Key facts from the G6 session — do NOT re-introduce the reverted approaches:
 
@@ -157,16 +263,12 @@ Trigger key = `XF86Presentation` (keycode 433, modmask 0), tap on / tap off
   script, so the executor cannot see if electron actually came up. Inherent.
 - youtube_search opens a SEARCH page, does not autoplay (OQ-24, deferred).
 
-### The real next step — EXECUTE the G7 plan, then G8 (conversation)
-1. **G7 (search)** — PLANNED. `docs/superpowers/plans/2026-08-23-g7-search.md`
-   (11 TDD tasks). SearXNG loopback (systemd unit, ADR-045), sanitizer,
-   `final.gbnf` grounding turn, injection suite 20/20 (asserted on the
-   executor), egress test, connected-default mode (ADR-046), synth answer +
-   sources (ADR-047). The only egress. Just execute the tasks in order.
-2. **G8 (conversation)** — the primary goal, AFTER G7. Invoke `writing-plans` on
-   `docs/superpowers/specs/2026-08-23-conversational-chat-design.md` for Build 1
-   (in-reply chat: `chat` action + `llm/chat.py` + RAM dialogue buffer + the new
-   "conversational speech" ADR). Reuses G7's grounding-turn seam. Then build TDD.
+### The real next step — EXECUTE the G8 Build 1 plan
+**G7 (search) is DONE + merged to main.** The next step is to EXECUTE
+`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md` (10 TDD tasks) —
+see "RESUME HERE — G8" above for how. Build 1 = in-reply chat: `chat` action +
+`friday/llm/chat.py` + RAM `Dialogue` buffer + ADR-048. After Build 1: G8
+Stage 2 (habit-driven suggestions from the audit log), then G9 (service).
 
 ### RESOLVED — the Hyprland "glitch"
 Identified: the Copilot key (`XF86Assistant`) leaks Super at the firmware
@@ -181,27 +283,30 @@ small.en int8 beam1 hotwords is locked (ADR-042); `faster-whisper` is in
 pyproject, venv still torch-free.
 
 ### What is true right now
-- Branch `main`. G0–G5 passed; G6 pipeline proven live, key-press + eval +
-  TTFA pending. `just run` = text+voice TUI; `FRIDAY_DEBUG=1 just voice` = the
+- Branch `main`. **G0–G7 passed** (G7 merged 2026-08-23). G8 Build 1 PLANNED,
+  not started. `just run` = text+voice TUI; `FRIDAY_DEBUG=1 just voice` = the
   G6 daemon; `just ptt press|release` = the client (cwd must be the repo).
-- `friday/` code: `llm/` (schema, validate, client, prompt, grammars),
-  `tools/` (apps, registry, executor), `store/` (db, prefs, audit,
-  migrations), `ui/` (templates, tui), `audio/` (state[FSM], capture, stt,
-  ptt, tts, say), plus `config.py`, `errors.py`, `turn.py`, `daemon.py`,
-  `voice_main.py`, `prefs_cli.py`, `ptt_cli.py`, `eval_harness.py`,
-  `__main__.py`.
+- `friday/` code: `llm/` (schema, validate, client, prompt, grammars,
+  **grounding** [G7]), `tools/` (apps, registry, executor, **search** [G7]),
+  `store/` (db, prefs, audit, migrations), `ui/` (templates, tui), `audio/`
+  (state[FSM], capture, stt, ptt, tts, say), plus `config.py`, `errors.py`,
+  `turn.py`, `daemon.py`, `voice_main.py`, `prefs_cli.py`, `ptt_cli.py`,
+  `eval_harness.py`, `__main__.py`. (G8 will add `llm/chat.py` + `dialogue.py`.)
 - Persistence: SQLite at `~/.local/state/friday/memory.db` (WAL, 0600 in a
   0700 dir), single-writer (`store/db.py`), forward-only migrations. `just
   prefs list|export|forget [--hard]|reset --yes`.
 - Deps: `textual`, `kokoro-onnx`, `sounddevice`, `soundfile` (G5),
-  **`faster-whisper`** (G6); `pytest` (dev). Store uses stdlib `sqlite3`.
-  Venv is CPU-only and stays **torch-free** — kokoro-onnx (onnxruntime) and
-  faster-whisper (CTranslate2) neither pull torch (ADR-039/042). Verified:
-  `uv pip list | grep -iE torch|nvidia|cuda` is empty. CPU-torch check moot.
-- `just eval` = 20/20 (last run G5; G6 touched none of the planning path so
-  unaffected by construction). `uv run pytest` = **150 passed**.
-- **No llama-server running** — start with `just serve` for eval or `just voice`.
-- `web_search` still returns "not yet wired" — G7. Memory is now wired.
+  **`faster-whisper`** (G6); `pytest` (dev). G7 added NO runtime dep (SearXNG
+  is queried over stdlib `urllib`). Store uses stdlib `sqlite3`. Venv is
+  CPU-only and stays **torch-free** (ADR-039/042); `uv pip list | grep -iE
+  torch|nvidia|cuda` empty.
+- `just eval` = **24/24** (G7 did not touch the planning path). `uv run pytest`
+  = **176 passed**. G8 will move eval to 28/28 (E15/E16→chat + 4 new fixtures).
+- Search: SearXNG loopback unit, **enabled + active**, `127.0.0.1:8888` only.
+  `just searxng status`. `web_search` is WIRED (query→sanitize→ground, never
+  dispatches). Memory is wired.
+- **No llama-server running by default** — start with `just serve` for eval,
+  `just run`, or `just voice`.
 
 ### Memory design as built (G4 — ADR-035/036/037/038)
 - **Keys**: model supplies a free key; `store/prefs.py` slugifies it to
@@ -1034,6 +1139,12 @@ Append a line whenever a measurement changes a document.
    2026-08-23  SearXNG = systemd --user unit (docker), loopback only  ADR-045
    2026-08-23  search default = CONNECTED; local is opt-out           ADR-046
    2026-08-23  search UX = synth spoken answer + always-show sources  ADR-047
+   2026-08-23  G7 T1-6 built on branch g7-search; 170 unit pass       G7
+   2026-08-23  SearXNG image pinned sha256:11a9b34c...; unit running  G7/T1
+   2026-08-23  plan fix: --user unit can't Requires=docker.service    G7/T1
+   2026-08-23  plan fix: zero-width test space vector U+0020->U+00A0  G7/T3
+   2026-08-23  client complete(untrusted=True) asserts final.gbnf     G7/T5/inv#1
+   2026-08-23  grounding turn parses direct (not validate); name=none G7/T6
 ```
 
 ## Time log

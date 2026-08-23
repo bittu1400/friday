@@ -10,6 +10,12 @@ serve:
       --host 127.0.0.1 --port 8080 --ctx-size 8192 --n-gpu-layers 99 \
       --cache-type-k q8_0 --cache-type-v q8_0 --no-webui
 
+# Manage the loopback SearXNG unit (ADR-045). `just searxng start|stop|status`.
+# The unit binds 127.0.0.1:8888 ONLY (invariant #8). Install once with:
+#   systemctl --user link $PWD/deploy/searxng/friday-searxng.service
+searxng CMD="status":
+    systemctl --user {{CMD}} friday-searxng
+
 # Regenerate the GBNF grammars from the single schema source of truth.
 grammar:
     uv run python -m friday.llm.schema
@@ -30,6 +36,19 @@ eval-baseline:
 # Adversarial 16/16: AS-1..12 into the validator, AS-13..16 the youtube builder.
 test-adversarial:
     uv run pytest tests/test_adversarial.py tests/test_youtube.py -q
+
+# G7 injection suite: 20 hostile result sets, zero executor dispatches (FR-63).
+test-injection:
+    uv run pytest tests/test_injection.py -v
+
+# G7 egress proof (FR-60, invariant #8): SearXNG is the ONLY outbound path.
+# Confirms no service binds beyond loopback. The block-all-non-loopback half
+# is a manual step (needs privileges) documented in progress.md.
+test-egress:
+    @echo "listening sockets (must be 127.0.0.1 only):"
+    @ss -ltnp | grep -E '8080|8888' || true
+    @echo "asserting no 0.0.0.0 bind on 8080/8888:"
+    @! ss -ltnp | grep -E '0\.0\.0\.0:(8080|8888)'
 
 # Manage stored preferences (FR-56): list | export | forget [--hard] | reset --yes.
 # `just prefs list`; `just prefs forget editor`; `just prefs reset --yes`.

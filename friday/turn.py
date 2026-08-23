@@ -23,8 +23,9 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import config
 from .errors import Outcome
-from .llm import schema
+from .llm import grounding, schema
 from .llm.client import LlamaClient, LlamaTimeout, LlamaUnreachable
 from .llm.prompt import assemble_system
 from .llm.validate import SchemaError, validate
@@ -32,6 +33,7 @@ from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore, resolve
 from .tools import executor
 from .tools.registry import NOT_YET_WIRED, REGISTRY
+from .tools.search import SearchClient, SearchResult, SearchUnavailable, sanitize
 from .ui import templates
 
 _PLAN_GRAMMAR = (Path(schema.__file__).parent / "grammars" / "plan.gbnf").read_text()
@@ -55,6 +57,7 @@ class TurnResult:
     spoken: str
     dispatched: bool
     pending: PendingPreference | None = None
+    sources: tuple[SearchResult, ...] = ()
 
 
 # The one non-speakable line: the `none` placeholder (a real conversational
@@ -72,6 +75,8 @@ async def run_turn(
     prefs: PrefStore | None = None,
     audit: AuditLog | None = None,
     speaker: "object | None" = None,
+    search_client: SearchClient | None = None,
+    connected: bool = True,
 ) -> TurnResult:
     """Plan + act, then voice the outcome (ADR-040). Execute-first is
     preserved: the action runs inside `_plan_and_act`, the template is chosen
@@ -83,6 +88,8 @@ async def run_turn(
         dry_run=dry_run,
         prefs=prefs,
         audit=audit,
+        search_client=search_client,
+        connected=connected,
     )
     if speaker is not None and result.spoken != _UNSPOKEN:
         await asyncio.to_thread(speaker.say, result.spoken)
@@ -97,6 +104,8 @@ async def _plan_and_act(
     dry_run: bool = False,
     prefs: PrefStore | None = None,
     audit: AuditLog | None = None,
+    search_client: SearchClient | None = None,
+    connected: bool = True,
 ) -> TurnResult:
     system = assemble_system(prefs.digest() if prefs else "")
     try:
@@ -122,6 +131,11 @@ async def _plan_and_act(
     if plan.name == "forget_preference":
         return await _do_forget(params, prefs, audit, request_id)
 
+    if plan.name == "web_search":
+        return await _do_web_search(
+            params.get("query", utterance), client, search_client, connected
+        )
+
     if plan.name in NOT_YET_WIRED:
         return TurnResult(
             plan.name, params, f"[planned {plan.name} — {NOT_YET_WIRED[plan.name]}]", False
@@ -145,6 +159,42 @@ async def _plan_and_act(
             duration_ms=result.duration_ms,
         )
     return TurnResult(plan.name, params, spoken, dispatched)
+
+
+async def _do_web_search(
+    query: str,
+    client: LlamaClient,
+    search_client: SearchClient | None,
+    connected: bool,
+) -> TurnResult:
+    """Query -> sanitize -> ground. NEVER dispatches (dispatched=False): the
+    grounding turn is final.gbnf-locked (invariant #1) and there is no
+    subprocess here. `query` is the model's own text, used ONLY as a SearXNG
+    query parameter (invariant #2 — not the youtube exception)."""
+    if not connected:  # ADR-046: local mode refuses audibly
+        return TurnResult("web_search", {"query": query}, templates.SEARCH_LOCAL_MODE, False)
+    sc = search_client or SearchClient(
+        base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
+    )
+    try:
+        # SearchClient is sync; keep the turn loop's thread free.
+        results = await asyncio.to_thread(sc.query, query)
+    except SearchUnavailable:  # E_NET_DOWN — spoken fallback, never a raw exc
+        return TurnResult("web_search", {"query": query}, templates.SEARCH_UNAVAILABLE, False)
+    bodies, sources = sanitize(
+        results,
+        max_results=config.SEARCH_MAX_RESULTS,
+        max_tokens=config.SEARCH_MAX_TOKENS,
+    )
+    if not any(bodies):
+        return TurnResult(
+            "web_search", {"query": query}, templates.SEARCH_NO_RESULTS, False,
+            sources=tuple(sources),
+        )
+    answer = await asyncio.to_thread(grounding.ground, client, query, bodies)
+    return TurnResult(
+        "web_search", {"query": query}, answer, False, sources=tuple(sources)
+    )
 
 
 def _plan_remember(params: dict[str, str]) -> TurnResult:

@@ -89,8 +89,37 @@ def build_grammar() -> str:
 
 
 def build_final_grammar() -> str:
-    """The grounding grammar: action name can only be "none" (ADR-008)."""
-    return _grammar(FINAL_ACTIONS)
+    """The grounding grammar (ADR-008, invariant #1). Two things it does that
+    the planning grammar does not:
+
+      1. The action name can only be "none" — the turn structurally cannot
+         dispatch, no matter what untrusted web text tries to induce.
+      2. `params` is forced to exactly one required key, "answer", a string —
+         the synthesized spoken answer rides there (§9.3). The generic
+         string:string `params` used for planning let the model emit `{}` and
+         skip answering; requiring the key steers it to actually answer.
+
+    The trailing `ws` after the root object is dropped (unlike the planning
+    grammar): once `{"answer":"…"}` closes, generation stops at the brace
+    instead of padding whitespace up to max_tokens.
+    """
+    name_alt = " | ".join(_q(a) for a in FINAL_ACTIONS)
+    return "\n".join(
+        [
+            "# Generated from friday/llm/schema.py — do not edit by hand.",
+            "# Regenerate with: uv run python -m friday.llm.schema",
+            "",
+            'root ::= "{" ws "\\"action\\"" ws ":" ws action ws "}"',
+            'action ::= "{" ws "\\"name\\"" ws ":" ws name ws "," ws '
+            '"\\"params\\"" ws ":" ws params ws "}"',
+            f"name ::= {name_alt}",
+            'params ::= "{" ws "\\"answer\\"" ws ":" ws string ws "}"',
+            r'string ::= "\"" char* "\""',
+            r'char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])',
+            "ws ::= [ \\t\\n]*",
+            "",
+        ]
+    )
 
 
 if __name__ == "__main__":

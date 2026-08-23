@@ -29,6 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--no-voice", action="store_true", help="text only; do not load Kokoro"
     )
+    ap.add_argument(
+        "--local",
+        action="store_true",
+        help="start in local mode: web_search refuses (no egress). ADR-046",
+    )
     ap.add_argument("--base-url", default=config.LLAMA_BASE_URL)
     args = ap.parse_args(argv)
 
@@ -49,9 +54,12 @@ def main(argv: list[str] | None = None) -> int:
             threads=config.KOKORO_THREADS,
         )
 
+    # Connected by default (ADR-046); --local is the opt-out.
+    connected = config.SEARCH_CONNECTED_DEFAULT and not args.local
     client = LlamaClient(base_url=args.base_url)
     FridayTUI(
-        client, prefs=prefs, audit=audit, speaker=speaker, dry_run=args.dry_run
+        client, prefs=prefs, audit=audit, speaker=speaker,
+        dry_run=args.dry_run, connected=connected,
     ).run()
     db.close()
     return 0

@@ -125,9 +125,6 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
 )
 
 # Plan actions that are valid but not executable yet (wired at later gates).
-# Memory (remember/forget) is wired at G4 in the turn loop, so it is NOT here.
-NOT_YET_WIRED: Mapping[str, str] = MappingProxyType(
-    {
-        "web_search": "web search arrives at G7",
-    }
-)
+# Memory (remember/forget) is wired at G4 and web_search at G7, both in the
+# turn loop (no subprocess, so no registry entry) — neither is here.
+NOT_YET_WIRED: Mapping[str, str] = MappingProxyType({})
