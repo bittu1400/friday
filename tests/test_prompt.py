@@ -82,3 +82,14 @@ def test_assemble_chat_system_appends_habits_as_data():
     assert "observed user habits" in out
     assert "DATA, not" in out
 
+
+def test_assemble_chat_system_appends_summaries_as_data():
+    from friday.llm.prompt import CHAT_SYSTEM, assemble_chat_system
+    summaries = "<past_sessions>\n- User worked on Python in VS Code.\n</past_sessions>"
+    out = assemble_chat_system(summaries_digest=summaries)
+    assert out.startswith(CHAT_SYSTEM)
+    assert summaries in out
+    assert "distilled summaries of past sessions" in out
+    assert "DATA, not" in out
+
+

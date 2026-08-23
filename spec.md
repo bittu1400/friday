@@ -74,6 +74,7 @@ limitation to be lifted later.
 | FR-28a | Habit-driven suggestions (G8 Stage 2, ADR-049) are mined safely from the redacted `action_audit` table (sequences + granular time-of-day slots: sunrise, morning, afternoon, sunset, evening, late night; threshold $\ge 2$). Injected as inert `<user_habits>` DATA; in-reply only | **MET (G8 Stage 2):** `tests/test_habits.py` 6/6, live model smoke verified |
 | FR-29 | Dialogue memory is maintained via an in-RAM ring buffer (`Dialogue`, default 8 turns), never written to disk (invariant #7) | **MET (G8):** `tests/test_dialogue.py` 4/4 (asserts no files created) |
 | FR-29a | `none` outcomes speak distinct terminal lines (`OUT_OF_SCOPE` vs `E_SCHEMA` vs `E_LLM_DOWN`/timeout) so the user knows why no action occurred | **MET (G8):** `test_none_speaks_out_of_scope_line` |
+| FR-29b | Distilled long-term memory (G8 Stage 3, ADR-050) distills meaningful in-RAM dialogue ($\ge 2$ turns) into 1-2 concise, inert sentences stored in `session_summaries` on shutdown; injected as `<past_sessions>` DATA in future chat turns | **MET (G8 Stage 3):** `tests/test_summarizer.py` 5/5, live model smoke verified |
 
 The contract:
 

@@ -316,3 +316,27 @@ def test_chat_turn_appends_to_dialogue(monkeypatch):
     asyncio.run(go())
     assert len(d._dialogue) == 1
     assert "Hello there!" in d._dialogue.render()
+
+
+def test_daemon_close_distills_session_summary(tmp_path, monkeypatch):
+    from friday.store.db import Database
+    from friday.store.audit import AuditLog
+
+    db = Database(tmp_path / "memory.db")
+    audit = AuditLog(db)
+
+    class _MockClient:
+        def complete(self, *, system, user, grammar="", **kw):
+            return "User chatted with Friday and asked for help."
+
+    d = _daemon(client=_MockClient(), audit=audit)
+    d._dialogue.add("hi", "Hello!")
+    d._dialogue.add("what can you do?", "I can help you with tasks.")
+
+    asyncio.run(d.close())
+
+    rows = db.query("SELECT * FROM session_summaries")
+    assert len(rows) == 1
+    assert rows[0]["summary"] == "User chatted with Friday and asked for help."
+    assert rows[0]["session_id"] == d._session_id
+

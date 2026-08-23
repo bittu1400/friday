@@ -1548,3 +1548,33 @@ Suggestions are surfaced exclusively during user-initiated `chat` turns (in-repl
 
 **Consequences:** Friday personalizes suggestions using verified local activity without
 introducing new storage tables, tracking daemons, or unprompted interruptions.
+
+## ADR-050 — Distilled long-term memory via session summaries (G8 Stage 3)
+
+**Status:** Accepted 2026-08-23.
+
+**Context:** Raw conversation transcripts are strictly forbidden from being written to
+disk (invariant #7, ADR-028, ADR-031) due to privacy concerns and durable prompt injection
+replay vulnerabilities. However, cross-session continuity requires Friday to remember
+high-level context (e.g. recent topics or ongoing work).
+
+**Decision:** At session shutdown (daemon/TUI graceful exit on SIGINT/SIGTERM/quit), if
+the in-RAM dialogue ring buffer contains $\ge 2$ turns, Friday distills the dialogue
+into 1–2 concise sentences capturing high-level context without verbatim quotes or paths.
+The distilled summary is stored in the existing SQLite `session_summaries` table
+(`session_id`, `summary`, `created_at`).
+
+In future sessions, the 2 most recent session summaries are fetched and injected as an
+inert `<past_sessions>` data block into `assemble_chat_system` as DATA (following the
+same pattern as `<preferences>` and `<user_habits>`).
+
+**Invariants preserved:**
+- Invariant #7: Raw transcripts are never persisted. Only sanitized, model-distilled
+  high-level summaries are saved.
+- Invariant #1 / #4: Memory provides conversational context (ADR-048), not side-effect triggers.
+- Retention: `session_summaries` are subject to `sweep_retention` (purged after 90 days),
+  unlike permanent preferences.
+
+**Consequences:** Friday maintains natural cross-session conversational memory with zero
+leakage of raw audio or transcripts to disk.
+

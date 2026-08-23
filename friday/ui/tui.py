@@ -66,6 +66,7 @@ class FridayTUI(App):
             base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
         )
         self._pending: PendingPreference | None = None
+        self._session_id = uuid.uuid4().hex
         self._dialogue = Dialogue()  # in-session context, RAM-only (invariant #7)
         self._voice = "muted" if speaker is None else getattr(speaker, "voice", "on")
         self._set_mode_subtitle()
@@ -88,6 +89,17 @@ class FridayTUI(App):
         else:
             log.write("[dim]Ready. Type an utterance and press Enter.[/]")
         self._set_mode_subtitle()
+
+    def on_unmount(self) -> None:
+        db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
+        if len(self._dialogue) >= 2 and db is not None:
+            try:
+                from ..store.summarizer import distill_dialogue, save_session_summary
+                summary = distill_dialogue(self._client, self._dialogue.render())
+                if summary:
+                    save_session_summary(db, self._session_id, summary)
+            except Exception:
+                pass
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -118,10 +130,14 @@ class FridayTUI(App):
         log = self.query_one("#log", RichLog)
         db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
         habits_digest = ""
+        summaries_digest = ""
         if db is not None:
             from ..store.habits import mine_habits, render_habits_digest
+            from ..store.summarizer import get_recent_session_summaries, render_summaries_digest
             habits = mine_habits(db)
             habits_digest = render_habits_digest(habits)
+            summaries = get_recent_session_summaries(db, limit=2)
+            summaries_digest = render_summaries_digest(summaries)
 
         result = await run_turn(
             text,
@@ -135,7 +151,9 @@ class FridayTUI(App):
             connected=self._connected,
             history=self._dialogue.render(),
             habits_digest=habits_digest,
+            summaries_digest=summaries_digest,
         )
+
 
         params = f" {result.params}" if result.params else ""
         log.write(f"[dim]→ action: {result.plan_name}{params}[/]")

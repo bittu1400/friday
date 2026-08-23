@@ -58,3 +58,19 @@ def test_habits_digest_is_passed_to_chat_generator():
     assert "After opening Brave, you often open VS Code" in spy.seen_system
     assert "observed user habits" in spy.seen_system
 
+
+def test_summaries_digest_is_passed_to_chat_generator():
+    class _Spy:
+        def complete(self, *, system, user, grammar="", untrusted=False, **kw):
+            if grammar == "":
+                self.seen_system = system
+                return "Sure!"
+            return '{"action":{"name":"chat","params":{}}}'
+    spy = _Spy()
+    summaries = "<past_sessions>\n- User worked on Python in VS Code.\n</past_sessions>"
+    asyncio.run(turn_mod.run_turn("what were we doing?", spy, request_id="c4",
+                                  summaries_digest=summaries))
+    assert "User worked on Python in VS Code" in spy.seen_system
+    assert "distilled summaries of past sessions" in spy.seen_system
+
+

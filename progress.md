@@ -12,11 +12,12 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **G0–G8 (Build 1 & Stage 2) PASSED** (2026-08-23).
-All tasks for Build 1 (in-reply chat) and Stage 2 (habit-driven suggestions) implemented.
-`uv run pytest` **207 passed**, `just eval` **28/28 (regressions 0)**,
+**Overall status:** **G0–G8 (Build 1, Stage 2, Stage 3) PASSED** (2026-08-23).
+All tasks for Build 1 (in-reply chat), Stage 2 (habit-driven suggestions), and Stage 3
+(distilled long-term memory via session summaries) implemented and verified.
+`uv run pytest` **215 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, adversarial 14/14. Live end-to-end smoke
-test verified on real llama-server (:8080) for conversation and habit suggestions.
+test verified on real llama-server (:8080) across all stages.
 
 G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
 (2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
@@ -45,7 +46,7 @@ optional.
 (service)**. G7 shipped 2026-08-23 (SearXNG loopback, sanitizer, `final.gbnf`
 grounding, injection 20/20, egress proof; ADR-045/046/047) and merged to main.
 G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
-**G8 Build 1 & Stage 2 PASSED 2026-08-23.** Next step: Merge to main, then proceed to G8 Stage 3 or G9.
+**G8 Build 1, Stage 2, and Stage 3 PASSED 2026-08-23.** Next step: Merge to main, then proceed to G9.
 
 ```
    G0 REPO        [x]
@@ -64,37 +65,41 @@ G8 design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
                         SearXNG loopback unit + sanitizer + grammar-locked
                         grounding turn + injection suite 20/20 + egress proof.
                         176 unit pass, eval 24/24 (no regression). Merged to main.
-   G8 CONVERSATION[x]   <-- Build 1 & Stage 2 PASSED 2026-08-23.
+   G8 CONVERSATION[x]   <-- Build 1, Stage 2, Stage 3 PASSED 2026-08-23.
                         Build 1: chat action + generator + RAM Dialogue + ADR-048.
                         Stage 2: habit mining (ADR-049) from action_audit.
-                        207 unit pass, eval 28/28 (0 reg), injection 20/20,
+                        Stage 3: distilled long-term memory (ADR-050) via session_summaries.
+                        215 unit pass, eval 28/28 (0 reg), injection 20/20,
                         live model smoke verified.
    G9 SERVICE     [ ]   <-- was G8; renumbered 2026-08-23.
 ```
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, **G8 Stage 2 PASSED**)
+## NEXT SESSION — START HERE (updated 2026-08-23, **G8 COMPLETE: Build 1, Stage 2, Stage 3 PASSED**)
 
-**G8 Build 1 & Stage 2 are COMPLETE** on branch `g8-habits`.
-`uv run pytest` **207 passed**, `just eval` **28/28 (0 reg)**, injection 20/20, and live
+**G8 (Conversation & Long-Term Memory) is COMPLETE** on branch `g8-memory`.
+`uv run pytest` **215 passed**, `just eval` **28/28 (0 reg)**, injection 20/20, and live
 smoke test verified.
 
 ### G8 ACCEPTANCE EVIDENCE (2026-08-23, llama-server up)
 ```
-$ uv run pytest -q                    207 passed
+$ uv run pytest -q                    215 passed
 $ just eval                           passed 28/28 (100%), regressions 0
 $ just test-injection                 20/20 blocked (injection.jsonl, calls==[])
 
-LIVE HABIT SUGGESTION SMOKE TEST (real model, dry_run=True):
-  UTTERANCE: "i'm bored, got any suggestions"
-    -> PLAN: name=chat params={} dispatched=False
-    -> SPOKEN: "How about opening Brave and then jumping into VS Code for some coding? Or maybe find some relaxing lo-fi music on YouTube?"
+LIVE RECALL SMOKE TEST (real model, dry_run=True):
+  SESSION 1 SHUTDOWN DISTILLATION:
+    -> DISTILLED: "Friday opened VS Code and is searching for lo-fi music."
+  SESSION 2 TURN:
+    UTTERANCE: "what were we working on earlier?"
+    -> SPOKEN: "We were searching for lo-fi music in VS Code. Want to find some more tracks?"
 ```
 
 ### WHAT'S NEXT
-1. **Merge `g8-habits` into `main` and push to remote.**
-2. **Next Gate:** Proceed to **G8 Stage 3** (distilled long-term memory via session summaries) or **G9** (systemd service integration).
+1. **Merge `g8-memory` into `main` and push to remote.**
+2. **Next Gate:** Proceed to **G9** (systemd service integration & resilience).
+
 
 
 ### KEY DECISION during execution (E19 regression fix, in commit cb7eae5)
@@ -1059,13 +1064,14 @@ $ just test-egress
 
 ---
 
-## G8 — Conversation (Build 1 & Stage 2)  **PASSED 2026-08-23**
+## G8 — Conversation (Build 1, Stage 2, Stage 3)  **PASSED 2026-08-23**
 
 **Acceptance:** spoken casual input → a warm ≤4-sentence reply; commands + facts still
 route right (eval not regressed); `chat` can never dispatch (`test_chat_turn` asserts
 executor untouched); dialogue never written to disk (`test_dialogue` asserts RAM-only);
-habit mining verified (`tests/test_habits.py` 6/6, live model smoke test verified);
-fail-soft on generation error; ADR-048 / ADR-049.
+habit mining verified (`tests/test_habits.py` 6/6); long-term memory distillation verified
+(`tests/test_summarizer.py` 5/5, live model smoke test verified); fail-soft on generation error;
+ADR-048 / ADR-049 / ADR-050.
 
 - [x] ADR-048: Conversational speech carved out of ADR-009 for non-side-effect turns
 - [x] `chat` action in `PARAM_SCHEMA`, `plan.gbnf`, `validate.py` (empty params `{}`)
@@ -1079,12 +1085,13 @@ fail-soft on generation error; ADR-048 / ADR-049.
 - [x] Eval fixtures updated (E15/E16→chat, added E25..E28) and re-baselined 28/28 (0 regressions)
 - [x] **Stage 2 (ADR-049):** `friday/store/habits.py` mines sequences + granular time-of-day slots (sunrise, morning, afternoon, sunset, evening, late night) from `action_audit`
 - [x] `assemble_chat_system` injects `<user_habits>` as DATA into `CHAT_SYSTEM`
-- [x] Live end-to-end smoke test verified against running model for both chat and habit suggestions
+- [x] **Stage 3 (ADR-050):** `friday/store/summarizer.py` distills in-RAM dialogue ($\ge 2$ turns) at shutdown into `session_summaries`; injects `<past_sessions>` DATA into future chat turns
+- [x] Live end-to-end smoke test verified against running model for chat, habit suggestions, and cross-session memory recall
 
 ```
 EVIDENCE (2026-08-23, llama-server up on :8080):
 $ uv run pytest -q
-  207 passed in 1.30s
+  215 passed in 1.27s
 
 $ just eval
   fixture-set revision: a661efe50529
@@ -1093,18 +1100,15 @@ $ just eval
 $ just test-injection
   20/20 blocked, calls==[]
 
-$ uv run pytest tests/test_adversarial.py tests/test_injection.py
-  14 passed
-
-LIVE HABIT SUGGESTION SMOKE TEST (real Qwen2.5-7B model, dry_run=True):
-  MINED HABITS DIGEST:
-    <user_habits>
-    - After opening Brave, you often open VS Code.
-    - In the evening, you often search YouTube for 'lo-fi'.
-    </user_habits>
-  UTTERANCE: "i'm bored, got any suggestions"
-    -> PLAN: name=chat params={} dispatched=False
-    -> SPOKEN: "How about opening Brave and then jumping into VS Code for some coding? Or maybe find some relaxing lo-fi music on YouTube?"
+LIVE CROSS-SESSION RECALL SMOKE TEST (real Qwen2.5-7B model, dry_run=True):
+  SESSION 1 IN-RAM DIALOGUE:
+    You: open my editor -> Friday: Opened VS Code.
+    You: put on lo-fi music -> Friday: Searching YouTube for lo-fi.
+  SESSION 1 SHUTDOWN DISTILLATION:
+    -> DISTILLED: "Friday opened VS Code and is searching for lo-fi music."
+  SESSION 2 TURN:
+    UTTERANCE: "what were we working on earlier?"
+    -> SPOKEN: "We were searching for lo-fi music in VS Code. Want to find some more tracks?"
 ```
 
 ---
@@ -1233,6 +1237,7 @@ Append a line whenever a measurement changes a document.
    2026-08-23  grounding turn parses direct (not validate); name=none G7/T6
    2026-08-23  G8 Build 1: conversational speech carved out of ADR-009 ADR-048
    2026-08-23  G8 Stage 2: habit suggestions mined from action_audit  ADR-049
+   2026-08-23  G8 Stage 3: distilled long-term memory in summaries    ADR-050
 ```
 
 ## Time log

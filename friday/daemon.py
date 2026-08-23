@@ -18,13 +18,13 @@ as the yes/no answer (30 s window, diagram 01 CONFIRMING). Anything not an
 affirmation cancels the write — fail safe.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import time
+import uuid
 
 from . import config
+
 from .audio import ptt
 from .audio.capture import Recorder
 from .audio.state import State, TurnState
@@ -79,11 +79,13 @@ class Daemon:
         self._pending: PendingPreference | None = None  # awaiting voice confirm
         self._cap_timer: asyncio.TimerHandle | None = None
         self._confirm_timer: asyncio.TimerHandle | None = None
+        self._session_id = uuid.uuid4().hex
         self._dialogue = Dialogue()  # in-session context, RAM-only (invariant #7)
         self._last_toggle = 0.0  # debounce clock for the tap-only trigger (ADR-044)
         self._capture_end = 0.0  # monotonic mark at end of speech, for TTFA (OQ-09)
         self._seq = 0
         self.rejected = 0  # FR-5 counter (observable in tests)
+
 
     # --- PTT events (from the socket) -------------------------------------
 
@@ -177,10 +179,14 @@ class Daemon:
             # PLANNING + EXECUTING (execute-first inside run_turn; no speech).
             db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
             habits_digest = ""
+            summaries_digest = ""
             if db is not None:
                 from .store.habits import mine_habits, render_habits_digest
+                from .store.summarizer import get_recent_session_summaries, render_summaries_digest
                 habits = mine_habits(db)
                 habits_digest = render_habits_digest(habits)
+                summaries = get_recent_session_summaries(db, limit=2)
+                summaries_digest = render_summaries_digest(summaries)
 
             result = await asyncio.wait_for(
                 run_turn(
@@ -189,9 +195,11 @@ class Daemon:
                     search_client=self._search, connected=self._connected,
                     history=self._dialogue.render(),
                     habits_digest=habits_digest,
+                    summaries_digest=summaries_digest,
                 ),
                 timeout=_PLANNING_TIMEOUT,
             )
+
 
 
             if result.pending is not None:  # confirm-first (ADR-037)
@@ -330,6 +338,20 @@ class Daemon:
 
     # --- lifecycle --------------------------------------------------------
 
+    async def close(self) -> None:
+        """Teardown daemon and distill session memory if meaningful dialogue occurred (ADR-050)."""
+        db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
+        if len(self._dialogue) >= 2 and db is not None:
+            try:
+                from .store.summarizer import distill_dialogue, save_session_summary
+                summary = await asyncio.to_thread(
+                    distill_dialogue, self._client, self._dialogue.render()
+                )
+                if summary:
+                    save_session_summary(db, self._session_id, summary)
+            except Exception:
+                log.exception("session distillation failed on close")
+
     async def run(self) -> None:
         self._recorder.open()  # fail-soft; text-only if no device
         server = await ptt.serve(config.PTT_SOCKET, self.on_ptt)
@@ -337,6 +359,8 @@ class Daemon:
         try:
             await asyncio.Event().wait()  # run until cancelled
         finally:
+            await self.close()
             server.close()
             await server.wait_closed()
             self._recorder.close()
+

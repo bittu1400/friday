@@ -1,11 +1,12 @@
 # Conversational chat & suggestions — design (gate G8)
 
-**Status:** Build 1 (in-reply chat) & Stage 2 (habit-driven suggestions)
-IMPLEMENTED & VERIFIED 2026-08-23 (207 unit passed, eval 28/28 0 reg,
-injection 20/20, live model smoke verified). Stages 3–4 remain open.
+**Status:** Build 1 (in-reply chat), Stage 2 (habit-driven suggestions), and
+Stage 3 (distilled long-term memory) IMPLEMENTED & VERIFIED 2026-08-23 (215 unit passed,
+eval 28/28 0 reg, injection 20/20, live model smoke verified). Stage 4 remains open.
 Build order decided 2026-08-23: **G7 (search) ✓ → G8 (conversation) → G9 (service)**.
 
 ## Context & why
+
 
 The user has stated that **chit-chat + suggestions is the primary goal**
 of Friday — the action dispatcher (open apps, search) is the supporting
@@ -133,18 +134,15 @@ for patterns (sequence transitions, granular time-of-day slots: sunrise, morning
 afternoon, sunset, evening, late night) and surfaces them as `<user_habits>` DATA
 inside user-triggered chat turns. Reads existing data; no raw transcripts.
 
-**Stage 3 — distilled long-term memory (the answer to "why not log the
-dialogue to disk"):** raw transcripts on disk are rejected — they are a
-permanent plaintext record of private speech (privacy / the disk trust
-boundary, ADR-031) and a **durable-injection** channel (re-feeding stored
-raw text is exactly the T1 attack the grammar-lock design blocks; the one
-persisted-and-re-fed channel, preferences, is deliberately rendered inert,
-and raw transcripts cannot be). The RAM argument for persisting is moot —
-the buffer is a few KB next to a 4.4 GB model. Instead, at end-of-session
-the model distills the RAM dialogue into short **inerted** facts/summaries
-→ `session_summaries` + preferences (the schema already has the table).
-That delivers cross-session continuity and searchable context safely, and
-feeds future chat context.
+**Stage 3 — distilled long-term memory (DONE 2026-08-23, ADR-050):**
+Raw transcripts on disk are rejected — they are a permanent plaintext record of
+private speech (privacy / the disk trust boundary, ADR-031) and a **durable-injection**
+channel (re-feeding stored raw text is exactly the T1 attack the grammar-lock design blocks).
+Instead, at session shutdown the model distills the RAM dialogue ($\ge 2$ turns) into short
+**inerted** summaries (`friday/store/summarizer.py`) saved in SQLite `session_summaries`.
+In future sessions, the 2 most recent summaries are injected as `<past_sessions>` DATA
+into `assemble_chat_system`, delivering cross-session conversational continuity safely.
+
 
 **Stage 4 — proactive/unprompted:** a trigger loop lets Friday speak
 without a tap (time/context). Breaks the pure PTT model — its own design

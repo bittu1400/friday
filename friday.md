@@ -705,17 +705,25 @@ sunset/early evening: 17-20, evening: 20-23, late night: 23-05) from the SQLite
 `action_audit` table. Injected as an inert `<user_habits>` block into `CHAT_SYSTEM`
 as DATA. Friday naturally personalizes recommendations during user-initiated chat turns.
 
+**Stage 3 (Distilled long-term memory, ADR-050):**
+At session shutdown, distills meaningful in-RAM dialogue ($\ge 2$ turns) into 1–2
+concise sentences capturing high-level context without raw quotes or paths. Stored in
+SQLite `session_summaries` table (`store/summarizer.py`). The 2 most recent summaries
+are injected as `<past_sessions>` DATA in future chat turns, enabling seamless
+cross-session conversational continuity.
+
 Invariants hold by construction: `chat` consumes no untrusted data and can
 never dispatch (invariant #1/#2/#4); ADR-048 carves "conversational speech"
 out of ADR-009's direct-action rule. Staged: Build 1 = in-reply/in-session
-chat (DONE); Stage 2 = habit-driven suggestions (DONE); later = distilled+inerted
-long-term memory (`session_summaries`), then proactive/unprompted.
+chat (DONE); Stage 2 = habit-driven suggestions (DONE); Stage 3 = distilled long-term
+memory (DONE); later = proactive/unprompted.
 
-**Acceptance (Build 1 & Stage 2):** spoken casual input → a warm ≤4-sentence reply;
+**Acceptance (Build 1, Stage 2, Stage 3):** spoken casual input → a warm ≤4-sentence reply;
 commands + facts still route right (eval 28/28, 0 reg); `chat` can never
 dispatch (`test_chat_turn` asserts executor untouched); dialogue never written
 to disk (`test_dialogue` asserts no files created); habit mining verified
-(`tests/test_habits.py` 6/6, live model smoke test verified); fail-soft on gen error.
+(`tests/test_habits.py` 6/6); long-term memory distillation verified
+(`tests/test_summarizer.py` 5/5, live model smoke test verified); fail-soft on gen error.
 Evidence recorded in `progress.md`.
 
 ---

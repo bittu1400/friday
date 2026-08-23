@@ -73,6 +73,7 @@ async def run_turn(
     connected: bool = True,
     history: str = "",
     habits_digest: str = "",
+    summaries_digest: str = "",
 ) -> TurnResult:
     """Plan + act, then voice the outcome (ADR-040). Execute-first is
     preserved: the action runs inside `_plan_and_act`, the template is chosen
@@ -88,6 +89,7 @@ async def run_turn(
         connected=connected,
         history=history,
         habits_digest=habits_digest,
+        summaries_digest=summaries_digest,
     )
     if speaker is not None and result.spoken:
         await asyncio.to_thread(speaker.say, result.spoken)
@@ -106,6 +108,7 @@ async def _plan_and_act(
     connected: bool = True,
     history: str = "",
     habits_digest: str = "",
+    summaries_digest: str = "",
 ) -> TurnResult:
     system = assemble_system(prefs.digest() if prefs else "")
     try:
@@ -135,8 +138,10 @@ async def _plan_and_act(
             chat.generate_reply, client, utterance,
             prefs_digest=(prefs.digest() if prefs else ""), history=history,
             habits_digest=habits_digest,
+            summaries_digest=summaries_digest,
         )
         return TurnResult("chat", {}, reply, False)
+
 
 
     if plan.name == "remember_preference":
