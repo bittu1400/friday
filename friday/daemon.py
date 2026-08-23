@@ -32,6 +32,7 @@ from .audio.stt import Transcriber
 from .llm.client import LlamaClient
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore
+from .tools.search import SearchClient
 from .turn import confirm_preference, is_affirmation, run_turn
 
 log = logging.getLogger("friday.daemon")
@@ -40,7 +41,10 @@ log = logging.getLogger("friday.daemon")
 # are the hard aborts, deliberately larger — a slow turn should finish late,
 # not fail.
 _TRANSCRIBE_TIMEOUT = 5.0
-_PLANNING_TIMEOUT = 12.0
+# was 12.0; a web_search turn adds SearXNG (≤8 s, SEARCH_TIMEOUT_S) + grounding
+# (~1-2 s) on top of planning. Safe: the search stage has its own 8 s cap
+# (FR-64), so the turn cannot actually hang to 20 s.
+_PLANNING_TIMEOUT = 20.0
 _CONFIRM_WINDOW = 30.0
 
 
@@ -55,6 +59,7 @@ class Daemon:
         prefs: PrefStore | None = None,
         audit: AuditLog | None = None,
         dry_run: bool = False,
+        connected: bool = True,
     ) -> None:
         self.state = TurnState()
         self._client = client
@@ -64,6 +69,10 @@ class Daemon:
         self._prefs = prefs
         self._audit = audit
         self._dry_run = dry_run
+        self._connected = connected
+        self._search = SearchClient(
+            base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
+        )
         self._turn_task: asyncio.Task | None = None
         self._speak_task: asyncio.Task | None = None
         self._pending: PendingPreference | None = None  # awaiting voice confirm
@@ -168,6 +177,7 @@ class Daemon:
                 run_turn(
                     text, self._client, request_id=rid, dry_run=self._dry_run,
                     prefs=self._prefs, audit=self._audit, speaker=None,
+                    search_client=self._search, connected=self._connected,
                 ),
                 timeout=_PLANNING_TIMEOUT,
             )

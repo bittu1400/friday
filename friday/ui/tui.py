@@ -19,11 +19,22 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Input, RichLog
 
+from .. import config
 from ..llm.client import LlamaClient
 from ..store.audit import AuditLog
 from ..store.prefs import PendingPreference, PrefStore
+from ..tools.search import SearchClient
 from ..turn import confirm_preference, is_affirmation, run_turn
 from ..ui import templates
+
+
+def render_sources(sources) -> str:  # noqa: ANN001 - list[SearchResult]
+    """One line per source: '  • <title> — <url>'. Sources are shown in the
+    TUI ALWAYS (ADR-047); voice never speaks them."""
+    if not sources:
+        return ""
+    lines = [f"  • {s.title} — {s.url}" for s in sources]
+    return "sources:\n" + "\n".join(lines)
 
 
 class FridayTUI(App):
@@ -41,6 +52,7 @@ class FridayTUI(App):
         audit: AuditLog | None = None,
         speaker: object | None = None,
         dry_run: bool,
+        connected: bool = True,
     ) -> None:
         super().__init__()
         self._client = client
@@ -48,9 +60,18 @@ class FridayTUI(App):
         self._audit = audit
         self._speaker = speaker
         self._dry_run = dry_run
+        self._connected = connected
+        self._search = SearchClient(
+            base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
+        )
         self._pending: PendingPreference | None = None
-        voice = "muted" if speaker is None else getattr(speaker, "voice", "on")
-        self.sub_title = ("DRY-RUN (no launch)" if dry_run else "LIVE") + f" · voice: {voice}"
+        self._voice = "muted" if speaker is None else getattr(speaker, "voice", "on")
+        self._set_mode_subtitle()
+
+    def _set_mode_subtitle(self) -> None:
+        base = "DRY-RUN (no launch)" if self._dry_run else "LIVE"
+        mode = "connected" if self._connected else "local"
+        self.sub_title = f"{base} · voice: {self._voice} · {mode}"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -64,6 +85,7 @@ class FridayTUI(App):
             log.write("[red]llama-server unreachable — start it with `just serve`.[/]")
         else:
             log.write("[dim]Ready. Type an utterance and press Enter.[/]")
+        self._set_mode_subtitle()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -72,6 +94,14 @@ class FridayTUI(App):
         inp = self.query_one(Input)
         inp.value = ""
         self.query_one("#log", RichLog).write(f"[bold cyan]you[/] {text}")
+
+        if text in ("/local", "/connected"):  # search mode toggle (ADR-046)
+            self._connected = text == "/connected"
+            self._set_mode_subtitle()
+            self.query_one("#log", RichLog).write(
+                f"[dim]mode: {'connected' if self._connected else 'local'}[/]"
+            )
+            return
 
         if self._pending is not None:  # answering a confirm prompt
             inp.disabled = True
@@ -92,10 +122,15 @@ class FridayTUI(App):
             prefs=self._prefs,
             audit=self._audit,
             speaker=self._speaker,
+            search_client=self._search,
+            connected=self._connected,
         )
         params = f" {result.params}" if result.params else ""
         log.write(f"[dim]→ action: {result.plan_name}{params}[/]")
         log.write(f"[bold green]friday[/] {result.spoken}")
+        src = render_sources(result.sources)
+        if src:  # ADR-047: TUI always shows sources; voice never speaks them
+            log.write(f"[dim]{src}[/]")
         if result.pending is not None:
             self._pending = result.pending  # await a yes/no next
         self._reenable()

@@ -55,10 +55,11 @@ def _build(args) -> tuple[Daemon, Database]:  # noqa: ANN001
 
     state_holder: dict[str, Daemon] = {}
     recorder = Recorder(gate=lambda: state_holder["d"].state.mic_open)
+    connected = config.SEARCH_CONNECTED_DEFAULT and not args.local
     d = Daemon(
         client=LlamaClient(base_url=args.base_url), recorder=recorder,
         transcriber=transcriber, speaker=speaker, prefs=prefs, audit=audit,
-        dry_run=args.dry_run,
+        dry_run=args.dry_run, connected=connected,
     )
     state_holder["d"] = d  # close the gate closure over the built daemon
     return d, db
@@ -68,6 +69,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="friday-voice")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-voice", action="store_true", help="do not load Kokoro")
+    ap.add_argument(
+        "--local",
+        action="store_true",
+        help="start in local mode: web_search refuses (no egress). ADR-046",
+    )
     ap.add_argument("--base-url", default=config.LLAMA_BASE_URL)
     ap.add_argument("--log", default="INFO")
     args = ap.parse_args(argv)
