@@ -63,6 +63,44 @@ def test_chat_system_is_persona_and_spoken_safe():
     assert "markdown" in low or "spoken" in low  # spoken-aloud constraint
 
 
+def test_chat_system_states_real_capabilities():
+    # Fix (live-review): chat used to invent its capabilities ("I can't search",
+    # a wrong app list). The persona now names the real toolset and forbids
+    # inventing/omitting, so it describes itself accurately.
+    from friday.llm.prompt import CHAT_SYSTEM
+    low = CHAT_SYSTEM.lower()
+    assert "web" in low and "youtube" in low        # the search tools it has
+    assert "five apps" in low                        # the real app count
+    assert "accurately" in low or "invent" in low    # honesty instruction
+
+
+def test_assemble_system_history_empty_is_policy_verbatim():
+    # ADR-052: history is opt-in. With neither prefs nor history, the planning
+    # prompt stays byte-identical to SYSTEM_POLICY so the eval cannot drift.
+    assert assemble_system("", "") == SYSTEM_POLICY
+    assert assemble_system("") == SYSTEM_POLICY       # default arg
+
+
+def test_assemble_system_appends_history_as_data():
+    hist = "You: open brave\nFriday: Opened Brave."
+    out = assemble_system("", hist)
+    assert out.startswith(SYSTEM_POLICY)
+    assert hist in out
+    assert "<recent_conversation>" in out
+    assert "DATA for context" in out                 # framed as data, not command
+    assert "LATEST message" in out                    # action is for the latest turn
+
+
+def test_assemble_system_prefs_and_history_both_present():
+    digest = "<preferences>\nname=Subham\n</preferences>"
+    hist = "You: hi\nFriday: Hello!"
+    out = assemble_system(digest, hist)
+    assert out.startswith(SYSTEM_POLICY)
+    assert digest in out and hist in out
+    # prefs block comes before the history block
+    assert out.index(digest) < out.index(hist)
+
+
 def test_assemble_chat_system_appends_prefs_as_data():
     from friday.llm.prompt import CHAT_SYSTEM, assemble_chat_system
     assert assemble_chat_system("") == CHAT_SYSTEM

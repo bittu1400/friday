@@ -18,6 +18,26 @@ _None — all Phase 1 questions are resolved and all gates G0 through G9 have pa
 
 ## Kept Open (Long-Term / Optional)
 
+### OQ-27 — Should "open browser" focus the running instance instead of a new window?
+**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (surfaced by the
+2026-08-23 live-review; deferred as scope creep)
+
+Each "open my browser" spawns a NEW Brave window (normal single-instance
+behavior). Combined with the now-fixed false-failure report, this piled up
+windows live. The false report is fixed (ADR-043 amendment). Whether a repeat
+launch should FOCUS the existing window rather than open a new one is a UX
+choice — it needs a per-app running-check (which binary name counts as "already
+running"?) and a per-app decision. Not built. Revisit only if the new-window
+behavior actually bothers the user.
+
+### OQ-28 — Should a meta-question about capability route to chat, not web_search?
+**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (live-review 2026-08-23)
+
+"can you search the web?" routes to a literal `web_search` (it searches for that
+phrase) rather than a `chat` answer about its abilities. Harmless — it *can*
+search — but slightly awkward. A planner-prompt nuance (distinguish "can you X"
+meta-questions from "do X" commands). Low priority; note it if it recurs.
+
 ### OQ-05 — Does the disk count as the security boundary?
 **Decider:** USER · **Blocks:** nothing today · **Status:** OPEN (answered
 provisionally 2026-08-22 — deliberately kept open at the user's request)

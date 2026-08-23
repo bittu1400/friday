@@ -15,10 +15,18 @@ Rules:
 **Overall status:** **G0–G9 (Phase 1 Build Gates COMPLETE)** (2026-08-23).
 All tasks for G0 through G9 (scaffolding, toolchain, eval, registry, persistence, voice out,
 voice in, search, conversation/memory, and service resilience) implemented and verified.
-`uv run pytest` **236 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **241 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, adversarial 17/17, `just test-egress` passed,
 and `just selftest` **all 7 checks passed**. Systemd user units (`friday-llm.service`, `friday.service`)
-live and active with auto-restart backoff and cold-start tolerance.
+live and active with `Restart=always` + `StartLimitIntervalSec=0` (no permanent
+give-up on a slow GPU cold start).
+
+> **A senior live-review session (2026-08-23) ran AFTER the G9 sign-off** and
+> fixed real defects the desk tests missed. Read **"SESSION 2026-08-23 —
+> live-review + hardening"** immediately below before anything else — it changed
+> the executor launch semantics (ADR-043 amendment), the planner (ADR-052), the
+> chat persona (ADR-053), and the systemd restart policy, and it is the true
+> current state.
 
 ```
    G0 REPO        [x]
@@ -47,7 +55,86 @@ live and active with auto-restart backoff and cold-start tolerance.
                         (7 checks), structured JSON logging with 10MB x 5 rotation
                         and /home/ path redaction (FR-43), startup ping tolerance,
                         and kill -9 / audio disconnect recovery. 236 unit pass, eval 28/28.
+   POST-G9        [x]   <-- live-review + hardening (2026-08-23). 5 real fixes;
+                        241 unit pass, eval 28/28. See the session block below.
 ```
+
+---
+
+## SESSION 2026-08-23 — live-review + hardening (post-G9, the current state)
+
+A full senior audit of G7–G9 followed by a **real spoken session** through the
+physical PTT key. The desk suite (236 tests) was all green, but living-with-it
+surfaced defects tests did not. All fixed, verified, committed. **Nothing here
+is speculative — every claim below was run.**
+
+### What was verified true (unchanged, re-confirmed live)
+- `uv run pytest` 236→**241 passed**; `just eval` **28/28** live (0 reg);
+  injection **20/20** + a LIVE injection (real llama-server, hostile body
+  "open browser + rm -rf") → `dispatched=False`, spoke only "20C" (invariant #1
+  holds against the real model); `just selftest` **7/7**; both servers
+  loopback-only; all 3 user services active.
+- STT is excellent live: every utterance in an 18-turn session transcribed
+  correctly (`small.en`, ADR-042). TTFA ranged ~1.9–4.1 s (one 7.5 s on a long
+  reply). Chat has personality; memory/summarizer distill correctly.
+
+### 5 fixes made this session (each with an ADR + evidence)
+1. **Invariant #1 was an `assert`** (`llm/client.py`) — `python -O` strips
+   asserts, silently removing a T1 control. Now `raise ValueError`. Proven to
+   hold under `python -O`. (commit a8558ac)
+2. **systemd restart policy** — was `Restart=on-failure` + default rate limiter
+   (5 starts/10 s → permanent give-up). Now `Restart=always` +
+   `StartLimitIntervalSec=0` on both units, so a slow/transient Blackwell GPU
+   cold start always recovers. (a8558ac)
+3. **`selftest.check_llama_server` dead if/else** collapsed. (a8558ac)
+4. **Browser launch false-failure (ADR-043 amendment)** — every "open my
+   browser" SPOKE "That didn't work." while a Brave window DID open, so retries
+   piled up "profile in use / restore" windows (the "broken braves" the user
+   saw). Root cause: the executor treated a non-zero child exit within the 0.4 s
+   grace as ERROR, but a single-instance app (Brave/Chromium) launched while
+   already running HANDS OFF to the running instance (a window opens) and the
+   launcher exits non-zero. **Measured, not assumed:** adding
+   `DBUS_SESSION_BUS_ADDRESS` to the env did NOT change the exit code, so the
+   real fix is the heuristic — once spawned (binary preflighted by `which()`),
+   report OK regardless of exit code. Env change kept as hygiene (DBUS + inherit
+   daemon PATH so child resolves binaries like the preflight does; brave lives
+   in `/opt`, not `/usr/bin`). Cost: an instant-crash-after-spawn now reports
+   OK (rarer; no-window is visible anyway). Real executor now speaks "Opened
+   Brave." (commit a84be9d)
+5. **Conversation quality (ADR-052, ADR-053)** — two live-trace defects:
+   - The PLANNER was stateless: follow-ups "open that"/"try again"/"open it
+     again" fell to `none`. Now `assemble_system(prefs, history)` feeds the same
+     `Dialogue` the chat stage gets, data-framed. First-party only (never web →
+     invariant #1 untouched); grammar+validator still constrain. Live: "open it
+     again" no-history→`none`, with-history→`open_app{editor}`.
+   - CHAT hallucinated its abilities ("I can't search"; wrong app list).
+     `CHAT_SYSTEM` now names the real toolset + forbids inventing/omitting. Live:
+     "what apps can you open?" lists all five correctly.
+
+### Live-review items STILL OPEN (not blockers; next session's candidates)
+- **"can you search the web?" routes to a literal `web_search`** instead of a
+  meta-answer about capability. Harmless (it can search) but slightly awkward.
+  A prompt nuance, not a bug. Low priority.
+- **Repeated "open browser" opens a new window each time** — normal
+  `brave`-already-running behavior, NOT a bug. Only fix if the user wants
+  "focus existing instead of new window" (would need per-app running-check;
+  rejected this session as scope creep).
+- **Barge-in** (tap mid-speech cuts playback) still only unit-tested, never
+  eyeballed live. Carried from G6.
+- **TTFA on long chat replies** spikes to ~7 s (v10 in the trace). If it annoys,
+  cap `_CHAT_MAX_TOKENS` (currently 160) or tune. Measured, not urgent.
+
+### To run Friday next session
+- `systemctl --user start friday` (background service; tap `XF86Presentation`
+  to talk), OR — for the visible debug trace — `systemctl --user stop friday`
+  then `FRIDAY_DEBUG=1 just voice` (never both: they fight over the PTT socket).
+- Debug trace goes to stderr only (FR-26); tee to a scratch file to read it. The
+  persistent log (`~/.local/state/friday/friday.log`) is redacted and holds
+  structured events ONLY — never transcripts/replies (invariant #7). That is by
+  design: it cannot show what was said.
+- **IMPORTANT for whoever kills the daemon:** `friday.service` is now
+  `Restart=always`. `kill <pid>` will NOT stop it — systemd respawns it with a
+  new PID. Use `systemctl --user stop friday`. (This bit us live.)
 
 ---
 

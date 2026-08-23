@@ -110,7 +110,11 @@ async def _plan_and_act(
     habits_digest: str = "",
     summaries_digest: str = "",
 ) -> TurnResult:
-    system = assemble_system(prefs.digest() if prefs else "")
+    # History is passed to the PLANNER too (ADR-052) so a follow-up command
+    # ("open that", "try again") can resolve against the prior turn. It is
+    # first-party data (user speech + Friday replies), never web content, so
+    # invariant #1 is untouched; the planner stays grammar-locked + validated.
+    system = assemble_system(prefs.digest() if prefs else "", history=history)
     try:
         raw = await asyncio.to_thread(
             client.complete, system=system, user=utterance, grammar=_PLAN_GRAMMAR

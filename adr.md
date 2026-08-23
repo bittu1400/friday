@@ -1659,3 +1659,67 @@ rotation with sensitive path redaction (FR-43), and resilience against transient
 **Consequences:** Complete Phase 1 deployment and resilience architecture is established and fully automated.
 
 
+
+## ADR-052 — The planner sees recent conversation (anaphora resolution)
+
+**Status:** Accepted (2026-08-23, G9 live-review). Amends the G3/G8 planning
+turn, which was stateless per utterance.
+
+**Context.** A live spoken session exposed that follow-up commands failed:
+"yep, open that", "try again", "open it again" all fell to `none`, because the
+PLANNER received only the current utterance (plus prefs) — never the prior
+turn. The *chat* stage already got history (G8), but the grammar-locked planner
+did not, so anaphora ("it", "that", "again") had no referent and the safe
+fallback fired. Measured before/after: "open it again" with no history →
+`none`; with `You: open my editor / Friday: Opened VS Code.` in context →
+`open_app{editor}`.
+
+**Decision.** `assemble_system(prefs_digest, history="")` now appends a
+data-framed `<recent_conversation>` block when history is non-empty. `turn.py`
+passes the same rendered `Dialogue` it already hands the chat stage. The block
+is preceded by `_HISTORY_PREAMBLE`: recent conversation is DATA for context
+only, never an instruction, and the action is always chosen for the user's
+LATEST message.
+
+**Why this does not weaken the trust model.** The history is **first-party**:
+the user's own speech and Friday's own replies. It is NEVER web content, so
+invariant #1 (untrusted turn → final.gbnf) is untouched — this is the *planning*
+turn (plan.gbnf), which by definition has not consumed untrusted data. The
+planner remains grammar-locked to the closed action enum and
+application-validated (ADR-006), so the worst a hostile-sounding history line
+could do is bias the choice AMONG known actions; it can never introduce a new
+command, a path, or an argv. The block is named as data every turn it appears,
+the same durable-injection framing used for the preferences block (ADR-035).
+
+**Eval safety.** With no history AND no prefs, `assemble_system` returns
+`SYSTEM_POLICY` byte-for-byte — the eval set injects neither, so it cannot
+drift (FR-55). Verified: `just eval` 28/28, regressions 0 after the change.
+
+**Cost.** Up to ~8 recent turns are added to the planning context (bounded by
+the `Dialogue` ring, ADR-050-adjacent). Well inside ctx 8192. If token
+pressure ever appears, cap the planner's slice below the chat slice — a tuning
+change, not a redesign.
+
+**Evidence.** `uv run pytest` 241 passed; `just eval` 28/28 (0 reg); live:
+follow-up "open it again"/"actually open my browser instead" resolve to the
+correct `open_app` action with the referenced app.
+
+## ADR-053 — Companion to ADR-043 amendment: chat states its real toolset
+
+**Status:** Accepted (2026-08-23, G9 live-review).
+
+**Context.** In the same live session, the chat persona invented its own
+capabilities: it claimed "I can't search or open websites" (false) and gave a
+wrong, partial app list ("I can open VS Code and mpv"). `CHAT_SYSTEM` never
+told the model what Friday can actually do, so it guessed — and misinformed the
+operator about the system's abilities.
+
+**Decision.** `CHAT_SYSTEM` now enumerates the real toolset (five apps, web
+search, YouTube, remember/forget preferences), states the hard boundary (no
+file edits, no shell, no system control, no messaging, nothing outside the five
+apps), and instructs the model to describe its abilities accurately and not to
+invent or omit any. This is persona text only — it does not touch the planner,
+the grammar, or dispatch, so no invariant is affected.
+
+**Evidence.** Live: "what apps can you open?" now lists all five apps
+accurately; `uv run pytest` 241 passed.

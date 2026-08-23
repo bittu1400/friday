@@ -19,8 +19,18 @@ cross-session conversational memory (G8 Stage 3: `friday/store/summarizer.py`,
 ADR-050), and runs as hardened background user services with unified health
 self-testing and structured logging with rotation and redaction (G9:
 `deploy/systemd/`, `friday/selftest.py`, `friday/logging_config.py`, ADR-051;
-`uv run pytest` **236 passed**, `just eval` **28/28 reg 0**, `just test-injection` **20/20 blocked**,
+`uv run pytest` **241 passed**, `just eval` **28/28 reg 0**, `just test-injection` **20/20 blocked**,
 `just selftest` **all 7 checks passed**).
+
+**A post-G9 live-review session (2026-08-23) fixed 5 real defects** the desk
+tests missed (found by actually talking to it): the invariant-#1 `assert`→`raise`
+(survives `python -O`), systemd `Restart=always`, the browser-launch
+false-failure (ADR-043 amendment — exit code is no longer a launch verdict), the
+planner now sees conversation history for anaphora (ADR-052), and the chat
+persona now states its real toolset (ADR-053). See the **"SESSION 2026-08-23 —
+live-review + hardening"** block at the top of `progress.md` — that is the true
+current state. NOTE: `friday.service` is `Restart=always`, so `kill <pid>` does
+NOT stop the daemon (systemd respawns it) — use `systemctl --user stop friday`.
 `progress.md` has the full evidence.
 
 ## Working agreement — how sessions run
