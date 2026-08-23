@@ -8,9 +8,13 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: G0–G5 done, G6 (voice in) mid-flight** (code + STT drill complete,
-live test pending — 2026-08-23). `friday/` is a real text+voice assistant.
-`progress.md` is the only file that says what is actually true — start there.
+**Status: G0–G5 done, G6 (voice in) mid-flight** (2026-08-23). Code + STT
+drill complete AND the pipeline is PROVEN live end-to-end — a spoken "open my
+browser" launched Brave on hardware. Three live bugs fixed this session
+(ADR-043: launch is now a direct spawn, not `hyprctl dispatch exec`, which
+Hyprland 0.56 broke). Left for G6 PASS: live key-press confirm, 20-clip eval,
+TTFA. `friday/` is a real text+voice assistant. `progress.md` is the only file
+that says what is actually true — start there.
 
 ## Working agreement — how sessions run
 

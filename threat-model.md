@@ -79,8 +79,10 @@ misleading sentence is an acceptable residual; a launched process is not.
 ### T2 — Model-supplied string becomes a command
 
 **Path:** `params.app = "firefox; rm -rf ~"` or `"/bin/sh"` or a path
-traversal, interpolated into a shell string or into `hyprctl dispatch
-exec` (which parses a command string).
+traversal, interpolated into a shell string or an argv element. (Since
+ADR-043 the launch is a direct `execve` of a fixed binary from the app map,
+argv list, `shell=False` — no command-string parser in the path at all; the
+threat is the model influencing that argv, which the closed enum blocks.)
 
 **Likelihood:** medium — a 7B model produces odd params under pressure.
 **Impact:** arbitrary code execution as the user.

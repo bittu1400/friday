@@ -102,7 +102,7 @@ Phase 1 registry:
 | tool_id | risk | argv | timeout |
 | :-- | :-- | :-- | :-- |
 | `none` | read_only | — | — |
-| `open_app` | reversible | `hyprctl dispatch exec <fixed-argv-from-app-map>` | 5 s |
+| `open_app` | reversible | direct detached spawn of `<fixed-argv-from-app-map>` (ADR-043; was hyprctl) | 0.4 s grace |
 | `web_search` | read_only | in-process HTTP to loopback SearXNG | 8 s |
 | `remember_preference` | reversible | in-process SQLite write | 1 s |
 | `forget_preference` | reversible | in-process SQLite delete | 1 s |

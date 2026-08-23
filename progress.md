@@ -17,12 +17,18 @@ Rules:
 (confirm-first), audit, retention. G5: voice out via kokoro-onnx (fp32/8t,
 af_bella), FR-71 verified, listening test signed off. **G6 (voice in) IN
 PROGRESS** (2026-08-23): STT drill done → small.en int8 beam1 hotwords, p95
-741 ms, CPU (ADR-042); all audio code built (FSM, capture, gate, STT, PTT
-unix socket, daemon, cancellable TTS/barge-in) + 40 tests, `uv run pytest`
-144 passed. **Remaining for G6: live end-to-end** — add the Hyprland bind,
-run `just voice` with llama-server up, do the 20-clip spoken eval + measure
-TTFA (OQ-09). Deferred G1 measurements remain optional; whisper CPU bench is
-now DONE (it moved into G6, ADR-042). None block finishing G6.
+741 ms, CPU (ADR-042); all audio code built + `uv run pytest` **147 passed**.
+**LIVE test started 2026-08-23 — the pipeline runs end to end on hardware:**
+a real mic clip transcribed `heard='open my browser'`, planned `open_app`, and
+Brave **actually launched** (Outcome.OK, 87 ms). Three live bugs found and
+FIXED (ADR-043 + commit fc40f06): (1) app launch — hyprctl `dispatch exec`
+broke on Hyprland 0.56's Lua CLI **and** the env lacked compositor vars → now
+a direct detached spawn with WAYLAND_DISPLAY; (2) the PTT Hyprland bind
+couldn't import `friday` from Hyprland's cwd → bind now sets PYTHONPATH; (3) a
+shared confirm/capture timer handle → separated. **Remaining for G6 PASS:**
+confirm the physical Copilot-key press reaches the daemon live, run the
+20-clip spoken eval, measure TTFA (OQ-09), and settle the Hyprland "glitch"
+the user reported (see NEXT SESSION). Deferred G1 measurements remain optional.
 
 ```
    G0 REPO        [x]
@@ -33,52 +39,89 @@ now DONE (it moved into G6, ADR-042). None block finishing G6.
    G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention.
                         eval 20/20, adv 16/16.
    G5 VOICE OUT   [x]   <-- kokoro-onnx/fp32/8t, af_bella, FR-71 verified.
-   G6 VOICE IN    [~]   <-- STT locked (ADR-042); daemon+FSM+PTT+barge-in
-                        built, 144 unit. LIVE eval + TTFA + bind test pending.
+   G6 VOICE IN    [~]   <-- STT locked (ADR-042); 147 unit. LIVE pipeline
+                        PROVEN (mic→STT→plan→launch, Brave opened, ADR-043).
+                        Left: live key-press confirm, 20-clip eval, TTFA.
    G7 SEARCH      [ ]
    G8 SERVICE     [ ]
 ```
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, mid-G6)
+## NEXT SESSION — START HERE (updated 2026-08-23, live G6 in progress)
 
-G0–G5 DONE. **G6 code + STT drill DONE; only the LIVE test remains.** All
-the decisions are made and recorded (ADR-042 STT, OQ-03 PTT, OQ-07/23), the
-audio stack is built (FSM, capture, gate, PTT unix socket, daemon, barge-in,
-cancellable TTS), and `uv run pytest` is 144 passed. What is NOT yet done is
-the on-hardware run — no live daemon has driven a real mic through a real
-turn yet.
+G0–G5 DONE. **G6 pipeline PROVEN LIVE end to end** on 2026-08-23: a real mic
+clip → `heard='open my browser'` → plan `open_app` → **Brave launched**
+(Outcome.OK, 87 ms). STT + planning + TTS + the executor all work on hardware.
+`uv run pytest` = **147 passed**. Three live bugs were found and fixed this
+session (commit fc40f06, ADR-043) — do NOT re-introduce them:
 
-### Finish G6 — the live test (needs the user at the machine)
-1. **Add the Hyprland bind** (OQ-03; the venv python — `package = false`, no
-   console script):
-   ```
-   bind        = SUPER SHIFT, XF86Assistant, exec, <repo>/.venv/bin/python -m friday.ptt_cli press
-   bindrelease = SUPER SHIFT, XF86Assistant, exec, <repo>/.venv/bin/python -m friday.ptt_cli release
-   ```
-   Reload Hyprland. (Copilot key = that chord; hold verified, OQ-03.)
-2. **Start the stack:** `just serve` (llama-server), then `just voice`
-   (daemon). First `just voice` downloads the `small.en` CT2 model (~1 GB)
-   to the HF cache. Hold the Copilot key, speak, release.
-3. **20-clip spoken eval** → fill `SPOKEN EVAL __/20` in the G6 block.
-   **Measure TTFA** (end of speech → first audio), p50/p95 → fill the G6
-   block; then answer **OQ-09** (is ~1.4 s a problem / streaming needed?).
-4. **Verify the live bind** end-to-end (a real press reaches the daemon over
-   the socket) and mark ADR-013 shipped. If the chord bind misbehaves in
-   practice, the evdev fallback (ADR-013) is the escape hatch — record why.
-5. **Barge-in in the flesh:** press mid-speech, confirm playback cuts and it
+  1. **App launch (ADR-043).** `hyprctl dispatch exec <app>` is DEAD on this
+     Hyprland (0.56.2 turned `hyprctl dispatch` into a Lua shorthand;
+     `return hl.dispatch(exec brave)` fails to parse). The executor now spawns
+     the app **binary directly**, detached, fire-and-forget with a 0.4 s
+     early-crash grace; env carries `WAYLAND_DISPLAY` + `XDG_RUNTIME_DIR`.
+     No hyprctl anywhere. Do NOT "restore" hyprctl.
+  2. **PTT bind import.** `package = false` → `friday` is not installed, so
+     `python -m friday.ptt_cli` only imports when cwd = repo. Hyprland execs
+     from `~`. The bind now sets `PYTHONPATH=<repo>` (see the bind below).
+  3. **Confirm timer.** The 30 s confirm window had its own bug sharing the
+     15 s capture-cap handle; now a separate `_confirm_timer` (daemon.py).
+
+### The live Hyprland bind (SHIPPED, in the user's config)
+Lives in `~/.config/caelestia/hypr-user.lua` (Hyprland 0.56 uses a Lua config;
+`hl.bind`, and `{ release = true }` is the `bindrelease` equivalent):
+```lua
+local friday_repo = "/home/bittusah/Projects/Personal/Intern/friday"
+local friday_ptt = "env PYTHONPATH=" .. friday_repo .. " " .. friday_repo .. "/.venv/bin/python -m friday.ptt_cli "
+hl.bind("SUPER + SHIFT + XF86Assistant", hl.dsp.exec_cmd(friday_ptt .. "press"))
+hl.bind("SUPER + SHIFT + XF86Assistant", hl.dsp.exec_cmd(friday_ptt .. "release"), { release = true })
+```
+Copilot key = `XF86Assistant` (OQ-03). Both binds register (verified
+`hyprctl binds`, modmask 65 = SUPER+SHIFT). After editing: `hyprctl reload`.
+
+### Finish G6 — remaining live steps (need the user at the machine)
+0. **Debug visibility:** run the daemon as `FRIDAY_DEBUG=1 just voice`. It logs
+   `[debug] vN heard='...'` and `[debug] vN action=... dispatched=... spoken='...'`
+   to the TERMINAL only (never disk — FR-26 holds; `config.DEBUG`). Turn it
+   off (drop the env var) once G6 is signed off.
+1. **Start the stack:** terminal 1 `just serve` (wait for health ok), terminal
+   2 `FRIDAY_DEBUG=1 just voice`. Keep BOTH up. `just ptt press|release` from a
+   third shell is the manual client (needs cwd = repo). Socket:
+   `/run/user/1000/friday/ptt.sock`.
+2. **Confirm the physical key reaches the daemon:** hold SUPER+SHIFT+Copilot,
+   speak, release; the daemon must log a capture. (Manual `just ptt` already
+   proven; the bind PYTHONPATH fix is proven to import from `~`, but a real
+   key press was not yet observed end-to-end — this is the one open live check
+   for the bind.)
+3. **20-clip spoken eval** → fill `SPOKEN EVAL __/20` in the G6 block below.
+   **Measure TTFA** (end of speech → first audio), p50/p95; then answer
+   **OQ-09** (is ~1.4 s a problem / streaming needed?). Note: capture length =
+   PTT hold length; a lone `just ptt press` with no `release` runs to the 15 s
+   cap (that produced the earlier `00:15.000` captures — not a bug).
+4. **Barge-in in the flesh:** press mid-speech, confirm playback cuts and it
    re-captures (unit-tested; confirm on hardware).
-6. Then **G6 PASSES** → commit, move to G7 (search, the only egress).
+5. Then **G6 PASSES** → move to G7 (search, the only egress).
 
-The STT drill is COMPLETE — do NOT re-benchmark. small.en int8 beam1
-hotwords is locked (ADR-042); `faster-whisper` is in pyproject, venv still
-torch-free.
+### OPEN — Hyprland "glitch" the user reported (unresolved)
+The user said Hyprland "glitched ~3 times" during live testing. At end of
+session `hyprctl configerrors` was EMPTY and the only Friday change to the
+compositor is the two bind lines (which run `ptt_cli`, no render path) — so no
+identified cause. Two suspects to check next session: (a) `hyprctl reload`
+flash (transient/benign); (b) the user's OWN `~/.config/hypr/custom/keybinds.lua`
+is BROKEN lua — line ~3 `# fan speed` (`#` is not a lua comment) and a stray
+`qq)` on the fan-cycle bind. Offered to fix it or to remove the Friday bind to
+isolate; user had not answered. **Ask what the glitch looks like (flicker /
+freeze / artifacts) before changing anything.**
+
+### The STT drill is COMPLETE — do NOT re-benchmark
+small.en int8 beam1 hotwords is locked (ADR-042); `faster-whisper` is in
+pyproject, venv still torch-free.
 
 ### What is true right now
-- Branch `main`. G0–G5 passed; G6 code complete, live test pending. `just
-  run` = text+voice TUI; `just voice` = the G6 voice-in daemon (needs the
-  bind + a mic to exercise); `just ptt press|release` = the client.
+- Branch `main`. G0–G5 passed; G6 pipeline proven live, key-press + eval +
+  TTFA pending. `just run` = text+voice TUI; `FRIDAY_DEBUG=1 just voice` = the
+  G6 daemon; `just ptt press|release` = the client (cwd must be the repo).
 - `friday/` code: `llm/` (schema, validate, client, prompt, grammars),
   `tools/` (apps, registry, executor), `store/` (db, prefs, audit,
   migrations), `ui/` (templates, tui), `audio/` (state[FSM], capture, stt,
@@ -94,7 +137,7 @@ torch-free.
   faster-whisper (CTranslate2) neither pull torch (ADR-039/042). Verified:
   `uv pip list | grep -iE torch|nvidia|cuda` is empty. CPU-torch check moot.
 - `just eval` = 20/20 (last run G5; G6 touched none of the planning path so
-  unaffected by construction). `uv run pytest` = **144 passed**.
+  unaffected by construction). `uv run pytest` = **147 passed**.
 - **No llama-server running** — start with `just serve` for eval or `just voice`.
 - `web_search` still returns "not yet wired" — G7. Memory is now wired.
 
@@ -698,10 +741,13 @@ recorded.
       30 s window); per-stage timeouts (transcribe 5 s, planning 12 s)
 - [x] cancellable TTS (FR-73) — `Speaker.stop()` cancels mid-sentence (flag +
       `sd.stop()`); barge-in wired through the daemon
-- [x] Tests: 40 new (test_fsm 11, test_stt 6, test_tts_cancel 5, test_ptt 5,
-      test_capture 6, test_daemon 7) → **`uv run pytest` 144 passed**
-- [ ] PTT via Hyprland bind — code + socket done; live bind end-to-end test
-      pending (needs the daemon running + bind added to hypr config)
+- [x] Tests: 40 new + 3 live-bug regressions → **`uv run pytest` 147 passed**
+- [x] App launch fixed live (ADR-043): direct detached spawn, no hyprctl,
+      WAYLAND_DISPLAY env, fire-and-forget + 0.4 s grace. PROVEN: `open_app
+      browser` → Outcome.OK 87 ms, Brave process ran (`/opt/brave-bin/brave`)
+- [~] PTT via Hyprland bind — code + socket + lua bind (PYTHONPATH fix) DONE;
+      manual `just ptt` reaches the daemon; a real physical key press was not
+      yet observed end-to-end (the one open bind check — see NEXT SESSION)
 - [x] Barge-in: PTT during SPEAKING cancels — implemented + unit-tested
       (test_daemon `test_barge_in_cancels_playback_and_recaptures`)
 - [x] FR-5: five rapid submits → one turn + four rejections — unit-tested
@@ -735,9 +781,21 @@ LOCKED (ADR-042): faster-whisper small.en int8, 8t, beam_size=1, hotwords=
 ```
 
 PTT PATH SHIPPED:  hyprland-bind (evdev NOT needed).
-  Key = Copilot key, chord `SUPER SHIFT, XF86Assistant`; a 3 s `wev` hold
-  confirmed it tracks physical hold, so bind/bindrelease hold-to-talk works
-  (OQ-03). No privilege escalation. Live bind test pending.
+  Key = Copilot key, chord `SUPER SHIFT, XF86Assistant`. Hyprland 0.56 Lua
+  config: the bind lives in `~/.config/caelestia/hypr-user.lua` as `hl.bind`,
+  with `{ release = true }` for the release half, and MUST set
+  `PYTHONPATH=<repo>` because `package = false` (see NEXT SESSION for the exact
+  lines). Both binds register (`hyprctl binds`, modmask 65). A real physical
+  press was not yet observed reaching the daemon — the one open bind check.
+
+LIVE PIPELINE (2026-08-23, FRIDAY_DEBUG=1, real mic + llama-server up):
+  v_ heard='open my browser'  →  action=open_app dispatched=True
+  Before the ADR-043 fix the outcome was ERROR ("That didn't work") because
+  hyprctl `dispatch exec` is broken on Hyprland 0.56 AND the env lacked
+  compositor vars. After the fix: `open_app browser` → Outcome.OK 87 ms, Brave
+  launched. STT was accurate on every attempt (`heard='open my browser'`).
+  TTS spoke every outcome. So the only numbers still missing are the eval
+  score + TTFA below.
 
 SPOKEN EVAL: __/20     (pending: needs live daemon + server)
 
