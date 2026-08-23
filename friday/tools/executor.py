@@ -23,9 +23,7 @@ from .. import config
 from ..errors import (
     E_DISABLED,
     E_POLICY_DENIED,
-    E_TOOL_FAILED,
     E_TOOL_NOTFOUND,
-    E_TOOL_TIMEOUT,
     Outcome,
     PolicyRejected,
 )
@@ -93,17 +91,24 @@ async def execute(
     except (FileNotFoundError, PermissionError):
         return ToolResult(Outcome.NOT_FOUND, display, E_TOOL_NOTFOUND)
 
-    # Fire-and-forget launch (ADR-043). A GUI app does not exit, so we do NOT
-    # wait for it — we give it a short grace to surface an IMMEDIATE failure
-    # (bad binary, missing lib -> quick non-zero exit), then treat "still
-    # running" as success and leave it alone. This is the semantics hyprctl's
-    # `dispatch exec` had; the grace only adds early-crash detection.
+    # Fire-and-forget launch (ADR-043, amended). A GUI app does not exit, so we
+    # do NOT wait for it — we give it a short grace only to catch a launch that
+    # never happened, then leave it alone.
+    #
+    # The child's EXIT CODE is NOT a launch verdict (ADR-043 amendment): a
+    # single-instance app (Brave/Chromium) launched while already running hands
+    # off to the running instance — a window opens — and the launcher process
+    # exits NON-ZERO. Treating that non-zero as failure spoke "That didn't work."
+    # over a browser that DID open, so the user retried and piled up windows.
+    # which() already preflighted the binary and a real exec failure raises
+    # FileNotFoundError above (-> NOT_FOUND), so once we have spawned, we report
+    # the launch as OK regardless of how the (possibly handoff) process exits.
+    # The cost: a binary that spawns then instantly crashes (missing lib, early
+    # segfault) is reported OK; that is rarer than the single-instance handoff,
+    # and its no-window is visible to the user either way.
     try:
-        rc = await asyncio.wait_for(proc.wait(), timeout=_LAUNCH_GRACE_S)
+        await asyncio.wait_for(proc.wait(), timeout=_LAUNCH_GRACE_S)
     except asyncio.TimeoutError:
-        dur = int((loop.time() - start) * 1000)
-        return ToolResult(Outcome.OK, display, None, dur)  # launched, running
+        pass  # still running past the grace — the normal GUI case
     dur = int((loop.time() - start) * 1000)
-    if rc == 0:
-        return ToolResult(Outcome.OK, display, None, dur)
-    return ToolResult(Outcome.ERROR, display, E_TOOL_FAILED, dur)
+    return ToolResult(Outcome.OK, display, None, dur)

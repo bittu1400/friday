@@ -64,19 +64,31 @@ def youtube_url(query: str) -> str:
 
 
 # Minimal explicit env (FR-32): PATH + HOME so the binary resolves and lands
-# somewhere sane, plus the two variables a Wayland client needs to reach the
-# compositor — WAYLAND_DISPLAY (the socket name) and XDG_RUNTIME_DIR (its dir).
-# Nothing else is inherited. We spawn the app binary DIRECTLY, not through
-# `hyprctl dispatch exec` (ADR-043): Hyprland 0.56 turned `hyprctl dispatch`
-# into a Lua shorthand and the old `dispatch exec <app>` form no longer parses
-# (`')' expected near '<app>'`). A direct detached spawn is compositor- and
-# CLI-version-independent, and matches hyprctl's old fire-and-forget semantics
-# (it never detected whether the app stayed up either). These vars are
-# compositor addressing copied from the daemon's own environment, never built
-# from params, so the env stays explicit and minimal.
+# somewhere sane, plus the session/compositor addressing a GUI client needs:
+#   WAYLAND_DISPLAY           the compositor socket name
+#   XDG_RUNTIME_DIR           its directory
+#   DBUS_SESSION_BUS_ADDRESS  the session bus — a single-instance app (Brave/
+#                             Chromium) reaches its already-running instance
+#                             over it, hands off, and exits 0. WITHOUT it the
+#                             handoff exits non-zero and the launcher misreads
+#                             a successful open as a failure ("That didn't
+#                             work.") while a window still opened (ADR-043
+#                             amendment; the "broken braves" symptom).
+# PATH is copied from the daemon's own environment (falling back to a sane
+# default) so the spawned child resolves a binary the SAME way the which()
+# preflight in the executor does — otherwise preflight and exec can disagree
+# (brave lives in /opt/…, not /usr/bin). Nothing else is inherited.
+#
+# We spawn the app binary DIRECTLY, not through `hyprctl dispatch exec`
+# (ADR-043): Hyprland 0.56 turned `hyprctl dispatch` into a Lua shorthand and
+# the old `dispatch exec <app>` form no longer parses (`')' expected near
+# '<app>'`). A direct detached spawn is compositor- and CLI-version-independent
+# and matches hyprctl's old fire-and-forget semantics. All copied vars are
+# session addressing from the daemon's own environment, never built from
+# params, so the env stays explicit and minimal.
 def _build_app_env() -> Mapping[str, str]:
-    env = {"PATH": "/usr/bin:/bin", "HOME": _HOME}
-    for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"):
+    env = {"PATH": os.environ.get("PATH") or "/usr/bin:/bin", "HOME": _HOME}
+    for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"):
         val = os.environ.get(key)
         if val:
             env[key] = val

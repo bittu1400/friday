@@ -38,9 +38,16 @@ def test_success_on_zero_exit() -> None:
     assert r.outcome is Outcome.OK
 
 
-def test_error_on_nonzero_exit() -> None:
+def test_nonzero_exit_after_spawn_reports_launched() -> None:
+    # ADR-043 amendment: the child's exit code is NOT a launch verdict. A
+    # single-instance GUI app (Brave) launched while already running hands off
+    # to the running instance — a window opens — and the launcher exits
+    # NON-ZERO. which() preflighted the binary and a real exec failure raises
+    # (-> NOT_FOUND) before we get here, so a spawned-then-exited process is
+    # reported OK, not ERROR (which used to speak "That didn't work." over a
+    # browser that actually opened).
     r = _run(executor.execute(_spec(["false"], "false"), {}, RID))
-    assert r.outcome is Outcome.ERROR
+    assert r.outcome is Outcome.OK
 
 
 def test_not_found_when_binary_absent() -> None:

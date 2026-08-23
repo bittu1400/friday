@@ -32,31 +32,42 @@ def test_open_app_builds_direct_binary_argv_per_app() -> None:
 
 
 def test_env_is_minimal_and_explicit() -> None:
-    # No inherited environment (FR-32): PATH and HOME always, plus ONLY the two
-    # Wayland-addressing vars a client needs to reach the compositor. Nothing
-    # else may leak in — no PARAM-derived keys, no wildcard passthrough.
-    allowed = {"PATH", "HOME", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"}
+    # No inherited environment (FR-32): PATH and HOME always, plus ONLY the
+    # session/compositor-addressing vars a GUI client needs. Nothing else may
+    # leak in — no PARAM-derived keys, no wildcard passthrough.
+    allowed = {
+        "PATH",
+        "HOME",
+        "WAYLAND_DISPLAY",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+    }
     for spec in REGISTRY.values():
         assert {"PATH", "HOME"} <= set(spec.env)
         assert set(spec.env) <= allowed
 
 
-def test_env_passes_wayland_vars_when_present(monkeypatch) -> None:
+def test_env_passes_session_vars_when_present(monkeypatch) -> None:
     # BUG regression: a directly-spawned Wayland app needs WAYLAND_DISPLAY +
-    # XDG_RUNTIME_DIR to reach the compositor. They pass through from the
-    # daemon's own environment (never built from params).
+    # XDG_RUNTIME_DIR to reach the compositor, and DBUS_SESSION_BUS_ADDRESS so a
+    # single-instance app (Brave) hands off to its running instance and exits 0
+    # (ADR-043 amendment). All pass through from the daemon's own environment
+    # (never built from params).
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
     from friday.tools.registry import _build_app_env
 
     env = _build_app_env()
     assert env["WAYLAND_DISPLAY"] == "wayland-1"
     assert env["XDG_RUNTIME_DIR"] == "/run/user/1000"
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
 
 
-def test_env_omits_wayland_vars_when_absent(monkeypatch) -> None:
+def test_env_omits_session_vars_when_absent(monkeypatch) -> None:
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
     from friday.tools.registry import _build_app_env
 
     assert set(_build_app_env()) == {"PATH", "HOME"}

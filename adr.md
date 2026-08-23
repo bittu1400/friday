@@ -1348,6 +1348,52 @@ future need requires compositor-side placement (specific workspace/monitor at
 launch), that is a separate decision — do not reintroduce
 the brittle CLI dependency.
 
+### Amendment (2026-08-23, G9 live-review) — exit code is NOT a launch verdict; env gains DBUS + inherited PATH
+
+**Context.** A live spoken review of the shipped daemon surfaced that every
+`open my browser` spoke **"That didn't work."** while a Brave window *did*
+open — and repeated retries piled up "profile in use / restore" windows (the
+"broken braves" symptom). Root cause: the original grace path treated a
+**non-zero child exit within the 0.4 s grace as ERROR**. But a single-instance
+app (Brave/Chromium) launched while already running **hands off** to the
+running instance — a window opens — and the launcher process exits non-zero.
+The 0.4 s grace cannot distinguish this legitimate handoff from a real crash.
+
+An env fix was tried first (add `DBUS_SESSION_BUS_ADDRESS` so the handoff is
+"clean") and **measured, not assumed** (CLAUDE.md rule #6): with DBus present,
+the real executor STILL returned `E_TOOL_FAILED` (Brave exits non-zero on
+handoff regardless of env). So the env alone does not fix it.
+
+**Decision.** Two changes:
+
+1. **The child's exit code is no longer a launch verdict.** Once the process
+   has been spawned (and `which()` has preflighted the binary, and a real exec
+   failure has already raised `FileNotFoundError` → NOT_FOUND), the launch is
+   reported `Outcome.OK` regardless of how the possibly-handoff process exits.
+   The grace now only *waits out* an immediate exit; it does not judge it.
+2. **The app env gains `DBUS_SESSION_BUS_ADDRESS`** (session bus, same class of
+   session addressing as `WAYLAND_DISPLAY`) **and copies `PATH` from the
+   daemon's own environment** (falling back to `/usr/bin:/bin`) so the spawned
+   child resolves a binary the SAME way the `which()` preflight does — brave
+   lives in `/opt/…`, so a hard-coded `/usr/bin:/bin` child PATH could disagree
+   with a preflight that passed. Kept because both are correct hygiene, even
+   though #1 is what fixes the symptom.
+
+**Cost (accepted).** A binary that spawns then instantly crashes (missing lib,
+early segfault) is now reported "Opened". This is rarer than the
+single-instance handoff, the missing-binary case is still caught by the
+preflight, and a window that never appears is visible to the operator either
+way. A false "it worked" is better UX here than a false "it didn't" over an app
+that plainly opened.
+
+**Invariants preserved.** #2/#3 unchanged — code still builds argv from the
+closed table; env is still explicit and minimal (now
+`⊆ {PATH, HOME, WAYLAND_DISPLAY, XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS}`,
+no wildcard, no param-derived keys; the registry test asserts it).
+
+**Evidence.** After the change, real `executor.execute(open_app, browser)` →
+`Outcome.OK`, 151 ms, spoken `"Opened Brave."`; `uv run pytest` **236 passed**.
+
 ## ADR-044 — PTT is a toggle on XF86Presentation, not a hold on the Copilot key
 
 **Status:** Accepted (2026-08-23). Reopens and revises OQ-03 / ADR-013's key
