@@ -8,20 +8,17 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: G0–G7 done** (2026-08-23, G7 merged to main). `friday/` is a real
+**Status: G0–G8 Build 1 done** (2026-08-23). `friday/` is a real
 text+voice assistant that launches apps, remembers preferences, hears you
-(toggle PTT, ADR-044; spoken eval 20/20, TTFA p50 2.16s/p95 2.73s), and
-searches the web (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding,
-injection 20/20, egress proof; ADR-045/046/047). `just eval` 24/24, `uv run
-pytest` 176 passed.
+(toggle PTT, ADR-044; spoken eval 20/20, TTFA p50 2.16s/p95 2.73s), searches
+the web (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection
+20/20, egress proof; ADR-045/046/047), and converses naturally (G8 Build 1:
+two-stage chat, `CHAT_SYSTEM`, RAM `Dialogue`, ADR-048; `uv run pytest` 199,
+`just eval` 28/28 reg 0, injection 20/20).
 **PRIMARY GOAL: conversation** (chit-chat + suggestions) — gate **G8**, build
-order **G7 (search) ✓ → G8 (conversation) → G9 (service)**. Design:
-`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`. **G8 Build 1
-CODE DONE** on branch `g8-conversation` (all 10 plan tasks; `uv run pytest` 199,
-`just eval` 28/28 reg 0, injection 20/20; ADR-048 conversational-speech carve-out;
-RAM `Dialogue`; `none` now speaks). NOT merged. LEFT: live e2e smoke + finish
-friday.md/spec.md docs + merge. `progress.md` NEXT SESSION block has the details
-— start there.
+order **G7 (search) ✓ → G8 (conversation: Build 1 ✓ → Stage 2 → Stage 3) → G9 (service)**.
+Design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
+`progress.md` NEXT SESSION block has the details — start there.
 
 ## Working agreement — how sessions run
 

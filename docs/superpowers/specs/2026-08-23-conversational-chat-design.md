@@ -1,12 +1,10 @@
 # Conversational chat & suggestions — design (gate G8)
 
-**Status:** Design approved 2026-08-23. Not yet implemented. This is the
-spec for a new conversational subsystem; it is gate **G8** in the build
-plan. Build order decided 2026-08-23: **G7 (search) → G8 (conversation) →
-G9 (service)** — conversation is the primary goal and comes before the
-service/systemd layer, but after search so the "facts route to web_search"
-path can land complete. Service was renumbered G8 → G9 to keep the gate
-number equal to the execution order.
+**Status:** Build 1 (in-reply, in-session chat) IMPLEMENTED & VERIFIED 2026-08-23
+(199 unit passed, eval 28/28 0 reg, injection 20/20, live model smoke verified).
+Stages 2–4 remain open for future increments. Build order decided 2026-08-23:
+**G7 (search) ✓ → G8 (conversation) → G9 (service)**. Service was renumbered
+G8 → G9 to keep the gate number equal to the execution order.
 
 ## Context & why
 

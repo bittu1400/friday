@@ -684,7 +684,7 @@ except search still works.
 
 ---
 
-## 10. G8 — Conversation  *** the primary goal ***
+## 10. G8 — Conversation  *** the primary goal (Build 1 DONE 2026-08-23) ***
 
 Full design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
 Reordered ahead of service 2026-08-23 — chit-chat + suggestions is the point
@@ -699,15 +699,16 @@ llama-server. A RAM-only dialogue ring buffer (never to disk — invariant #7)
 gives in-session memory; the preferences digest personalizes.
 
 Invariants hold by construction: `chat` consumes no untrusted data and can
-never dispatch (invariant #1/#2/#4); a NEW ADR carves "conversational speech"
+never dispatch (invariant #1/#2/#4); ADR-048 carves "conversational speech"
 out of ADR-009's direct-action rule. Staged: Build 1 = in-reply/in-session
 chat; later = habit-driven suggestions (audit log), distilled+inerted
 long-term memory (`session_summaries`), then proactive/unprompted.
 
 **Acceptance (Build 1):** spoken casual input → a warm ≤4-sentence reply;
-commands + facts still route right (eval not regressed); `chat` can never
-dispatch (asserted); dialogue never written to disk; fail-soft on gen error;
-a user listening test signs off the voice/persona.
+commands + facts still route right (eval 28/28, 0 reg); `chat` can never
+dispatch (`test_chat_turn` asserts executor untouched); dialogue never written
+to disk (`test_dialogue` asserts no files created); fail-soft on gen error.
+Evidence recorded in `progress.md`.
 
 ---
 

@@ -69,6 +69,10 @@ limitation to be lifted later.
 | FR-24 | Model output is validated application-side after the grammar: strict schema, unknown fields rejected, duplicate keys rejected, params typed against the registry | Adversarial suite AS-1..AS-12 |
 | FR-25 | Any validation failure fails closed to `action=none` with a user-safe message | Malformed-output fixtures produce zero dispatches |
 | FR-26 | `thought` is capped at 120 characters by the grammar and is never written to SQLite | Grep the DB writer for `thought`: zero hits |
+| FR-27 | `chat` action in `plan.gbnf` routes casual conversation, greetings, and persona questions to stage 2 generator (`llm/chat.py`); `chat` never dispatches (`dispatched=False`, zero executor calls) | **MET (G8):** `test_chat_turn` asserts executor untouched; eval 28/28 |
+| FR-28 | Conversational speech is an allowed category (ADR-048), distinct from direct-action speech (ADR-009). Replies are free-text, sanitized before TTS (strip markdown/URLs/control chars, 600-char cap), and fail-soft to a canned fallback | **MET (G8):** `tests/test_chat.py` 6/6 |
+| FR-29 | Dialogue memory is maintained via an in-RAM ring buffer (`Dialogue`, default 8 turns), never written to disk (invariant #7) | **MET (G8):** `tests/test_dialogue.py` 4/4 (asserts no files created) |
+| FR-29a | `none` outcomes speak distinct terminal lines (`OUT_OF_SCOPE` vs `E_SCHEMA` vs `E_LLM_DOWN`/timeout) so the user knows why no action occurred | **MET (G8):** `test_none_speaks_out_of_scope_line` |
 
 The contract:
 
