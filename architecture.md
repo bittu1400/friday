@@ -57,7 +57,8 @@ See `diagrams/00-system-overview.md`.
      audio/
        capture.py           sounddevice input, ring buffer, mic gate
        stt.py               faster-whisper wrapper, CPU pinned
-       tts.py               kokoro wrapper, chunked playback, cancel
+       tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8 threads,
+                            NO torch — ADR-039), chunked playback, cancel
        gate.py              the half-duplex boolean (diagram 05)
 
      store/

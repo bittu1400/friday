@@ -41,6 +41,11 @@ preferences (confirm-first), forgets them, and injects a `<preferences>`
 digest into planning. Next is **G5 — Voice out** (Kokoro TTS). Per the
 build order `{G4,G5}`, G5 is the remaining half; G6 (voice in) follows.
 
+**G5 optimization research is already DONE (2026-08-23, ADR-039).** The
+runtime is settled by benchmark on this laptop: `kokoro-onnx` (ONNX/CPU),
+fp32 model, 8 threads, no torch. Only the VOICE (OQ-22, user audition) and
+a few integration choices remain — see the G5 build steps below.
+
 ### What is true right now
 - Branch `main`. G0/G1(core)/G2/G3/G4 all passed. `just run` launches the 5
   apps + youtube, remembers/forgets prefs; `just run --dry-run` = no launch.
@@ -52,7 +57,9 @@ build order `{G4,G5}`, G5 is the remaining half; G6 (voice in) follows.
   0700 dir), single-writer (`store/db.py`), forward-only migrations. `just
   prefs list|export|forget [--hard]|reset --yes`.
 - Deps: `textual` (runtime), `pytest` (dev). Store uses stdlib `sqlite3` —
-  no new dep. Still CPU-only; no torch/CUDA in the venv (checked at G5).
+  no new dep. Venv is CPU-only and stays **torch-free**: G5 uses
+  `kokoro-onnx` (onnxruntime), STT will use CTranslate2 — neither needs
+  torch (ADR-039). The old "CPU-torch check" G1 item is now moot.
 - `just eval` = 20/20, `uv run pytest` = 98 passed. baseline.json committed.
 - **No llama-server running** — stopped at end of G4. `just serve` to start.
 - `web_search` still returns "not yet wired" — G7. Memory is now wired.
@@ -75,18 +82,37 @@ build order `{G4,G5}`, G5 is the remaining half; G6 (voice in) follows.
   preferences never age out. `pinned` column is inert (kept for a future
   policy change without a migration).
 
-### Then read, then build G5
-1. **Read G5** in this file + friday.md §7 + ADR-005 (Kokoro voice, zero
-   VRAM placement) + ADR-020 (no streaming TTS yet — measure at G6 first).
-   Surface any G5 open questions in `open-questions.md` in ONE batch before
-   coding (working agreement).
-2. **G5 acceptance:** 20 utterances spoken through the LAPTOP SPEAKERS, no
-   clipping; exactly one CUDA process (llama-server) while speaking —
-   Kokoro must NOT pull a CUDA torch and allocate VRAM (`nvidia-smi
-   --query-compute-apps`). Audition `af_heart`/`af_bella`/`af_sky`, lock one
-   into ADR-005 + `config.toml`.
-3. Weights ONLY from `huggingface.co/hexgrad/Kokoro-82M`, checksummed
-   (lookalike domains are impersonation sites — friday.md §7).
+### Then build G5 — runtime ALREADY decided by benchmark (ADR-039)
+The optimization research is DONE (see "G5 PRE-WORK" in the G5 section
+below + ADR-039). Do NOT re-benchmark or reconsider the PyTorch path.
+Settled: **`kokoro-onnx`, fp32 `model.onnx`, `intra_op_num_threads=8`,
+CPU provider, no torch.** Numbers, checksums, and staged files are in the
+G5 section.
+
+1. **Read** the G5 PRE-WORK block below + ADR-039 + friday.md §7 (rewritten)
+   + ADR-020 (no streaming — the measured RTF ~0.14 means TTFA is already
+   ~0.2 s, so streaming is unnecessary at G5).
+2. **Ask the G5 question batch FIRST** (working agreement rule #2), in ONE
+   round, before any code:
+   - **OQ-22 (open): voice preset** — user auditions af_heart/af_bella/
+     af_sky through the LAPTOP SPEAKERS. WAVs ready at
+     `~/.cache/kokoro-bench/samples/`. Send them / play them, get the pick.
+   - **Playback library**: `sounddevice` (PortAudio, same lib G6 uses for
+     capture) vs write-wav-and-`aplay`. Recommend sounddevice.
+   - **Cancellable playback now, or defer to G6 barge-in?** FR-73 wants
+     cancellable; but barge-in only matters once there's a mic (G6). Option
+     to ship blocking playback at G5, add cancel at G6.
+   - **Speak in the turn loop now, or a standalone `friday-say` at G5?**
+     Wiring TTS into `turn.py` couples it to the FSM that lands at G6.
+     Cleanest G5: a standalone synth+play path + an audition harness; wire
+     into the turn loop at G6. Confirm with the user.
+3. **Build:** `uv add kokoro-onnx soundfile`; fetch model+voices to an XDG
+   share dir and verify both SHA256 (in ADR-039); `friday/audio/tts.py`
+   wrapper with the 8-thread CPU session (`Kokoro._setup(session=...)`);
+   playback; an audition script; tests.
+4. **Acceptance:** 20 utterances spoken, no clipping (user listens),
+   `nvidia-smi` = one compute process during a spoken turn (FR-71), voice
+   locked in ADR-005 + OQ-22 closed. `just eval` must still be 20/20.
 
 ### Carried-over, still optional (blocks nothing)
 - The 4 deferred G1 measurements (VRAM peak under desktop load, exact KV
@@ -518,20 +544,72 @@ $ grep -rn "thought" friday/store/     → 1 hit, a COMMENT in 001_init.sql
 ## G5 — Voice out
 
 **Acceptance:** 20 utterances spoken, no clipping, exactly one CUDA
-process during playback.
+process during playback, voice locked.
 
-- [ ] `uv pip install "kokoro>=0.9.2" soundfile sounddevice`, `espeak-ng` present
-- [ ] Weights from `huggingface.co/hexgrad/Kokoro-82M` only, checksummed
-- [ ] Voice audition: `af_heart` / `af_bella` / `af_sky`, same 5 sentences, laptop speakers
-- [ ] Voice locked and written into ADR-005
-- [ ] Playback non-blocking and cancellable
-- [ ] `nvidia-smi` shows exactly one compute process during a spoken turn (FR-71)
+### G5 PRE-WORK — Kokoro optimization benchmark **DONE 2026-08-23** (ADR-039)
+
+Benchmarked every practical Kokoro runtime on THIS laptop before writing
+any G5 code. Env: `~/.cache/kokoro-bench` (isolated venv), onnxruntime
+1.29.0, `CPUExecutionProvider`. CPU: Core Ultra 9 275HX, 8 P + 16 E, **no
+AVX-512**. Median of 3, warm. Paragraph RTF = synth ÷ audio; short =
+"Opening Brave." latency.
 
 ```
-VOICE CHOSEN:
-CHECKSUM:
-EVIDENCE (nvidia-smi during playback):
-  (paste)
+   variant   best para-RTF   short lat @8t   peak RSS   verdict
+   fp32       0.138 @8t        0.207 s        845 MB    WINNER, full quality
+              0.131 @16t
+   q4f16      0.131 @8t        0.207 s        909 MB    ties speed; 4-bit
+                                                        risk; MORE RAM
+   q8         0.592 @8t        0.916 s        609 MB    ~4x SLOWER
+   q8f16      0.602 @8t        0.931 s        601 MB    ~4x SLOWER
+   fp16       BROKEN                                    0 samples on the
+                                                        paragraph (unusable)
+
+   thread sweep on fp32 (para RTF): 1t 0.63 | 4t 0.25 | 8t 0.138 |
+     10t 0.132 | 16t 0.131 | 24t 0.164  -> 8 threads = the P-core count;
+     24 (spills onto E-cores) is WORSE. 8t best short latency (0.207 s).
+
+   VRAM during synth: 2 MiB (idle desktop), 0 compute apps. CPU provider
+     only -> providers == ['CPUExecutionProvider'].
+```
+
+Two counter-intuitive, MEASURED findings (do not "optimize" past them):
+1. int8 (q8/q8f16) is ~4x SLOWER than fp32 here — no AVX-512, and ORT int8
+   kernels lose to vectorized fp32 AVX2 on this CPU.
+2. fp16 is BROKEN on CPU onnxruntime — returns 0 audio samples for
+   multi-sentence input.
+
+Runtime choice (ADR-039): **`kokoro-onnx` (ONNX/CPU), fp32 `model.onnx`,
+`intra_op_num_threads=8`, inter_op=1, sequential, ENABLE_ALL.** The
+PyTorch `kokoro` path is REJECTED — `uv pip install --dry-run kokoro`
+pulls 99 pkgs incl. `torch==2.13.0` + full CUDA 13 stack (FR-71 hazard).
+`kokoro-onnx` pulls 8 pkgs, no torch → FR-71 holds by construction.
+
+Headroom: RTF ~0.14 (~7x real-time) → ADR-020 holds, no streaming at G5.
+
+Files staged (disk, not repo): `~/.cache/kokoro-bench/models/model.onnx`
+(sha256 `8fbea51e…21a34cb`), `voices-v1.0.bin` (sha256 `bca610b8…f1fbf7d`);
+audition WAVs in `~/.cache/kokoro-bench/samples/`.
+
+### G5 BUILD — remaining (next session)
+
+- [ ] `uv add kokoro-onnx soundfile` (NO torch); `espeak-ng` present (1.52.0)
+- [ ] Fetch model+voices to a runtime dir (XDG share), verify the 2 SHA256s
+- [ ] `friday/audio/tts.py`: kokoro-onnx wrapper, 8-thread CPU session
+      (inject via `Kokoro._setup(session=...)`), `synth(text)->(samples,sr)`
+- [ ] Playback (`sounddevice`), non-blocking + cancellable (FR-73) — or
+      defer cancel to G6 barge-in; decide in the G5 question batch
+- [ ] **OQ-22: user auditions af_heart/af_bella/af_sky through speakers**,
+      picks one → ADR-005 TBD line + config.toml, close OQ-22
+- [ ] Wire outcome templates to speak (turn loop or standalone at G5?) —
+      G5 question batch
+- [ ] `nvidia-smi` during a spoken turn = one compute process (FR-71)
+- [ ] 20 utterances spoken, no clipping (user listens)
+
+```
+VOICE CHOSEN:        (OQ-22 — pending user audition)
+CHECKSUM:            model.onnx 8fbea51e…21a34cb ; voices bca610b8…f1fbf7d
+BENCHMARK EVIDENCE:  above (ADR-039)
 ```
 
 ---
@@ -658,6 +736,11 @@ Append a line whenever a measurement changes a document.
    2026-08-23  spoken pref confirmed first (UI handshake)          OQ-20/ADR-037
    2026-08-23  retention = logs only; prefs never age out          OQ-21/ADR-038
    2026-08-23  G4 PASSED: 98 unit, eval 20/20, adv 16/16           G4
+   2026-08-23  Kokoro runtime = kokoro-onnx (ONNX/CPU), not torch  ADR-039
+   2026-08-23  Kokoro model = fp32; int8 4x slower, fp16 broken    ADR-039
+   2026-08-23  ONNX intra_op=8 (P-cores); 24 threads worse         ADR-039
+   2026-08-23  venv now torch-free (STT=CT2, TTS=ORT)              ADR-039
+   2026-08-23  OQ-22 opened: voice audition (user)                 OQ-22
 ```
 
 ## Time log

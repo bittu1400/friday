@@ -48,14 +48,16 @@ assumed.
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
 | STT | `faster-whisper`, `device=cpu`, `compute_type=int8`, `cpu_threads=8`, VAD | ADR-004 |
-| TTS | **Kokoro-82M**, CPU, one female en-US voice | ADR-005 |
+| TTS | **Kokoro-82M** via `kokoro-onnx` (ONNX Runtime, `CPUExecutionProvider`, fp32 model, 8 threads), one female en-US voice — **NO torch** | ADR-005, ADR-039 |
 | Capture | `sounddevice` (PortAudio), preallocated 15 s ring buffer, mic gate | architecture §2, §5 |
 | Echo handling | half-duplex boolean mic gate — **no** acoustic echo cancellation | ADR-014 |
-| torch wheel | **CPU-only** (`--index-url …/whl/cpu`); `torch.cuda.is_available()` must be `False` | ADR-018 |
+| torch wheel | **None — the venv is torch-free.** STT is CTranslate2, TTS is onnxruntime; neither needs torch (ADR-039 rejected the PyTorch Kokoro path) | ADR-018, ADR-039 |
 
-Enforcement: only `llama-server` touches CUDA. A CUDA torch would let
-Kokoro allocate VRAM silently and break FR-71. TTS voice preset is locked
-at **G5**; STT stays CPU unless the G1 benchmark p95 exceeds 800 ms.
+Enforcement: only `llama-server` touches CUDA. The original FR-71 hazard
+was a CUDA torch pulled in by the PyTorch Kokoro runtime; ADR-039's
+`kokoro-onnx` removes torch from the venv entirely, so FR-71 holds by
+construction (no CUDA code to misbehave). TTS voice preset is locked at
+**G5**; STT stays CPU unless the G1 benchmark p95 exceeds 800 ms.
 
 ---
 

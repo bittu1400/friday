@@ -12,6 +12,27 @@ answers it, no opinion required).
 
 ## Blocking Phase 1
 
+### OQ-22 — Which Kokoro voice preset? (audition)
+**Decider:** USER · **Blocks:** G5 · **Status:** OPEN
+
+The runtime, model, and thread count are settled by benchmark (ADR-039);
+the VOICE is subjective and yours to pick — it cannot be measured. Audition
+`af_heart` / `af_bella` / `af_sky` **through the laptop speakers** (not
+headphones — that is the real listening condition).
+
+fp32 WAVs are already generated at `~/.cache/kokoro-bench/samples/`
+(`fp32_af_heart.wav`, `fp32_af_bella.wav`, `fp32_af_sky.wav`); a quality
+A/B of the same line under q8 and q4f16 is there too, if you want to hear
+why fp32 was chosen. All are the same fixed sentence.
+
+**Default if undecided:** `af_heart` — the most common community default;
+change on a listen.
+
+**On answer:** write the preset into ADR-005's TBD line and `config.toml`,
+close this OQ, tick the G5 voice-lock box.
+
+---
+
 ### OQ-03 — Is a Hyprland bind acceptable for PTT?
 **Decider:** USER + MEASURE · **Blocks:** G6 · **Status:** OPEN
 

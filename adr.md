@@ -109,7 +109,14 @@ intended placement, not a guarantee — a dependency that pulls CUDA torch
 could silently allocate. FR-71 asserts exactly one CUDA process at
 runtime.
 
-**Status:** Accepted; preset pending G5.
+**RUNTIME SUPERSEDED by ADR-039 (2026-08-23).** The G5 pre-work benchmark
+showed the PyTorch runtime pulls torch + the full CUDA stack (an FR-71
+hazard) and that quantized/fp16 ONNX are slower or broken on this CPU. The
+runtime is now `kokoro-onnx` (ONNX/CPU), fp32 `model.onnx`, 8 threads. The
+model choice (Kokoro-82M), the single female en-US preset, and the
+audition-at-G5 plan below are UNCHANGED.
+
+**Status:** Accepted; runtime superseded by ADR-039; preset pending G5.
 
 ---
 
@@ -1055,3 +1062,88 @@ policy can change without a migration. FR-59's "retention-capped" now reads
 explicitly as *audit + summaries*, and spec.md is updated to say so.
 
 **Status:** Accepted.
+
+---
+
+## ADR-039 — Kokoro runtime is `kokoro-onnx` (ONNX/CPU), fp32, 8 threads
+
+**Context.** G5 pre-work: benchmark every practical way to run Kokoro-82M
+on THIS laptop (Intel Core Ultra 9 275HX, Arrow Lake-HX, 8 P-cores +
+16 E-cores, **no AVX-512**, 16 GB RAM) and pick the best. friday.md §7 and
+ADR-005 sketched the PyTorch path (`pip install kokoro`); this ADR replaces
+that with measured evidence. Invariant #6 / FR-71 require TTS on CPU with
+zero VRAM and exactly one CUDA process (llama-server).
+
+**The PyTorch path is disqualified by construction.** `uv pip install
+--dry-run kokoro` resolves **99 packages including `torch==2.13.0` and the
+full CUDA 13 stack** (`nvidia-cublas`, `nvidia-cudnn-cu13`, `nvidia-nccl`,
+`cuda-toolkit`, ~20 `nvidia-*` wheels). A CUDA-enabled torch initializes a
+CUDA context and can allocate VRAM — the exact FR-71 failure. Even forcing
+the CPU wheel leaves a torch that can `.cuda()` by accident. `kokoro-onnx`
+resolves **8 packages** (onnxruntime, numpy, soundfile, phonemizer,
+protobuf, …), no torch, no CUDA. There is no CUDA code in the venv to
+misbehave — the invariant holds without runtime enforcement.
+
+**Benchmark (2026-08-23, `~/.cache/kokoro-bench`, onnxruntime 1.29.0,
+CPUExecutionProvider). Paragraph RTF = synth ÷ audio; short = "Opening
+Brave." latency. Median of 3, warm.**
+
+```
+   variant   best para-RTF   short lat @8t   peak RSS   verdict
+   fp32       0.138 @8t       0.207 s         845 MB    WINNER — full quality
+              (0.131 @16t)
+   q4f16      0.131 @8t       0.207 s         909 MB    ties speed; 4-bit
+                                                        quality risk; +RAM
+   q8         0.592 @8t       0.916 s         609 MB    ~4× SLOWER
+   q8f16      0.602 @8t       0.931 s         601 MB    ~4× SLOWER
+   fp16       —               —               —         BROKEN: 0 samples on
+                                                        multi-sentence input
+```
+
+Two findings that invert the usual "quantize to go faster" intuition:
+
+1. **int8 (q8/q8f16) is ~4× SLOWER than fp32 here.** No AVX-512, and
+   onnxruntime's int8 kernels do not beat well-vectorized fp32 AVX2 on this
+   CPU. The web literature (adrianlyjak) warned of exactly this; measured
+   and confirmed.
+2. **fp16 is unusable on CPU** — it returns 0 audio samples for the
+   paragraph (fine on the one-word case), i.e. silently broken. onnxruntime
+   CPU has no real fp16 compute path.
+
+q4f16 matches fp32 speed but adds a 4-bit quality risk and MORE runtime RAM
+(dequant buffers, 909 MB), buying nothing.
+
+**Thread count: 8 = the P-core count.** Sweep 1/4/6/7/8/10/12/16/24:
+throughput climbs to 8, is flat 8–16, and DEGRADES at 24 (scheduling onto
+the slow E-cores costs more than it adds). 8 gives the best short-utterance
+latency (0.207 s) — the metric that matters for an assistant, whose replies
+are mostly short outcome lines. `inter_op=1`, sequential, graph-opt ALL.
+
+**Decision.**
+- Runtime: **`kokoro-onnx` + onnxruntime CPUExecutionProvider.** No torch.
+- Model: **`model.onnx` (fp32, 326 MB)** from `onnx-community/
+  Kokoro-82M-v1.0-ONNX`. SHA256 `8fbea51e…21a34cb`.
+- Voices: `voices-v1.0.bin` (thewh1teagle/kokoro-onnx release
+  `model-files-v1.0`). SHA256 `bca610b8…f1fbf7d`.
+- ONNX session: `intra_op_num_threads=8`, `inter_op_num_threads=1`,
+  `ORT_SEQUENTIAL`, `ORT_ENABLE_ALL`, `providers=["CPUExecutionProvider"]`.
+- Voice preset: **still the user's call** — audition `af_heart`/`af_bella`/
+  `af_sky` through the laptop speakers (OQ-22). fp32 WAVs generated
+  (`~/.cache/kokoro-bench/samples/`). ADR-005's TBD line is filled then.
+
+**Consequences.**
+- Measured headroom is large: RTF ≈ 0.14 → ~7× faster than real-time; a 9 s
+  utterance in ~1.2 s, a short outcome line in ~0.20 s. **ADR-020 holds
+  comfortably** — the blocking pipeline is already fast; no streaming at G5.
+- Weights provenance shifts from hexgrad's original PyTorch weights to a
+  HF-community ONNX re-export + a GitHub voices blob. Weaker provenance, so
+  BOTH files are pinned by SHA256 above and checksummed on download
+  (FR-72 updated).
+- Adds runtime deps: `kokoro-onnx`, `onnxruntime`, `soundfile`,
+  `phonemizer` (espeak-ng already present). Still no torch/CUDA in the venv
+  → the CPU-torch check (deferred G1 item) is moot for TTS.
+- friday.md §7 install command and ADR-005 are superseded on the runtime;
+  the model/voice/quality intent of ADR-005 stands.
+
+**Status:** Accepted. Supersedes the PyTorch runtime guidance in ADR-005 and
+friday.md §7.

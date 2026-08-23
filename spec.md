@@ -184,9 +184,9 @@ nowhere else. See ADR-027 and threat T2.
 
 | ID | Requirement | Acceptance |
 | :-- | :-- | :-- |
-| FR-70 | Kokoro-82M on CPU, one voice preset, locked at G5 and recorded in `adr.md` | ADR-005 names the preset |
-| FR-71 | Kokoro must never allocate VRAM | `nvidia-smi` shows exactly one compute process (llama-server) during a spoken turn |
-| FR-72 | Weights come only from `huggingface.co/hexgrad/Kokoro-82M`, checksummed and pinned | Checksum recorded in the lockfile/notes |
+| FR-70 | Kokoro-82M on CPU via `kokoro-onnx` (ONNX Runtime, `CPUExecutionProvider`, fp32 model, `intra_op_num_threads=8`), one voice preset locked at G5 and recorded in `adr.md` (ADR-039) | ADR-005/039 name the runtime + preset |
+| FR-71 | Kokoro must never allocate VRAM. Held by construction: `kokoro-onnx` pulls no torch/CUDA (ADR-039) | `nvidia-smi` shows exactly one compute process (llama-server) during a spoken turn |
+| FR-72 | Model `onnx/model.onnx` (fp32) from `onnx-community/Kokoro-82M-v1.0-ONNX` and `voices-v1.0.bin` from the `thewh1teagle/kokoro-onnx` `model-files-v1.0` release, each pinned by SHA256 and checksummed on download (ADR-039). Lookalike domains (`kokorotts.ai/.net`) are impersonation sites | SHA256 recorded in ADR-039 + verified on download |
 | FR-73 | Playback is non-blocking and cancellable mid-sentence | Barge-in test |
 
 ---

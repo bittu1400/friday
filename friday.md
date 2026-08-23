@@ -91,9 +91,9 @@ sudo pacman -S --needed espeak-ng cmake base-devel nvtop
 ```
 
 ```bash
-uv pip install torch --index-url https://download.pytorch.org/whl/cpu   # CPU ONLY - see G1 §3.1
+# NO torch — the venv is torch-free (ADR-039). STT=CTranslate2, TTS=onnxruntime.
 uv pip install faster-whisper sounddevice numpy textual httpx
-uv pip install "kokoro>=0.9.2" soundfile
+uv pip install kokoro-onnx soundfile      # G5 TTS: ONNX/CPU, pulls no torch/CUDA
 uv pip freeze > requirements.lock
 ```
 
@@ -495,18 +495,39 @@ contains no `/home/` paths.
 
 ## 7. G5 — Voice out
 
+**Runtime decided by benchmark, 2026-08-23 — ADR-039.** NOT the PyTorch
+path (it pulls torch + the full CUDA stack → FR-71 hazard). Use
+`kokoro-onnx` (ONNX Runtime, CPU), the **fp32** model, **8 threads**.
+Quantized/fp16 are slower or broken on this CPU — do not use them.
+
 ```bash
-uv pip install "kokoro>=0.9.2" soundfile
-pacman -Q espeak-ng
+uv add kokoro-onnx soundfile          # NO torch, NO CUDA (8 pkgs)
+pacman -Q espeak-ng                    # present: 1.52.0
 ```
 
-Weights only from `huggingface.co/hexgrad/Kokoro-82M`. Lookalike domains
-(`kokorotts.ai`, `kokorotts.net`) are impersonation sites. Checksum what
-you download.
+Model + voices (checksum on download — ADR-039, FR-72):
+
+```
+   onnx-community/Kokoro-82M-v1.0-ONNX  onnx/model.onnx  (fp32, 326 MB)
+     sha256 8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb
+   thewh1teagle/kokoro-onnx release model-files-v1.0  voices-v1.0.bin (27 MB)
+     sha256 bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d
+```
+
+ONNX session (the measured optimum): `intra_op_num_threads=8`,
+`inter_op_num_threads=1`, `ORT_SEQUENTIAL`, `ORT_ENABLE_ALL`,
+`providers=["CPUExecutionProvider"]`. Inject the session into
+`Kokoro.__new__(Kokoro); k._setup(session=..., model_path=..., voices_path=...)`.
+
+Measured on this laptop (ADR-039): RTF ≈ 0.14 (≈7× real-time), short
+outcome line ≈ 0.20 s, peak RSS ≈ 845 MB, **VRAM 0** (CPU provider). The
+blocking pipeline is already fast — no streaming at G5 (ADR-020 holds).
 
 Audition `af_heart`, `af_bella`, `af_sky` on the same five sentences,
 **through the laptop speakers** — that is the real listening condition,
-not headphones. Lock one, write it into ADR-005 and `config.toml`.
+not headphones. fp32 WAVs already generated at
+`~/.cache/kokoro-bench/samples/`. Lock one, write it into ADR-005,
+`config.toml`, and close OQ-22.
 
 While a turn speaks:
 
@@ -514,11 +535,11 @@ While a turn speaks:
 nvidia-smi --query-compute-apps=pid,used_memory --format=csv
 ```
 
-Exactly one process (llama-server). If Kokoro pulled in a CUDA torch and
-allocated VRAM, fix it — ADR-005's "zero VRAM" is a placement, not a
-guarantee.
+Exactly one process (llama-server). With `kokoro-onnx` there is no torch in
+the venv, so this holds by construction — but assert it anyway (FR-71).
 
-**Acceptance:** 20 utterances spoken, no clipping, one CUDA process.
+**Acceptance:** 20 utterances spoken, no clipping, one CUDA process, voice
+locked in ADR-005 + OQ-22 closed.
 
 ---
 
