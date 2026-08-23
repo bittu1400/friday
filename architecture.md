@@ -80,7 +80,7 @@ half-duplex gate is a property on it (`TurnState.mic_open`), not a separate
        tui.py               textual app, mode indicator, confirm prompt
        templates.py         outcome -> speech strings
 
-     obs/                   structured logs + metrics                    [G8]
+     obs/                   structured logs + metrics                    [G9]
 
    tests/
      fixtures/

@@ -668,7 +668,34 @@ except search still works.
 
 ---
 
-## 10. G8 — Service
+## 10. G8 — Conversation  *** the primary goal ***
+
+Full design: `docs/superpowers/specs/2026-08-23-conversational-chat-design.md`.
+Reordered ahead of service 2026-08-23 — chit-chat + suggestions is the point
+of Friday; it comes after G7 so the "facts route to web_search" path lands
+complete.
+
+Approach A (two-stage): the grammar-locked planner gains a `chat` action;
+casual talk / greetings / "who are you" route to it, `none` narrows to real
+refusals. A second, free-text generation stage (`llm/chat.py`, no grammar,
+temp ~0.7, ≤4 sentences, sanitized) runs ONLY on `chat`, reusing
+llama-server. A RAM-only dialogue ring buffer (never to disk — invariant #7)
+gives in-session memory; the preferences digest personalizes.
+
+Invariants hold by construction: `chat` consumes no untrusted data and can
+never dispatch (invariant #1/#2/#4); a NEW ADR carves "conversational speech"
+out of ADR-009's direct-action rule. Staged: Build 1 = in-reply/in-session
+chat; later = habit-driven suggestions (audit log), distilled+inerted
+long-term memory (`session_summaries`), then proactive/unprompted.
+
+**Acceptance (Build 1):** spoken casual input → a warm ≤4-sentence reply;
+commands + facts still route right (eval not regressed); `chat` can never
+dispatch (asserted); dialogue never written to disk; fail-soft on gen error;
+a user listening test signs off the voice/persona.
+
+---
+
+## 11. G9 — Service
 
 Two systemd user units (`architecture.md` §8). Restart with backoff.
 Ordering with a tolerant health ping — the orchestrator must survive
@@ -688,7 +715,7 @@ suspend/resume with audio device loss.
 
 ---
 
-## 11. Estimate
+## 12. Estimate
 
 ```
    G0  repo + env              1 h
@@ -699,9 +726,10 @@ suspend/resume with audio device loss.
    G5  voice out               3 h
    G6  voice in                6 h    PTT path unknown
    G7  search                  5 h
-   G8  service                 3 h
+   G8  conversation            ? h    primary goal; staged (Build 1 first)
+   G9  service                 3 h
                               ----
-                              36 h    ~5 focused days
+                              36 h+   ~5 focused days + conversation
 ```
 
 Phase 1 does **not** include: wake word, Hindi/Spanish, screen vision,

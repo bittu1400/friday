@@ -8,13 +8,16 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: G0–G5 done, G6 (voice in) mid-flight** (2026-08-23). Code + STT
-drill complete AND the pipeline is PROVEN live end-to-end — a spoken "open my
-browser" launched Brave on hardware. Three live bugs fixed this session
-(ADR-043: launch is now a direct spawn, not `hyprctl dispatch exec`, which
-Hyprland 0.56 broke). Left for G6 PASS: live key-press confirm, 20-clip eval,
-TTFA. `friday/` is a real text+voice assistant. `progress.md` is the only file
-that says what is actually true — start there.
+**Status: G0–G6 done** (2026-08-23). Voice in works live from the physical
+key (toggle PTT, ADR-044); spoken eval 20/20 planning, TTFA p50 2.16s/p95
+2.73s; `just eval` 24/24, 150 unit tests. `friday/` is a real text+voice
+assistant that launches apps, remembers preferences, and hears you.
+**NEW PRIMARY GOAL: conversation** (chit-chat + suggestions) — now gate **G8**,
+with the build order reordered to **G7 (search) → G8 (conversation) → G9
+(service)**. Design approved:
+`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`; next step is
+`writing-plans` for G8 Build 1. `progress.md` is the only file that says what
+is actually true — start there.
 
 ## Working agreement — how sessions run
 
@@ -167,7 +170,10 @@ write an ADR instead.
 
 ## Build order — do not skip ahead
 
-`G0 -> G1 -> G2 -> G3 -> {G4, G5} -> G6 -> G7 -> G8`. See
+`G0 -> G1 -> G2 -> G3 -> {G4, G5} -> G6 -> G7 -> G8 -> G9`. G8 is
+conversation (the primary goal; `docs/superpowers/specs/2026-08-23-
+conversational-chat-design.md`), G9 is service — reordered 2026-08-23 so
+conversation ships before the service layer. See
 `diagrams/06-build-gates.md`.
 
 **G1 (toolchain) before anything else.** This GPU is Blackwell, sm_120.

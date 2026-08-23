@@ -258,7 +258,7 @@ slow search exhausts RAM, pins all 24 cores, or leaves the FSM stuck.
 | G4 | DB permissions, redaction test, export/delete/reset all work |
 | G6 | PTT path documented with evidence; if `evdev`, the udev ACL is narrow and reviewed |
 | G7 | IS-1..IS-20 all blocked, asserted on the executor; egress test confirms SearXNG is the only outbound path |
-| G8 | Self-test refuses a non-loopback bind; panic file honoured |
+| G9 | Self-test refuses a non-loopback bind; panic file honoured |
 
 ## 7. Phase 2 re-review trigger
 

@@ -15,8 +15,8 @@ Rules:
 **Overall status:** G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
 (2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
 (confirm-first), audit, retention. G5: voice out via kokoro-onnx (fp32/8t,
-af_bella), FR-71 verified, listening test signed off. **G6 (voice in) IN
-PROGRESS** (2026-08-23): STT drill done → small.en int8 beam1 hotwords, p95
+af_bella), FR-71 verified, listening test signed off. **G6 (voice in) DONE**
+(2026-08-23): STT drill done → small.en int8 beam1 hotwords, p95
 741 ms, CPU (ADR-042); all audio code built + `uv run pytest` **150 passed**.
 **LIVE end-to-end PROVEN on hardware from the PHYSICAL key** (2026-08-23):
 tap the Presentation key → say "open vlc" → tap → `heard='Open VLC'`,
@@ -27,9 +27,20 @@ WAYLAND_DISPLAY (ADR-043); (b) **PTT redesigned (ADR-044)** — the Copilot key
 (`XF86Assistant`) leaks Super into every press (the "glitch") and never
 dispatched reliably; `XF86Presentation` is clean but tap-only, so PTT is now a
 **toggle** (tap on / tap off, 0.4 s debounce), one bind, no modifiers.
-**Remaining for G6 PASS:** 20-clip spoken eval, measure TTFA (OQ-09). The
-physical-key check and the "glitch" are now resolved (Copilot key dropped).
-Deferred G1 measurements remain optional.
+**G6 essentially DONE:** 20-clip spoken eval = **20/20 planning** (STT accurate
+every clip, all brand names mapped live), **TTFA p50 2156 ms / p95 2731 ms**
+(under the 4.4 s hard fail → OQ-09: no streaming needed). Execution fixes from
+the eval: mpv idle window (bare mpv exits 0), YouTube outcomes differentiated,
+planner brand-name gap fixed (eval now 24/24). Deferred G1 measurements remain
+optional.
+
+**NEW DIRECTION (2026-08-23): conversation is the PRIMARY goal.** Chit-chat +
+suggestions, warm/witty/concise. This is a new gate **G8 (Conversation)** —
+design approved and written:
+`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`. **Build
+order reordered: G7 (search) → G8 (conversation) → G9 (service)** — service
+renumbered G8→G9. Next step per brainstorming flow: writing-plans for G8
+Build 1 (in-reply chat). See NEXT SESSION.
 
 ```
    G0 REPO        [x]
@@ -40,23 +51,38 @@ Deferred G1 measurements remain optional.
    G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention.
                         eval 20/20, adv 16/16.
    G5 VOICE OUT   [x]   <-- kokoro-onnx/fp32/8t, af_bella, FR-71 verified.
-   G6 VOICE IN    [~]   <-- STT locked (ADR-042); 150 unit. LIVE PROVEN from
-                        the PHYSICAL key: tap→"open vlc"→tap launched VLC
-                        (toggle, ADR-044). Left: 20-clip eval, TTFA.
-   G7 SEARCH      [ ]
-   G8 SERVICE     [ ]
+   G6 VOICE IN    [x]   <-- STT locked (ADR-042); 150 unit. LIVE from the
+                        PHYSICAL key (toggle, ADR-044); spoken eval 20/20
+                        planning, TTFA p50 2.16s/p95 2.73s. Sign-off pending
+                        only a final user nod; functionally complete.
+   G7 SEARCH      [ ]   <-- next. only egress + only untrusted input.
+   G8 CONVERSATION[ ]   <-- PRIMARY goal (reordered before service). design:
+                        docs/superpowers/specs/2026-08-23-conversational-
+                        chat-design.md. Approach A, staged, Build 1 first.
+   G9 SERVICE     [ ]   <-- was G8; renumbered 2026-08-23.
 ```
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, live G6 in progress)
+## NEXT SESSION — START HERE (updated 2026-08-23, G6 done, pivot to G8)
 
-G0–G5 DONE. **G6 pipeline PROVEN LIVE from the PHYSICAL key** on 2026-08-23:
-tap the Presentation key → say "open vlc" → tap → `heard='Open VLC'` →
-`open_app dispatched=True` → **VLC launched** (capture 3.4 s, ~2 s to dispatch).
-STT + planning + TTS + the executor + the real key bind all work on hardware.
-`uv run pytest` = **150 passed**. Key facts this session — do NOT re-introduce
-the reverted approaches:
+G0–G6 effectively DONE. **G6 proven live from the PHYSICAL key** + spoken eval
+20/20 planning + TTFA measured (p50 2.16s / p95 2.73s). `uv run pytest` =
+**150 passed**, `just eval` = **24/24**.
+
+**THE PIVOT — read this.** The user declared **conversation (chit-chat +
+suggestions) the PRIMARY goal**. It is a new gate **G8 (Conversation)**, and
+the build order is now **G7 (search) → G8 (conversation) → G9 (service)**
+(service renumbered from G8). The design is DONE and approved:
+`docs/superpowers/specs/2026-08-23-conversational-chat-design.md` (Approach A —
+a `chat` action + a free-text second stage; staged; Build 1 = in-reply chat).
+**Next action per the brainstorming flow: invoke the `writing-plans` skill to
+turn that design into an implementation plan for G8 Build 1.** But the build
+ORDER says G7 (search) comes first — confirm with the user whether to build G7
+then G8, or start G8 planning now. G7 is small and unblocks the "facts route to
+web_search" path that G8 chat leans on.
+
+Key facts from the G6 session — do NOT re-introduce the reverted approaches:
 
   1. **App launch (ADR-043).** `hyprctl dispatch exec <app>` is DEAD on this
      Hyprland (0.56.2 turned `hyprctl dispatch` into a Lua shorthand;
@@ -88,27 +114,33 @@ hl.bind("XF86Presentation", hl.dsp.exec_cmd(friday_ptt .. "toggle"))
 Trigger key = `XF86Presentation` (keycode 433, modmask 0), tap on / tap off
 (ADR-044 / OQ-03). Registers as `bind modmask:0 key:XF86Presentation __lua`.
 
-### Finish G6 — remaining live steps (need the user at the machine)
-0. **Debug visibility:** run the daemon as `FRIDAY_DEBUG=1 just voice`. It logs
-   `[debug] vN heard='...'` and `[debug] vN action=... dispatched=... spoken='...'`
-   to the TERMINAL only (never disk — FR-26 holds; `config.DEBUG`). Turn it
-   off once G6 is signed off. (Logs go to stderr — invisible in scrollback;
-   for a readable trace redirect to a file: `... 2>&1 | tee /tmp/friday.log`.)
-1. **Start the stack:** terminal 1 `just serve` (wait for health ok), terminal
-   2 `FRIDAY_DEBUG=1 just voice`. Keep BOTH up. `just ptt toggle` from a third
-   shell is the manual client (needs cwd = repo). Socket:
-   `/run/user/1000/friday/ptt.sock`.
-2. **20-clip spoken eval** → fill `SPOKEN EVAL __/20` in the G6 block below.
-   Tap → speak → tap per clip. **Measure TTFA** (end of speech → first audio),
-   p50/p95; then answer **OQ-09** (is ~1.4 s a problem / streaming needed?).
-3. **Fix the planner brand-name gap FIRST** (cheap eval points): STT hears
-   "Open Brave" fine but the planner returned `action=none` — literal app
-   BRAND names (Brave/VLC/Code) don't always map to the app key (`browser`,
-   etc). "open my browser" and "open vlc" work; "open Brave" did not. Check
-   the prompt/registry mapping before the 20-clip run.
-4. **Barge-in in the flesh:** tap mid-speech, confirm playback cuts and it
-   re-captures (unit-tested; confirm on hardware).
-5. Then **G6 PASSES** → move to G7 (search, the only egress).
+### Running the voice stack (for any live work)
+- **Debug visibility:** `FRIDAY_DEBUG=1 just voice`. Logs `[debug] vN heard=…`,
+  `[debug] vN action=… dispatched=… spoken=…`, and `[debug] vN TTFA … ms` to
+  the TERMINAL only (never disk — FR-26; `config.DEBUG`). Logs go to stderr —
+  invisible in scrollback; redirect for a readable trace: `... 2>&1 | tee
+  /tmp/friday.log` (that is how the eval above was scored).
+- **Stack:** terminal 1 `just serve` (wait for health ok), terminal 2
+  `FRIDAY_DEBUG=1 just voice`. `just ptt toggle` from a third shell = the manual
+  client (cwd = repo). Socket `/run/user/1000/friday/ptt.sock`. The physical
+  trigger is the Presentation key (tap on / tap off).
+
+### G6 leftovers (optional, non-blocking)
+- Barge-in on hardware (tap mid-speech cuts playback) — unit-tested, not yet
+  eyeballed live.
+- STT timed out twice during the eval right after ~9 apps launched (CPU
+  saturation starved faster-whisper past the 5 s cap). Real-usage edge; a
+  load-aware timeout is a future option if it recurs.
+- VS Code sometimes "opened" but not visible: `code` is a fork+exit-0 shell
+  script, so the executor cannot see if electron actually came up. Inherent.
+- youtube_search opens a SEARCH page, does not autoplay (OQ-24, deferred).
+
+### The real next step — G7, then G8 (conversation)
+1. **G7 (search)** — friday.md §9. SearXNG loopback, sanitizer, `final.gbnf`
+   locked to `none`, injection suite 20/20, egress test. The only egress.
+2. **G8 (conversation)** — the primary goal. Invoke `writing-plans` on the
+   design doc for Build 1 (in-reply chat: `chat` action + `llm/chat.py` +
+   RAM dialogue buffer + the new "conversational speech" ADR). Then build TDD.
 
 ### RESOLVED — the Hyprland "glitch"
 Identified: the Copilot key (`XF86Assistant`) leaks Super at the firmware
@@ -228,7 +260,7 @@ export PATH=/opt/cuda/bin:$PATH
   --cache-type-k q8_0 --cache-type-v q8_0 --no-webui
 ```
 Health: `curl -s http://127.0.0.1:8080/health` → `{"status":"ok"}`.
-(There is NO systemd unit yet — that is G8. Run it by hand for now.)
+(There is NO systemd unit yet — that is G9. Run it by hand for now.)
 
 ### Finish the 4 deferred G1 measurements (optional; none blocks G2)
 1. **VRAM under load** — you open brave + play a video, then run a
@@ -860,7 +892,7 @@ EGRESS TEST (block all non-loopback, confirm everything else still works):
 
 ---
 
-## G8 — Service
+## G9 — Service
 
 **Acceptance:** survives `kill -9` of llama-server; survives suspend/resume.
 
@@ -988,5 +1020,6 @@ Optional, but the honest version of "how long will this take".
    G5     3 h        ____
    G6     6 h        ____     PTT path unknown
    G7     5 h        ____
-   G8     3 h        ____
+   G8     ? h        ____     conversation (primary goal)
+   G9     3 h        ____     service
 ```

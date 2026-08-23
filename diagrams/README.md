@@ -10,7 +10,7 @@ into a stale PNG nobody can edit.
    03-memory-budget.md      VRAM and RAM arithmetic with real numbers
    04-trust-boundaries.md   zones 0-3 and the privilege ladder
    05-audio-pipeline.md     signal path + half-duplex mic gate
-   06-build-gates.md        G0..G8 dependency order and risk ranking
+   06-build-gates.md        G0..G9 dependency order and risk ranking
    07-context-budget.md     8192 tokens, region by region
 ```
 

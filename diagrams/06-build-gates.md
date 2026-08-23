@@ -60,7 +60,7 @@ wheel does not run on Blackwell.
                                     |
                                     v
    +------------------------------------------------------------------+
-   |  G7  SEARCH  (LAST. it is the only egress.)                      |
+   |  G7  SEARCH  (the only egress + the only untrusted input.)       |
    |      searxng loopback, sanitizer, final.gbnf locked to none      |
    |      accept: injection suite 20/20 blocked                       |
    |              zero actions dispatched from any grounding turn     |
@@ -68,7 +68,16 @@ wheel does not run on Blackwell.
                                     |
                                     v
    +------------------------------------------------------------------+
-   |  G8  SERVICE                                                     |
+   |  G8  CONVERSATION  (the primary goal. reordered before service.) |
+   |      `chat` action + free-text gen stage, RAM dialogue buffer    |
+   |      see docs/superpowers/specs/2026-08-23-conversational-chat-  |
+   |      design.md.  accept: casual -> warm <=4-sentence reply,      |
+   |              eval not regressed, chat can never dispatch         |
+   +--------------------------------+---------------------------------+
+                                    |
+                                    v
+   +------------------------------------------------------------------+
+   |  G9  SERVICE                                                     |
    |      systemd user units, restart, log rotation, panic switch     |
    |      accept: survives kill -9 of llama-server                    |
    |              survives suspend/resume                             |
