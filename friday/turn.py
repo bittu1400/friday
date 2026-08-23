@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import config
 from .errors import Outcome
-from .llm import grounding, schema
+from .llm import chat, grounding, schema
 from .llm.client import LlamaClient, LlamaTimeout, LlamaUnreachable
 from .llm.prompt import assemble_system
 from .llm.validate import SchemaError, validate
@@ -60,12 +60,6 @@ class TurnResult:
     sources: tuple[SearchResult, ...] = ()
 
 
-# The one non-speakable line: the `none` placeholder (a real conversational
-# reply is a later gate). Everything else — outcomes, errors, confirms — is
-# spoken (ADR-040).
-_UNSPOKEN = "(no action)"
-
-
 async def run_turn(
     utterance: str,
     client: LlamaClient,
@@ -77,6 +71,7 @@ async def run_turn(
     speaker: "object | None" = None,
     search_client: SearchClient | None = None,
     connected: bool = True,
+    history: str = "",
 ) -> TurnResult:
     """Plan + act, then voice the outcome (ADR-040). Execute-first is
     preserved: the action runs inside `_plan_and_act`, the template is chosen
@@ -90,8 +85,9 @@ async def run_turn(
         audit=audit,
         search_client=search_client,
         connected=connected,
+        history=history,
     )
-    if speaker is not None and result.spoken != _UNSPOKEN:
+    if speaker is not None and result.spoken:
         await asyncio.to_thread(speaker.say, result.spoken)
     return result
 
@@ -106,6 +102,7 @@ async def _plan_and_act(
     audit: AuditLog | None = None,
     search_client: SearchClient | None = None,
     connected: bool = True,
+    history: str = "",
 ) -> TurnResult:
     system = assemble_system(prefs.digest() if prefs else "")
     try:
@@ -123,7 +120,19 @@ async def _plan_and_act(
     params = dict(plan.params)
 
     if plan.name == "none":
-        return TurnResult("none", params, "(no action)", False)
+        return TurnResult("none", params, templates.OUT_OF_SCOPE, False)
+
+    if plan.name == "chat":
+        # invariant #1 (ADR-008/048) holds structurally: `chat` can only be
+        # chosen by the grammar-locked planner (plan.gbnf, trusted input). The
+        # untrusted path (grounding, G7) uses final.gbnf, whose name is locked
+        # to "none", so an untrusted turn can never emit name=="chat". `chat`
+        # NEVER dispatches — no executor call, dispatched=False.
+        reply = await asyncio.to_thread(
+            chat.generate_reply, client, utterance,
+            prefs_digest=(prefs.digest() if prefs else ""), history=history,
+        )
+        return TurnResult("chat", {}, reply, False)
 
     if plan.name == "remember_preference":
         return _plan_remember(params)

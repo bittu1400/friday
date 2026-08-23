@@ -39,6 +39,14 @@ def test_valid_none_does_not_dispatch() -> None:
     assert r.plan_name == "none" and not r.dispatched
 
 
+def test_none_speaks_out_of_scope_line() -> None:
+    from friday.ui import templates
+    r = _turn('{"action":{"name":"none","params":{}}}')
+    assert r.plan_name == "none" and not r.dispatched
+    assert r.spoken == templates.OUT_OF_SCOPE
+    assert r.spoken != "(no action)"
+
+
 # NOTE: NOT_YET_WIRED is empty as of G7 (web_search is now wired in the turn
 # loop). The web_search path — which never dispatches — is covered by
 # tests/test_web_search_turn.py; there is no "planned …" fallback left to test.

@@ -57,3 +57,10 @@ SEARCH_LOCAL_MODE = "I can't search the web in local mode."
 # Canonical E_NET_DOWN string from spec.md §4 — keep them identical.
 SEARCH_UNAVAILABLE = "I can't reach the web."
 SEARCH_NO_RESULTS = "I didn't find anything on that."
+
+
+# The deliberate-none line (G8, design open-item #4). `none` now SPEAKS so the
+# operator can tell live that the model chose no action (vs an error path,
+# which has its own distinct line). Destructive/out-of-ability requests land
+# here. Fixed string, never the LLM.
+OUT_OF_SCOPE = "That isn't something I'm able to do."
