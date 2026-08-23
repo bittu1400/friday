@@ -1,0 +1,16 @@
+# Friday's SearXNG config (ADR-045). Loopback-only; JSON API enabled because
+# tools/search.py consumes the JSON endpoint (SearXNG ships with json OFF).
+use_default_settings: true
+server:
+  # Bound to 8080 INSIDE the container; the docker port map pins the HOST side
+  # to 127.0.0.1:8888 (see the unit). secret_key is required by SearXNG.
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "friday-local-only-not-a-network-secret"
+  limiter: false
+  image_proxy: false
+search:
+  formats:
+    - html
+    - json
+  safe_search: 0

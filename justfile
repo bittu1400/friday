@@ -10,6 +10,12 @@ serve:
       --host 127.0.0.1 --port 8080 --ctx-size 8192 --n-gpu-layers 99 \
       --cache-type-k q8_0 --cache-type-v q8_0 --no-webui
 
+# Manage the loopback SearXNG unit (ADR-045). `just searxng start|stop|status`.
+# The unit binds 127.0.0.1:8888 ONLY (invariant #8). Install once with:
+#   systemctl --user link $PWD/deploy/searxng/friday-searxng.service
+searxng CMD="status":
+    systemctl --user {{CMD}} friday-searxng
+
 # Regenerate the GBNF grammars from the single schema source of truth.
 grammar:
     uv run python -m friday.llm.schema
