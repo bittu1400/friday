@@ -30,6 +30,19 @@ MEMORY_DB: Path = STATE_DIR / "memory.db"
 # Retention (FR-59 / ADR-038): audit rows + session summaries only.
 RETENTION_DAYS: int = int(os.environ.get("FRIDAY_RETENTION_DAYS", "90"))
 
+# Voice out (G5, ADR-039/040). Kokoro-82M via kokoro-onnx, CPU only, fp32.
+# Model lives in the XDG data dir alongside the LLM, not in the repo.
+_DATA_DIR: Path = Path(
+    os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")
+) / "friday"
+KOKORO_MODEL: Path = _DATA_DIR / "models" / "kokoro" / "model.onnx"
+KOKORO_VOICES: Path = _DATA_DIR / "models" / "kokoro" / "voices-v1.0.bin"
+# af_bella primary, af_heart fallback if the primary is missing (OQ-22).
+KOKORO_VOICE: str = os.environ.get("FRIDAY_VOICE", "af_bella")
+KOKORO_VOICE_FALLBACK: str = "af_heart"
+# 8 = the P-core count; measured optimum, 24 threads is worse (ADR-039).
+KOKORO_THREADS: int = int(os.environ.get("FRIDAY_TTS_THREADS", "8"))
+
 
 def is_disabled() -> bool:
     """True if the panic switch is engaged (file present or env var set)."""

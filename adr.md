@@ -102,7 +102,10 @@ Audition `af_heart` / `af_bella` / `af_sky` at G5 and record the winner
 here. Weights only from `huggingface.co/hexgrad/Kokoro-82M` — several
 lookalike domains are impersonation sites.
 
-**Voice locked at G5:** _TBD — fill this line in, do not leave it._
+**Voice locked at G5 (2026-08-23, OQ-22):** primary **`af_bella`**,
+fallback **`af_heart`** (used if `af_bella` is absent from the voices blob
+or fails to load). User auditioned all three fp32 samples on the laptop
+speakers; heart/sky were indistinct, bella preferred.
 
 **Consequences.** Zero VRAM, good quality, no cloning. "Zero VRAM" is an
 intended placement, not a guarantee — a dependency that pulls CUDA torch
@@ -116,7 +119,8 @@ runtime is now `kokoro-onnx` (ONNX/CPU), fp32 `model.onnx`, 8 threads. The
 model choice (Kokoro-82M), the single female en-US preset, and the
 audition-at-G5 plan below are UNCHANGED.
 
-**Status:** Accepted; runtime superseded by ADR-039; preset pending G5.
+**Status:** Accepted; runtime superseded by ADR-039; preset locked
+2026-08-23 (af_bella primary / af_heart fallback, OQ-22).
 
 ---
 
@@ -1147,3 +1151,48 @@ are mostly short outcome lines. `inter_op=1`, sequential, graph-opt ALL.
 
 **Status:** Accepted. Supersedes the PyTorch runtime guidance in ADR-005 and
 friday.md §7.
+
+---
+
+## ADR-040 — G5 voice-out: sounddevice, blocking playback, spoken in the loop
+
+**Context.** With the runtime settled (ADR-039), G5's remaining choices are
+integration shape, decided with the user 2026-08-23.
+
+**Decisions (user, 2026-08-23).**
+
+1. **Voice: `af_bella` primary, `af_heart` fallback** (OQ-22). Recorded in
+   ADR-005 and `config.toml`. The fallback fires only if the primary voice
+   is missing/unloadable — a safe default, not a runtime toggle.
+
+2. **Playback via `sounddevice` (PortAudio).** The same library G6 uses for
+   mic capture, so audio in and out share one dependency and one device
+   abstraction. Kokoro emits float32 @ 24 kHz; `sounddevice.play` +
+   `wait()` voices it directly.
+
+3. **Blocking playback at G5; cancellation deferred to G6.** Barge-in only
+   has a trigger once a mic exists (G6), where the mic gate and cancel land
+   together. At G5 a spoken turn holds the (already-serialized) turn slot
+   until speech ends — acceptable because the input is disabled while a turn
+   is in flight anyway. FR-73 (cancellable) is satisfied at G6, noted there.
+
+4. **TTS is wired into the turn loop now, not standalone.** `run_turn`
+   gains an optional `speaker`; after execute-first + template render it
+   voices `spoken` (via `asyncio.to_thread`, since playback blocks). The
+   confirm-preference follow-up lines are voiced by the same `Speaker` in
+   the TUI. `speaker=None` (tests, `--no-voice`, no audio device) is a
+   silent no-op, so nothing else changes. `just run` now SPEAKS outcomes.
+
+**Consequences.**
+- New deps: `kokoro-onnx`, `soundfile`, `sounddevice`. Still no torch.
+- The model (`model.onnx`, 326 MB) loads once at startup (~1–2 s); the TUI
+  builds the `Speaker` unless `--no-voice` or the model/audio device is
+  absent, degrading to text-only rather than failing.
+- Execute-first (ADR-009) is preserved: the action runs, the template is
+  chosen from the outcome, THEN it is spoken — the model's words never
+  announce an action.
+- A spoken turn is longer wall-clock (synth ~0.2 s + audio duration); with
+  no barge-in yet, the user waits out the sentence. Fine for short outcome
+  lines; revisited at G6.
+
+**Status:** Accepted.

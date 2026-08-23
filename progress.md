@@ -26,7 +26,8 @@ whisper CPU bench, CPU-torch check) — none block G4.
    G3 TEXT+REG    [x]   <-- registry+executor+TUI. eval 20/20, adv 16/16.
    G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention. 98 unit,
                         eval 20/20, adv 16/16.
-   G5 VOICE OUT   [ ]
+   G5 VOICE OUT   [~]   <-- code done: kokoro-onnx/fp32/8t, af_bella, wired
+                        into loop, FR-71 verified. USER listening test pending.
    G6 VOICE IN    [ ]
    G7 SEARCH      [ ]
    G8 SERVICE     [ ]
@@ -41,10 +42,14 @@ preferences (confirm-first), forgets them, and injects a `<preferences>`
 digest into planning. Next is **G5 — Voice out** (Kokoro TTS). Per the
 build order `{G4,G5}`, G5 is the remaining half; G6 (voice in) follows.
 
-**G5 optimization research is already DONE (2026-08-23, ADR-039).** The
-runtime is settled by benchmark on this laptop: `kokoro-onnx` (ONNX/CPU),
-fp32 model, 8 threads, no torch. Only the VOICE (OQ-22, user audition) and
-a few integration choices remain — see the G5 build steps below.
+**G5 is CODE-COMPLETE (2026-08-23, ADR-039/040).** Benchmarked, built, and
+wired: `kokoro-onnx` (ONNX/CPU) fp32 8-thread, voice af_bella (fallback
+af_heart), spoken in the turn loop, `--no-voice` opt-out, FR-71 verified
+(0 VRAM). The ONLY thing left for G5 is the USER LISTENING TEST — run
+`just audition`, then `just say "..."` / `just run`, and confirm 20
+utterances sound clean (no clipping). Then tick G5 and start G6. If the
+next session opens here: do the listening sign-off first, then read G6
+(friday.md §8) and batch its questions.
 
 ### What is true right now
 - Branch `main`. G0/G1(core)/G2/G3/G4 all passed. `just run` launches the 5
@@ -591,26 +596,52 @@ Files staged (disk, not repo): `~/.cache/kokoro-bench/models/model.onnx`
 (sha256 `8fbea51e…21a34cb`), `voices-v1.0.bin` (sha256 `bca610b8…f1fbf7d`);
 audition WAVs in `~/.cache/kokoro-bench/samples/`.
 
-### G5 BUILD — remaining (next session)
+### G5 BUILD — code DONE 2026-08-23; listening test is the user's
 
-- [ ] `uv add kokoro-onnx soundfile` (NO torch); `espeak-ng` present (1.52.0)
-- [ ] Fetch model+voices to a runtime dir (XDG share), verify the 2 SHA256s
-- [ ] `friday/audio/tts.py`: kokoro-onnx wrapper, 8-thread CPU session
-      (inject via `Kokoro._setup(session=...)`), `synth(text)->(samples,sr)`
-- [ ] Playback (`sounddevice`), non-blocking + cancellable (FR-73) — or
-      defer cancel to G6 barge-in; decide in the G5 question batch
-- [ ] **OQ-22: user auditions af_heart/af_bella/af_sky through speakers**,
-      picks one → ADR-005 TBD line + config.toml, close OQ-22
-- [ ] Wire outcome templates to speak (turn loop or standalone at G5?) —
-      G5 question batch
-- [ ] `nvidia-smi` during a spoken turn = one compute process (FR-71)
-- [ ] 20 utterances spoken, no clipping (user listens)
+G5 question batch answered by user 2026-08-23 → ADR-040: voice af_bella
+(fallback af_heart), playback sounddevice, cancel deferred to G6, TTS wired
+into the turn loop.
+
+- [x] `uv add kokoro-onnx soundfile sounddevice` — 14 pkgs, **no torch**
+      (verified `uv pip list | grep torch` empty); espeak-ng 1.52.0 present;
+      portaudio 19.7.0 present
+- [x] Model+voices staged to `~/.local/share/friday/models/kokoro/`, both
+      SHA256 verified (8fbea51e… / bca610b8…)
+- [x] `friday/audio/tts.py` — `Speaker`: 8-thread CPU onnx session injected
+      via `Kokoro._setup(session=...)`, fail-soft `create()`/`say()`, voice
+      resolution primary→fallback (OQ-22)
+- [x] Playback via `sounddevice` (blocking at G5; cancel deferred to G6 per
+      ADR-040 — FR-73 lands with the mic)
+- [x] Voice locked: af_bella primary / af_heart fallback → ADR-005 + config
+      (`KOKORO_VOICE`), OQ-22 closed
+- [x] TTS wired into the turn loop: `run_turn(..., speaker=)` voices the
+      outcome after execute-first; `(no action)` placeholder not voiced;
+      confirm follow-ups voiced by the TUI
+- [x] CLI: `just say "…"`, `just audition`, `just fetch-voice`; `--no-voice`
+      flag on `just run`
+- [x] `nvidia-smi` during synth = **2 MiB, zero compute apps** (FR-71 held)
+- [ ] **USER listening test: 20 utterances, no clipping** — run `just
+      audition` then `just say "…"` / `just run` and judge by ear. Only the
+      user can sign this off.
 
 ```
-VOICE CHOSEN:        (OQ-22 — pending user audition)
+VOICE CHOSEN:        af_bella (fallback af_heart) — OQ-22 / ADR-005
 CHECKSUM:            model.onnx 8fbea51e…21a34cb ; voices bca610b8…f1fbf7d
-BENCHMARK EVIDENCE:  above (ADR-039)
+DEPS:                kokoro-onnx 0.6.1, onnxruntime 1.29.0, sounddevice 0.5.6,
+                     soundfile 0.14.0 — NO torch in the venv
+EVIDENCE (real model, 2026-08-23):
+  Speaker loaded: True | voice: af_bella
+  synth: 70144 samples, 2.92s audio, 0.407s wall (RTF 0.14), sr=24000
+  providers: ['CPUExecutionProvider']
+  VRAM before/after: 2 MiB / 2 MiB ; compute apps: none  (FR-71)
+  uv run pytest: 104 passed (incl. tests/test_tts.py wiring)
+  output device present: "default", 32ch
+NOTE: eval unaffected by construction — eval_harness imports schema/client/
+  prompt/validate only; G5 touched none of the planning path. Last run 20/20.
 ```
+
+**G5 status:** code complete + FR-71 verified. Gate PASSES once the user
+confirms the listening test (20 utterances, no clipping). Nothing blocks G6.
 
 ---
 
@@ -741,6 +772,9 @@ Append a line whenever a measurement changes a document.
    2026-08-23  ONNX intra_op=8 (P-cores); 24 threads worse         ADR-039
    2026-08-23  venv now torch-free (STT=CT2, TTS=ORT)              ADR-039
    2026-08-23  OQ-22 opened: voice audition (user)                 OQ-22
+   2026-08-23  voice = af_bella primary / af_heart fallback        OQ-22/ADR-005
+   2026-08-23  G5 playback = sounddevice; cancel deferred to G6    ADR-040
+   2026-08-23  TTS wired into turn loop (run_turn speaks)          ADR-040
 ```
 
 ## Time log

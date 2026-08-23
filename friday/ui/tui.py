@@ -39,15 +39,18 @@ class FridayTUI(App):
         *,
         prefs: PrefStore | None = None,
         audit: AuditLog | None = None,
+        speaker: object | None = None,
         dry_run: bool,
     ) -> None:
         super().__init__()
         self._client = client
         self._prefs = prefs
         self._audit = audit
+        self._speaker = speaker
         self._dry_run = dry_run
         self._pending: PendingPreference | None = None
-        self.sub_title = "DRY-RUN (no launch)" if dry_run else "LIVE"
+        voice = "muted" if speaker is None else getattr(speaker, "voice", "on")
+        self.sub_title = ("DRY-RUN (no launch)" if dry_run else "LIVE") + f" · voice: {voice}"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -88,6 +91,7 @@ class FridayTUI(App):
             dry_run=self._dry_run,
             prefs=self._prefs,
             audit=self._audit,
+            speaker=self._speaker,
         )
         params = f" {result.params}" if result.params else ""
         log.write(f"[dim]→ action: {result.plan_name}{params}[/]")
@@ -111,6 +115,10 @@ class FridayTUI(App):
         else:
             spoken = templates.cancelled_preference()
         log.write(f"[bold green]friday[/] {spoken}")
+        if self._speaker is not None:  # voice the confirm follow-up too (ADR-040)
+            import asyncio
+
+            await asyncio.to_thread(self._speaker.say, spoken)
         self._reenable()
 
     def _reenable(self) -> None:

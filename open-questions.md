@@ -13,7 +13,9 @@ answers it, no opinion required).
 ## Blocking Phase 1
 
 ### OQ-22 — Which Kokoro voice preset? (audition)
-**Decider:** USER · **Blocks:** G5 · **Status:** OPEN
+**Decider:** USER · **Blocks:** G5 · **Status:** CLOSED 2026-08-23 —
+`af_bella` primary, `af_heart` fallback. User found heart/sky indistinct,
+preferred bella. See ADR-005 / ADR-040.
 
 The runtime, model, and thread count are settled by benchmark (ADR-039);
 the VOICE is subjective and yours to pick — it cannot be measured. Audition
@@ -336,3 +338,6 @@ months.)_
 - **OQ-21 — Do preferences auto-expire by age?** ANSWERED 2026-08-23. No.
   Retention purges audit rows + session summaries only; preferences live
   until forgotten. `pinned` kept but inert. See ADR-038.
+- **OQ-22 — Which Kokoro voice preset?** ANSWERED 2026-08-23. `af_bella`
+  primary, `af_heart` fallback (heart/sky indistinct on audition). See
+  ADR-005, ADR-040.

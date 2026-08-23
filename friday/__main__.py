@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 
 from . import config
+from .audio.tts import Speaker
 from .llm.client import LlamaClient
 from .store.audit import AuditLog, sweep_retention
 from .store.db import Database
@@ -25,6 +26,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print the argv a dispatch would run, without launching anything",
     )
+    ap.add_argument(
+        "--no-voice", action="store_true", help="text only; do not load Kokoro"
+    )
     ap.add_argument("--base-url", default=config.LLAMA_BASE_URL)
     args = ap.parse_args(argv)
 
@@ -33,8 +37,22 @@ def main(argv: list[str] | None = None) -> int:
     prefs = PrefStore(db)
     audit = AuditLog(db)
 
+    # Voice out (ADR-039/040). None if --no-voice, model missing, or no audio
+    # device — the TUI then runs text-only rather than failing.
+    speaker = None
+    if not args.no_voice:
+        speaker = Speaker.create(
+            config.KOKORO_MODEL,
+            config.KOKORO_VOICES,
+            voice=config.KOKORO_VOICE,
+            fallback=config.KOKORO_VOICE_FALLBACK,
+            threads=config.KOKORO_THREADS,
+        )
+
     client = LlamaClient(base_url=args.base_url)
-    FridayTUI(client, prefs=prefs, audit=audit, dry_run=args.dry_run).run()
+    FridayTUI(
+        client, prefs=prefs, audit=audit, speaker=speaker, dry_run=args.dry_run
+    ).run()
     db.close()
     return 0
 

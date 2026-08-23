@@ -36,6 +36,27 @@ test-adversarial:
 prefs *ARGS:
     uv run python -m friday.prefs_cli {{ARGS}}
 
+# Speak a line with Kokoro (G5, ADR-039/040). `just say "hello"`.
+say *ARGS:
+    uv run python -m friday.audio.say {{ARGS}}
+
+# Audition the three candidate voices on one line (af_bella/af_heart/af_sky).
+audition:
+    uv run python -m friday.audio.say --audition
+
+# Fetch + checksum the Kokoro model and voices into the XDG data dir (ADR-039).
+fetch-voice:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dst="${XDG_DATA_HOME:-$HOME/.local/share}/friday/models/kokoro"
+    mkdir -p "$dst"
+    base="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx"
+    [ -f "$dst/model.onnx" ] || curl -sL -o "$dst/model.onnx" "$base/model.onnx"
+    [ -f "$dst/voices-v1.0.bin" ] || curl -sL -o "$dst/voices-v1.0.bin" \
+      "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+    echo "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb  $dst/model.onnx" | sha256sum -c -
+    echo "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d  $dst/voices-v1.0.bin" | sha256sum -c -
+
 # Full unit suite (schema drift, validator, registry, executor, turn, adversarial).
 test:
     uv run pytest -q

@@ -57,7 +57,39 @@ class TurnResult:
     pending: PendingPreference | None = None
 
 
+# The one non-speakable line: the `none` placeholder (a real conversational
+# reply is a later gate). Everything else — outcomes, errors, confirms — is
+# spoken (ADR-040).
+_UNSPOKEN = "(no action)"
+
+
 async def run_turn(
+    utterance: str,
+    client: LlamaClient,
+    *,
+    request_id: str,
+    dry_run: bool = False,
+    prefs: PrefStore | None = None,
+    audit: AuditLog | None = None,
+    speaker: "object | None" = None,
+) -> TurnResult:
+    """Plan + act, then voice the outcome (ADR-040). Execute-first is
+    preserved: the action runs inside `_plan_and_act`, the template is chosen
+    from its outcome, and only then is it spoken."""
+    result = await _plan_and_act(
+        utterance,
+        client,
+        request_id=request_id,
+        dry_run=dry_run,
+        prefs=prefs,
+        audit=audit,
+    )
+    if speaker is not None and result.spoken != _UNSPOKEN:
+        await asyncio.to_thread(speaker.say, result.spoken)
+    return result
+
+
+async def _plan_and_act(
     utterance: str,
     client: LlamaClient,
     *,
