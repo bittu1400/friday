@@ -649,7 +649,7 @@ git commit -m "feat(g8): chat.py reply generator — free text, sanitized, fail-
 - Consumes: `chat.generate_reply`, the prefs digest, a `history` string.
 - Produces:
   - `run_turn(..., history: str = "")` and `_plan_and_act(..., history: str = "")` — the new kwarg threaded through, defaulting to `""` (existing callers unaffected).
-  - When `plan.name == "chat"`: returns `TurnResult("chat", {}, <reply>, False)` — a defense-in-depth assert first forbids `chat` on an untrusted turn (there is no untrusted flag on the planning path today, so this asserts the invariant explicitly for the future). Never dispatches.
+  - When `plan.name == "chat"`: returns `TurnResult("chat", {}, <reply>, False)` — never dispatches. **Why `chat` is safe on invariant #1 without a runtime guard:** `chat` is only ever selected by the grammar-locked planner, which runs on `plan.gbnf` over *trusted* input; the *untrusted* path (grounding, G7) runs on `final.gbnf`, whose `name` is locked to exactly `"none"`, so an untrusted turn can NEVER emit `name == "chat"`. The safety is structural (the grammar), documented in a comment — not a no-op assert against a flag that does not exist on this path.
   - `none` now returns a SPOKEN line: `templates.OUT_OF_SCOPE` instead of the silent `"(no action)"`. The error paths keep their distinct existing lines. The `_UNSPOKEN` sentinel is removed; `run_turn` speaks any non-empty `spoken`.
   - `templates.OUT_OF_SCOPE: str` (fixed, non-LLM).
 
@@ -760,11 +760,11 @@ Change the `none` branch:
 Add the `chat` branch immediately after the `none` branch (before `remember_preference`):
 ```python
     if plan.name == "chat":
-        # Defense-in-depth (ADR-048 / invariant #1): chat must never run on a
-        # turn that consumed untrusted data. The planning path carries no
-        # untrusted flag today; this asserts the invariant explicitly so a
-        # future untrusted-planning path cannot silently reach the free-text
-        # generator. chat NEVER dispatches.
+        # invariant #1 (ADR-008/048) holds structurally: `chat` can only be
+        # chosen by the grammar-locked planner (plan.gbnf, trusted input). The
+        # untrusted path (grounding, G7) uses final.gbnf, whose name is locked
+        # to "none", so an untrusted turn can never emit name=="chat". `chat`
+        # NEVER dispatches — no executor call, dispatched=False.
         reply = await asyncio.to_thread(
             chat.generate_reply, client, utterance,
             prefs_digest=(prefs.digest() if prefs else ""), history=history,
@@ -845,16 +845,39 @@ In `friday/daemon.py`:
 - Import: `from .dialogue import Dialogue`.
 - In `__init__`, add `self._dialogue = Dialogue()`.
 - In `_run_turn`, change the `run_turn(...)` call to pass `history=self._dialogue.render()`.
-- After a turn produces speech, append the exchange. In the non-pending branch, after `will_speak` is computed and the reply is spoken, add:
+- After a turn produces speech, append the exchange. In the non-pending branch, the existing `will_speak` block (`daemon.py:197-199`) is:
+```python
+            will_speak = bool(result.spoken) and result.spoken != "(no action)"
+            self.state.got_plan(will_speak=will_speak)
+            if will_speak:
+                await self._speak(result.spoken, measure=True)
+```
+Add the append inside that `if will_speak:` block, after the `_speak`:
 ```python
             if will_speak:
+                await self._speak(result.spoken, measure=True)
                 self._dialogue.add(text, result.spoken)
 ```
-(Place the `add` alongside the existing `await self._speak(result.spoken, measure=True)`; append regardless of action vs chat, so cross-turn context holds.)
+(Append regardless of action vs chat, so cross-turn context holds.)
+
+**Leave the `!= "(no action)"` guard on line 197 as-is** — after Task 7 the real `none` path returns `OUT_OF_SCOPE`, never `"(no action)"`, so the sentinel is now dead in production, BUT the existing daemon tests (`test_daemon.py:97,259`) inject a fabricated `TurnResult("none", {}, "(no action)", False)` and rely on that guard to assert silence. Removing it would break them for no gain. It is a harmless belt-and-suspenders sentinel; keep it.
 
 - [ ] **Step 4: Extend the daemon test**
 
-In `tests/test_daemon.py`, add a test that after a `chat` turn the daemon's `_dialogue` holds one exchange. Use the existing daemon test harness/fixtures in that file (a fake client that plans `chat` then returns a reply); assert `len(daemon._dialogue) == 1` and the reply text is in `daemon._dialogue.render()`. (Match the file's existing construction of `Daemon` and its stubs — do not invent a new harness.)
+In `tests/test_daemon.py`, add a test using the file's EXISTING harness (`_plan(monkeypatch, result)` monkeypatches `run_turn`; `_daemon(**kw)` builds the `Daemon`; `FakeTranscriber` returns actionable text by default):
+```python
+def test_chat_turn_appends_to_dialogue(monkeypatch):
+    _plan(monkeypatch, TurnResult("chat", {}, "Hello there!", False))
+    d = _daemon()
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+    asyncio.run(go())
+    assert len(d._dialogue) == 1
+    assert "Hello there!" in d._dialogue.render()
+```
+(Do NOT invent a new harness or a fake client — `_plan` replaces `run_turn` wholesale, so no client is exercised.)
 
 - [ ] **Step 5: Wire the TUI**
 
@@ -994,4 +1017,4 @@ git commit -m "docs(g8): Build 1 done — acceptance evidence, ADR-048, dialogue
 
 **Type consistency:** `Dialogue.add(user, friday)` / `.render() -> str` / `.__len__` used identically in Tasks 4/8. `generate_reply(client, utterance, *, prefs_digest="", history="") -> str` defined Task 6, called Task 7. `complete(..., grammar="", stop=None)` defined Task 5, used Task 6. `TurnResult("chat", {}, reply, False)` matches the existing `TurnResult(plan_name, params, spoken, dispatched, ...)` shape. `templates.OUT_OF_SCOPE: str` defined Task 7, used in Tasks 7/10. `assemble_chat_system(str) -> str` defined Task 3, used Task 6.
 
-**Invariant audit:** #1 — chat consumes no untrusted data + defense assert + never dispatches (grammar-locked planner still chooses chat; final.gbnf path untouched). #4 — ADR-048 carves conversational speech out of ADR-009; command turns still template-only. #5 — chat added to grammar AND validator; other paths fail closed unchanged. #6 — same server, no new VRAM. #7 — Dialogue RAM-only, tested. #9 — one turn in flight (FSM) untouched. `web_search`/final.gbnf grounding path (G7) is not touched by any task.
+**Invariant audit:** #1 — chat consumes no untrusted data and never dispatches; safety is STRUCTURAL, not a runtime assert: `chat` is only selectable by the grammar-locked planner (plan.gbnf, trusted), while the untrusted path uses final.gbnf locked to `name=="none"`, so an untrusted turn can never emit `chat` (final.gbnf path untouched). #4 — ADR-048 carves conversational speech out of ADR-009; command turns still template-only. #5 — chat added to grammar AND validator; other paths fail closed unchanged. #6 — same server, no new VRAM. #7 — Dialogue RAM-only, tested. #9 — one turn in flight (FSM) untouched. `web_search`/final.gbnf grounding path (G7) is not touched by any task.
