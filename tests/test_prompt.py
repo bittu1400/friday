@@ -28,3 +28,12 @@ def test_prefs_lines_are_key_value_only() -> None:
         if ln and not ln.startswith("<")
     ]
     assert all("=" in ln and " " not in ln.split("=")[0] for ln in inner)
+
+
+def test_policy_mentions_chat_routing() -> None:
+    from friday.llm.prompt import SYSTEM_POLICY
+    low = SYSTEM_POLICY.lower()
+    assert "chat" in low                       # the action is named
+    assert "greeting" in low or "chit-chat" in low or "conversation" in low
+    # none is narrowed to genuine refusals/ambiguity, not casual talk
+    assert "destructive" in low or "refuse" in low
