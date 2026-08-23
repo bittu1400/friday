@@ -197,6 +197,17 @@ without a tap (time/context). Breaks the pure PTT model — its own design
 - Ring buffer bound: turn count vs token budget, and the exact number.
 - Whether action turns also append to the dialogue buffer (leaning yes, for
   cross-turn context like "and my editor too").
-- The `none` case: brief canned line vs silence.
+- ~~The `none` case: brief canned line vs silence.~~ **DECIDED 2026-08-23
+  (user):** `none` now SPEAKS, and each terminal restriction gets a DISTINCT
+  spoken line so the operator can tell live *why* a turn produced no action —
+  "when it is not working vs when its action turned to none." Mapping (each
+  deterministically distinguishable, no reason channel added to the grammar):
+  deliberate in-scope `none` (model chose none / destructive / capability we
+  lack) → an out-of-scope line ("That's not within what I can do."); malformed
+  or validation-rejected output → "I didn't understand."; planner timeout →
+  "That took too long."; server unreachable → "My brain's offline."; panic/
+  disabled → its existing template. The chat path is what makes narrowing
+  `none` safe: greetings/casual/"who are you" route to `chat`, so a residual
+  `none` genuinely is "can't/won't."
 - ctx headroom: confirm dialogue + persona + prefs fit comfortably in 8192
   (redo the ADR-003 arithmetic); raise only if measured necessary.
