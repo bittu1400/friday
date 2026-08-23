@@ -12,10 +12,15 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **G0–G7 PASSED** (G7 merged to main 2026-08-23). **Next:
-G8 (conversation) Build 1 — PLANNED, ready to execute**
-(`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`, 10 TDD tasks).
-`uv run pytest` **176 passed**, `just eval` **24/24**. History below.
+**Overall status:** **G0–G7 PASSED** (G7 merged to main 2026-08-23). **G8
+(conversation) Build 1 — CODE DONE on branch `g8-conversation`, NOT merged.**
+All 10 plan tasks implemented (in-reply chat action + RAM Dialogue + none-speaks).
+`uv run pytest` **199 passed**, `just eval` **28/28 (regressions 0)**,
+`just test-injection` **20/20 blocked**, adversarial 14/14. **REMAINING before
+G8 Build 1 is fully signed off:** (1) live end-to-end smoke via real model
+(started, interrupted — not yet evidenced); (2) docs (friday.md §10, spec.md
+FRs, design-doc Build-1-built mark) — partially done; (3) merge decision +
+push (user's call). History below.
 
 G0–G5 PASSED. G1 core risk RETIRED (2026-08-22). G2/G3
 (2026-08-23): text mode, eval 20/20, adv 16/16. G4: SQLite memory, prefs
@@ -74,7 +79,53 @@ Next step: EXECUTE the G8 Build 1 plan. See NEXT SESSION.
 
 ---
 
-## NEXT SESSION — START HERE (updated 2026-08-23, **G7 DONE**)
+## NEXT SESSION — START HERE (updated 2026-08-23, **G8 Build 1 CODE DONE**)
+
+**Branch `g8-conversation`** (off main d8f8577, in-place; NOT merged, NOT
+pushed — user's call). G8 Build 1 plan
+(`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`) executed inline,
+all 10 tasks. Commits d8f8577..cb7eae5 (f39d169 schema/grammar/ADR-048; c761bee
+planner routing; 984a5a8 test-strengthen; 1894dd6 CHAT_SYSTEM; f921fe4 Dialogue;
+de14e3d client stop/no-grammar; 0df2cb0 chat.py; 7c908cc turn routing +
+none-speaks; bf8335b daemon+TUI Dialogue; cb7eae5 eval fixtures + re-baseline).
+
+### G8 Build 1 ACCEPTANCE EVIDENCE (2026-08-23, llama-server up)
+```
+$ uv run pytest -q                    199 passed
+$ just eval                           passed 28/28 (100%), regressions 0
+$ just test-injection                 20/20 blocked (injection.jsonl, calls==[])
+$ uv run pytest tests/test_adversarial.py tests/test_injection.py   14 passed
+```
+New chat fixtures E25–E28 + moved E15/E16 to chat all plan `chat` live.
+`chat` never dispatches (test_chat_turn asserts executor untouched).
+
+### WHAT'S LEFT (do these next session, in order)
+1. **LIVE end-to-end smoke** (was interrupted). Server was up on :8080. Run a
+   real-model `run_turn` (dry_run=True) over: "hi", "who are you", "what can you
+   do" → `chat` warm/≤4 sentences, no URLs/markdown; "open my browser" →
+   open_app; "what's the weather in Paris" → web_search; "run rm -rf /" → none
+   speaks OUT_OF_SCOPE. Paste transcript here. (A spoken listening test is the
+   user's subjective sign-off, like G5.)
+2. **Finish docs** (Task 10 Step 3): friday.md §10 G8 (two-stage flow, ADR-048,
+   RAM Dialogue, Build 1 = in-reply/in-session only); spec.md FRs (chat action,
+   conversational speech, dialogue-never-on-disk); mark design-doc Build 1 built
+   (Stages 2–4 stay open). progress.md decision log already carries ADR-048.
+3. **Merge + push** (user's call). Then G8 Stage 2 (habit-driven suggestions)
+   or G9 (service) per build order.
+
+### KEY DECISION during execution (E19 regression fix, in commit cb7eae5)
+Task 2's prompt narrowing dropped the original "When unsure, choose none"
+anchor, flipping E19 "open the thing" to open_app{browser} at temp 0. Restored
+an explicit "vague / unknown app → none" clause in SYSTEM_POLICY. Do NOT drop it
+again — E19 depends on it. E14 (forget) cleared with the same fix.
+
+### SDD LEDGER (rulings + parked items)
+`.superpowers/sdd/2026-08-23-g8-conversation-build1/progress.md` (git-ignored)
+holds the per-task log and preflight rulings A–D. Not merged/deleted yet.
+
+---
+
+## (archived) NEXT SESSION — G7 DONE
 
 G0–G7 DONE. **G7 all 11 tasks DONE** on branch **`g7-search`** (NOT merged to
 main — merge decision + push is the user's). `uv run pytest` = **176 passed**,

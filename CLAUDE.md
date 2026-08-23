@@ -16,10 +16,12 @@ injection 20/20, egress proof; ADR-045/046/047). `just eval` 24/24, `uv run
 pytest` 176 passed.
 **PRIMARY GOAL: conversation** (chit-chat + suggestions) — gate **G8**, build
 order **G7 (search) ✓ → G8 (conversation) → G9 (service)**. Design:
-`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`; **G8 Build 1
-plan WRITTEN** (`docs/superpowers/plans/2026-08-23-g8-conversation-build1.md`,
-10 TDD tasks) — next step is to EXECUTE it. `progress.md` is the only file that
-says what is actually true — start there.
+`docs/superpowers/specs/2026-08-23-conversational-chat-design.md`. **G8 Build 1
+CODE DONE** on branch `g8-conversation` (all 10 plan tasks; `uv run pytest` 199,
+`just eval` 28/28 reg 0, injection 20/20; ADR-048 conversational-speech carve-out;
+RAM `Dialogue`; `none` now speaks). NOT merged. LEFT: live e2e smoke + finish
+friday.md/spec.md docs + merge. `progress.md` NEXT SESSION block has the details
+— start there.
 
 ## Working agreement — how sessions run
 
