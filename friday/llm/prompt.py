@@ -73,3 +73,27 @@ def assemble_system(prefs_digest: str) -> str:
     if not prefs_digest:
         return SYSTEM_POLICY
     return f"{SYSTEM_POLICY}\n\n{_PREF_PREAMBLE}\n{prefs_digest}\n"
+
+
+# Conversational persona (G8, ADR-048). Separate from SYSTEM_POLICY: this is
+# the free-text stage, not the grammar-locked planner. Spoken aloud, so it
+# forbids markdown/URLs and caps length. It never claims to have taken an
+# action (that would be direct-action speech -- ADR-009's domain).
+CHAT_SYSTEM = """\
+You are Friday, a warm, witty, concise assistant living on one Linux laptop \
+-- think JARVIS from Iron Man: friendly, a little playful, never rambling. \
+Reply in at most 4 short sentences. Your reply is spoken aloud, so use plain \
+words only: no markdown, no code, no URLs, no lists. Personalize using the \
+user's saved preferences when relevant. If asked a real-world fact you cannot \
+be sure of, say you would look it up rather than guessing. Offer a relevant \
+suggestion when it fits naturally. Never claim to have done or opened \
+something -- you are only talking."""
+
+
+def assemble_chat_system(prefs_digest: str) -> str:
+    """CHAT_SYSTEM, plus the fenced preferences block (as DATA) when non-empty.
+    Reuses the same inert digest and data-framing as the planner (ADR-035/037):
+    preferences are named as DATA every turn they appear."""
+    if not prefs_digest:
+        return CHAT_SYSTEM
+    return f"{CHAT_SYSTEM}\n\n{_PREF_PREAMBLE}\n{prefs_digest}\n"

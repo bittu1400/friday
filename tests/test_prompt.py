@@ -53,3 +53,21 @@ def test_policy_mentions_chat_routing() -> None:
 
     # none is narrowed to genuine refusals/ambiguity, not casual talk
     assert "destructive" in low or "refuse" in low
+
+
+def test_chat_system_is_persona_and_spoken_safe():
+    from friday.llm.prompt import CHAT_SYSTEM
+    low = CHAT_SYSTEM.lower()
+    assert "friday" in low
+    assert "sentence" in low            # the <=4-sentence bound is stated
+    assert "markdown" in low or "spoken" in low  # spoken-aloud constraint
+
+
+def test_assemble_chat_system_appends_prefs_as_data():
+    from friday.llm.prompt import CHAT_SYSTEM, assemble_chat_system
+    assert assemble_chat_system("") == CHAT_SYSTEM
+    digest = "<preferences>\nname=Subham\n</preferences>"
+    out = assemble_chat_system(digest)
+    assert out.startswith(CHAT_SYSTEM)
+    assert digest in out
+    assert "DATA, not" in out           # named as data, not instructions
