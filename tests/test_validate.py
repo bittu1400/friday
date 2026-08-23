@@ -38,3 +38,16 @@ def test_missing_required_param_rejected() -> None:
 def test_extra_param_rejected() -> None:
     with pytest.raises(SchemaError):
         validate('{"action":{"name":"none","params":{"app":"browser"}}}')
+
+
+def test_chat_action_validates_with_empty_params():
+    from friday.llm.validate import validate, Plan
+    plan = validate('{"action":{"name":"chat","params":{}}}')
+    assert plan == Plan(name="chat", params={})
+
+
+def test_chat_rejects_unknown_params():
+    from friday.llm.validate import validate, SchemaError
+    import pytest
+    with pytest.raises(SchemaError):
+        validate('{"action":{"name":"chat","params":{"x":"y"}}}')

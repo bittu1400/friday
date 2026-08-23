@@ -35,6 +35,11 @@ APP_ENUM: Final[tuple[str, ...]] = ("browser", "terminal", "editor", "video", "v
 PARAM_SCHEMA: Final = MappingProxyType(
     {
         "none": MappingProxyType({}),
+        # Conversational reply (G8, ADR-048). No params: stage 2 uses the
+        # transcript the caller already holds — the model does not pass the
+        # utterance through a field. Routed in turn.py to llm/chat.py, never
+        # to the executor; can never dispatch.
+        "chat": MappingProxyType({}),
         "open_app": MappingProxyType({"app": {"kind": "enum", "values": APP_ENUM}}),
         "web_search": MappingProxyType({"query": {"kind": "text"}}),
         "open_youtube": MappingProxyType({}),
