@@ -56,10 +56,10 @@ class LlamaClient:
         # MUST be grammar-locked to final.gbnf (action name == "none"), so the
         # model cannot dispatch no matter what the injected text says. Enforced
         # HERE — the one place every request passes through — not at the call site.
-        if untrusted:
-            assert grammar == schema.build_final_grammar(), (
-                "untrusted turn must use final.gbnf"
-            )
+        if untrusted and grammar != schema.build_final_grammar():
+            # NOT an assert: a `python -O` run strips asserts, and this is a T1
+            # control (ADR-008), not a debug check. Fail closed, always.
+            raise ValueError("untrusted turn must use final.gbnf")
         body: dict[str, object] = {
             "messages": [
                 {"role": "system", "content": system},

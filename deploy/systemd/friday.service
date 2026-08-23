@@ -3,12 +3,15 @@ Description=Friday Assistant Voice Daemon
 Documentation=https://github.com/bittu1400/friday
 After=friday-llm.service friday-searxng.service
 Wants=friday-llm.service friday-searxng.service
+# Keep retrying across a slow dependency start; don't let the default rate
+# limiter stop the daemon permanently.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 WorkingDirectory=%h/Projects/Personal/Intern/friday
 ExecStart=%h/Projects/Personal/Intern/friday/.venv/bin/python -m friday.voice_main
-Restart=on-failure
+Restart=always
 RestartSec=3s
 PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE DBUS_SESSION_BUS_ADDRESS PATH
 ReadWritePaths=%h/.local/state/friday %t/friday %h/.local/share/friday

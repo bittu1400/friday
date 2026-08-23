@@ -51,12 +51,6 @@ def check_llama_server(base_url: str = config.LLAMA_BASE_URL) -> CheckResult:
             if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8"))
                 srv_status = data.get("status", "unknown")
-                if srv_status == "ok":
-                    return CheckResult(
-                        "llama-server",
-                        Status.PASS,
-                        f"Reachable at {base_url} (status: {srv_status})",
-                    )
                 return CheckResult(
                     "llama-server",
                     Status.PASS,

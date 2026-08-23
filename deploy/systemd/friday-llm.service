@@ -2,6 +2,10 @@
 Description=Friday LLM Server (llama-server)
 Documentation=https://github.com/bittu1400/friday
 After=network.target
+# A Blackwell GPU cold start can be slow and can transiently fail if the dGPU
+# is busy at boot. Never let systemd's default rate limiter (5 starts / 10 s)
+# give up permanently — keep retrying so the server always comes back.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -12,7 +16,7 @@ ExecStart=/opt/llama.cpp/build/bin/llama-server \
   --ctx-size 8192 --n-gpu-layers 99 \
   --cache-type-k q8_0 --cache-type-v q8_0 \
   --no-webui
-Restart=on-failure
+Restart=always
 RestartSec=5s
 KillMode=process
 
