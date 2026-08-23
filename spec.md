@@ -195,6 +195,16 @@ nowhere else. See ADR-027 and threat T2.
 | FR-72 | Model `onnx/model.onnx` (fp32) from `onnx-community/Kokoro-82M-v1.0-ONNX` and `voices-v1.0.bin` from the `thewh1teagle/kokoro-onnx` `model-files-v1.0` release, each pinned by SHA256 and checksummed on download (ADR-039). Lookalike domains (`kokorotts.ai/.net`) are impersonation sites | SHA256 recorded in ADR-039 + verified on download |
 | FR-73 | Playback is non-blocking and cancellable mid-sentence | Barge-in test |
 
+### 2.9 Service and health monitoring
+
+| ID | Requirement | Acceptance |
+| :-- | :-- | :-- |
+| FR-80 | Systemd user units manage `friday-llm.service` (llama-server, ctx 8192, q8_0 KV, GPU) and `friday.service` (orchestrator daemon) with restart backoff | **MET (G9):** `systemctl --user status friday` active |
+| FR-81 | `friday --selftest` / `just selftest` executes 7 subsystem checks (LLM server, SearXNG, sm_120 GPU, DB 0600/0700 & schema, audio in/out, panic switch, loopback socket binding) and returns non-zero on any failure | **MET (G9):** `tests/test_selftest.py` 13/13; live `just selftest` [PASSED] |
+| FR-82 | Structured JSON logging with size-based rotation (10 MB x 5) and path redaction (FR-43, stripping `/home/` to `~`) | **MET (G9):** `tests/test_logging.py` 4/4; log scrape test verified |
+| FR-83 | Tolerant startup ping (`wait_for_llm`) polls llama-server on boot to prevent crash loops while weights load | **MET (G9):** `tests/test_resilience.py`; cold-start startup verified |
+| FR-84 | Subsystem fault resilience: survives `kill -9` of llama-server and audio stream disconnects/sleep without orchestrator crash | **MET (G9):** `tests/test_resilience.py` 4/4; live kill -9 recovery verified |
+
 ---
 
 ## 3. Non-functional requirements

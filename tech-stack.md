@@ -68,10 +68,12 @@ stays CPU — no GPU arm, ADR-018 remains closed.
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
 | Database | **SQLite**, WAL, single-writer async queue, `busy_timeout=5000` | ADR-010 |
-| Migrations | forward-only versioned SQL, applied at startup (no ORM) | ADR-010, architecture §9 |
+| Migrations | forward-only versioned SQL (`001_init.sql`), applied at startup | ADR-010, architecture §9 |
 | Location / perms | `~/.local/state/friday/memory.db`, `0600` file / `0700` dir | ADR-023, ADR-010 |
-| At-rest crypto | **none** — disk is the boundary, provisionally (OQ-05 open) | ADR-031 |
-| Transcripts | in-memory ring buffer (last 20 turns), off by default, never on disk | ADR-028 |
+| At-rest crypto | **none** — disk is the boundary, single-machine (OQ-05 open) | ADR-031 |
+| Transcripts | in-memory ring buffer (`Dialogue`), never on disk | ADR-028, ADR-048 |
+| Habit mining | deterministic SQL patterns from `action_audit` into `<user_habits>` | ADR-049 |
+| Long-term memory | distilled 1-2 sentence session summaries in `session_summaries` | ADR-050 |
 
 ---
 
@@ -79,12 +81,12 @@ stays CPU — no GPU arm, ADR-018 remains closed.
 
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
-| Interface | `textual` TUI — no web UI | architecture §9 |
-| Activation | **PTT** = Copilot key (chord `SUPER SHIFT, XF86Assistant`), hold-to-talk via Hyprland `bind`/`bindrelease` -> `friday-ptt` -> unix socket. No evdev. | ADR-013, OQ-03 |
+| Interface | `textual` TUI + background voice daemon — no web UI | architecture §9 |
+| Activation | **PTT** = Presentation key (`XF86Presentation`), toggle on/off (0.4 s debounce) via Hyprland `bind` -> `friday-ptt` -> unix socket. No evdev. | ADR-013, **ADR-044** |
 | Wake word | **none** in Phase 1 | ADR-012 |
 
-PTT path locked at **G6**: bind path (evdev not needed). Copilot key tracks
-physical hold (verified via `wev`), so hold-to-talk works (OQ-03).
+PTT path locked at **G6**: bind path (evdev not needed). Copilot key leaked Super
+modifier; Presentation key (`XF86Presentation`) is clean and drives toggle (ADR-044).
 
 ---
 
@@ -92,11 +94,21 @@ physical hold (verified via `wev`), so hold-to-talk works (OQ-03).
 
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
-| Search | self-hosted **SearXNG** on `127.0.0.1:8888` | ADR-015 |
-| Modes | **local** (search refuses audibly) / **connected** (opt-in, visibly indicated) | ADR-015 |
+| Search | self-hosted **SearXNG** on `127.0.0.1:8888` (`friday-searxng.service`) | ADR-015, ADR-045 |
+| Modes | **local** (search refuses audibly) / **connected** (opt-in, visibly indicated) | ADR-015, ADR-046 |
 
 Nothing binds beyond `127.0.0.1`. A turn that consumed search output cannot
 dispatch an action (ADR-008).
+
+---
+
+## Observability & Service Layer
+
+| Piece | Choice | Owner |
+| :-- | :-- | :-- |
+| Logging | Structured JSON lines to `friday.log`, `10 MB x 5` rotation, `/home/` redacted | ADR-051, FR-43 |
+| Systemd Units | `friday-llm.service`, `friday.service`, `friday-searxng.service` | ADR-051, architecture §8 |
+| Self-Test | `just selftest` / `friday --selftest` (7 checks: LLM, search, GPU, DB, audio, panic, binds) | ADR-051 |
 
 ---
 
@@ -138,10 +150,11 @@ adding any requires an ADR that names the problem it solves.
 | Thing | Gate | Status |
 | :-- | :-- | :-- |
 | Intel NPU inclusion (excluded Phase 1, present/verified) | G1 | resolved — ADR-019, Phase 2 option |
-| STT CPU-vs-GPU final call | ~~G1~~ G6 | **RESOLVED — CPU, small.en (ADR-042)** |
+| STT CPU-vs-GPU final call | G6 | **RESOLVED — CPU, small.en (ADR-042)** |
 | TTS voice preset | G5 | **RESOLVED — af_bella (ADR-005/040)** |
-| PTT transport (Hyprland bind vs evdev) | G6 | **RESOLVED — bind, Copilot key (ADR-013/OQ-03)** |
-| Streaming TTS (only if measured TTFA demands it) | G6 | OPEN — pending live TTFA (OQ-09) |
+| PTT transport (Hyprland bind vs evdev) | G6 | **RESOLVED — bind toggle, XF86Presentation (ADR-044)** |
+| Streaming TTS (only if measured TTFA demands it) | G6 | **RESOLVED — not needed (p95 2.73s < 4.4s fail cap, OQ-09)** |
+| Service units & self-test | G9 | **RESOLVED — systemd user units + selftest CLI (ADR-051)** |
 
 ---
 

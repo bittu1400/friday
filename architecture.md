@@ -11,9 +11,9 @@ One orchestrator process, one inference server, everything else in
 library form inside the orchestrator.
 
 ```
-   friday-llm.service     llama-server, CUDA, loopback/unix socket
-   friday.service         orchestrator: TUI, FSM, whisper, kokoro, sqlite
-   searxng.service        optional, only in connected mode
+   friday-llm.service     llama-server, CUDA, loopback (127.0.0.1:8080)
+   friday.service         orchestrator: TUI/voice, FSM, whisper, kokoro, sqlite
+   friday-searxng.service loopback search proxy (127.0.0.1:8888)
 ```
 
 Deliberately **not** microservices. Three services is already two more
@@ -27,27 +27,32 @@ See `diagrams/00-system-overview.md`.
 
 ## 2. Module layout
 
-As-built through G6 (unbuilt modules tagged with the gate that lands them).
-The FSM lives in `audio/state.py`, not a top-level `fsm.py`, and the
-half-duplex gate is a property on it (`TurnState.mic_open`), not a separate
-`gate.py` — friday.md §8.2's "nine lines".
+As-built through G9. The FSM lives in `audio/state.py`, the half-duplex gate
+is a property on it (`TurnState.mic_open`), dialogue context lives in RAM
+(`dialogue.py`), habits & session summaries distill into SQLite (`store/`),
+and logging & health audits live in `logging_config.py` and `selftest.py`.
 
 ```
    friday/
-     __main__.py            text-mode entrypoint (TUI), service wiring
-     voice_main.py          voice-in entrypoint: builds + runs the daemon [G6]
-     daemon.py              the G6 loop: PTT -> capture -> STT -> turn ->
+     __main__.py            text-mode entrypoint (TUI), --selftest CLI flag
+     voice_main.py          voice-in entrypoint: builds daemon + startup wait
+     daemon.py              the voice loop: PTT -> capture -> STT -> turn ->
                             speak, barge-in, confirm-first voice handshake
-     config.py              paths, panic switch, TTS/STT/PTT config
+     config.py              typed config, fixed paths, panic switch, log params
      errors.py              Outcome enum + error taxonomy codes (spec §4)
      turn.py                one turn: utterance -> plan -> execute -> outcome
                             (TurnResult); execute-first (ADR-009)
+     dialogue.py            in-RAM session dialogue ring buffer (ADR-048)
+     logging_config.py      structured JSON logging, 10MB x 5 rotation, redaction (FR-43)
+     selftest.py            unified 7-subsystem sanity & health check CLI (G9)
      prefs_cli.py           `just prefs` — list/export/forget/reset
-     ptt_cli.py             `friday-ptt press|release|cancel` client [G6]
+     ptt_cli.py             `friday-ptt toggle|press|release|cancel` client
      eval_harness.py        the G2 runner (the 3 ADR-030 numbers)
 
      llm/
        client.py            llama-server HTTP client (retries ONLY on connect)
+       chat.py              stage 2 free-text conversational reply generator
+       grounding.py         search grounding turn under final.gbnf
        grammars/
          plan.gbnf          full action enum
          final.gbnf         action enum = ["none"] ONLY (enforced at G7)
@@ -59,38 +64,44 @@ half-duplex gate is a property on it (`TurnState.mic_open`), not a separate
        registry.py          frozen dict: tool_id -> ToolSpec
        executor.py          subprocess argv, no shell, bounded timeout
        apps.py              app_id -> argv map
-       search.py            searxng client + sanitizer                 [G7]
+       search.py            searxng client + sanitizer (G7)
 
      audio/
-       capture.py           sounddevice input, preallocated 15 s ring, gate [G6]
-       state.py             the FSM (diagram 01) + mic_open gate         [G6]
-       stt.py               faster-whisper backend + FR-12/13 policy     [G6]
-       ptt.py               unix-socket PTT server + client (FR-3)       [G6]
-       tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8t, NO
-                            torch — ADR-039); cancellable playback (FR-73)
+       capture.py           sounddevice input, 15 s ring, gate, ensure_open (G6/G9)
+       state.py             the FSM (diagram 01) + mic_open gate
+       stt.py               faster-whisper backend + FR-12/13 policy
+       ptt.py               unix-socket PTT server + client (FR-3)
+       tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8t, NO torch)
        say.py               `just say` / audition CLI (G5)
 
      store/
-       db.py                connection, WAL, single-writer
+       db.py                connection, WAL, single-writer (FR-50..53)
        migrations/          001_init.sql (forward only)
        prefs.py             slug+alias keys, CRUD, inert digest rendering
        audit.py             redacted dispatch records + retention sweep
+       habits.py            deterministic habit pattern mining (ADR-049)
+       summarizer.py        session dialogue distillation into summary (ADR-050)
 
      ui/
        tui.py               textual app, mode indicator, confirm prompt
        templates.py         outcome -> speech strings
 
-     obs/                   structured logs + metrics                    [G9]
+   deploy/
+     searxng/
+       friday-searxng.service   SearXNG loopback container service
+       settings.yml             SearXNG loopback configuration
+     systemd/
+       friday-llm.service       llama-server systemd user unit
+       friday.service           orchestrator daemon systemd user unit
 
    tests/
      fixtures/
-       eval.jsonl           20, grown by the user (ADR-030)
-       adversarial.jsonl    AS-1..12  (+ youtube AS-13..16 in test_youtube)
-       injection.jsonl      20 hostile search results                    [G7]
-     test_*.py              incl. G6: test_fsm/stt/capture/ptt/tts_cancel/daemon
+       eval.jsonl           28 fixtures (ADR-030)
+       adversarial.jsonl    AS-1..12 (+ youtube AS-13..16 in test_youtube)
+       injection.jsonl      20 hostile search results (FR-63)
+     test_*.py              236 unit tests across all subsystems
 
    diagrams/                ASCII, authoritative, updated with code
-   scripts/                 registered scripts, absolute paths, no args  [when needed]
 ```
 
 ---

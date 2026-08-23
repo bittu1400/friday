@@ -10,8 +10,8 @@ not exist yet.
    ========                       =========                        =======
 
   +-------------+
-  |  DMIC array |
-  | (PipeWire)  |
+  | PipeWire    |
+  | Mic Source  |
   +------+------+
          |  PCM 16k mono
          |
@@ -31,9 +31,9 @@ not exist yet.
             |               |              |                |
             |               |              |                |
       +-----+-----+   +-----+------+  +----+-----+   +------+------+
-      |  evdev /  |   | llama-     |  | subproc  |   |  Kokoro-82M |
-      |  hyprctl  |   | server     |  | execve   |   |  (CPU, in   |
-      |  PTT      |   | (CUDA)     |  | argv[]   |   |  process)   |
+      |  Hyprland |   | llama-     |  | subproc  |   |  Kokoro-82M |
+      |  PTT bind |   | server     |  | execve   |   |  (CPU, in   |
+      |  toggle   |   | (CUDA)     |  | argv[]   |   |  process)   |
       +-----------+   +-----+------+  +----+-----+   +------+------+
                             |              |                |
                             |              |                v
@@ -45,15 +45,15 @@ not exist yet.
                                            v
                                     +-------------+
                                     |  Hyprland   |
-                                    |  hyprctl    |
+                                    |  spawn      |
                                     +-------------+
 
             +-----------------+          +------------------------+
-            | faster-whisper  |          |     ~/.local/state/friday/    |
-            | large-v3-turbo  |          |                        |
-            | int8  ON CPU    |          |  memory.db  (SQLite)   |
-            | 24 cores        |          |  friday.log (rotated)  |
-            +-----------------+          |  config.toml           |
+            | faster-whisper  |          |  ~/.local/state/friday |
+            | small.en (int8) |          |                        |
+            | ON CPU          |          |  memory.db  (SQLite)   |
+            | 8 threads       |          |  friday.log (rotated)  |
+            +-----------------+          |  DISABLED (panic flag) |
                                          +------------------------+
 
             +-----------------+
@@ -69,7 +69,7 @@ not exist yet.
 
 ```
    RTX 5070 VRAM  -----> llama-server ONLY.  One CUDA context. No exceptions.
-   CPU (24 cores) -----> whisper (8 threads) + kokoro (4 threads) + orchestrator
+   CPU (24 cores) -----> whisper (8 threads) + kokoro (8 threads) + orchestrator
    System RAM     -----> everything CPU-side, ~3.5 GB total
    Network        -----> SearXNG on loopback only. Nothing else opens a socket.
 ```

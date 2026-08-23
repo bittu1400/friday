@@ -12,67 +12,11 @@ answers it, no opinion required).
 
 ## Blocking Phase 1
 
-### OQ-22 — Which Kokoro voice preset? (audition)
-**Decider:** USER · **Blocks:** G5 · **Status:** CLOSED 2026-08-23 —
-`af_bella` primary, `af_heart` fallback. User found heart/sky indistinct,
-preferred bella. See ADR-005 / ADR-040.
-
-The runtime, model, and thread count are settled by benchmark (ADR-039);
-the VOICE is subjective and yours to pick — it cannot be measured. Audition
-`af_heart` / `af_bella` / `af_sky` **through the laptop speakers** (not
-headphones — that is the real listening condition).
-
-fp32 WAVs are already generated at `~/.cache/kokoro-bench/samples/`
-(`fp32_af_heart.wav`, `fp32_af_bella.wav`, `fp32_af_sky.wav`); a quality
-A/B of the same line under q8 and q4f16 is there too, if you want to hear
-why fp32 was chosen. All are the same fixed sentence.
-
-**Default if undecided:** `af_heart` — the most common community default;
-change on a listen.
-
-**On answer:** write the preset into ADR-005's TBD line and `config.toml`,
-close this OQ, tick the G5 voice-lock box.
+_None — all Phase 1 questions are resolved and all gates G0 through G9 have passed._
 
 ---
 
-### OQ-03 — Is a Hyprland bind acceptable for PTT?
-**Decider:** USER + MEASURE · **Blocks:** G6 · **Status:** ANSWERED +
-RESOLVED 2026-08-23 (key = Copilot key; hold-to-talk confirmed viable via
-Hyprland bind — see below)
-
-`bind = , KEY, exec, friday-ptt press` signalling the running daemon
-avoids granting keyboard-observation privilege entirely (T5). It needs
-one line in the Hyprland config and a key that is otherwise unused.
-
-Which key? Right Ctrl and the Menu key are common choices. Does anything
-already bind it?
-
-**Default if undecided:** try the bind path at G6 and record whether it
-works. Only fall back to `evdev` with written evidence.
-
-**Answer (2026-08-23):** PTT key = the **Copilot key** (right of the arrow
-cluster). This laptop has **no Right Ctrl**. Menu was the other candidate;
-user picked Copilot.
-
-**Keysym captured + hold verified (2026-08-23, `wev`).** The Copilot key
-emits a chord: `Super_L` + `Shift_L` + `XF86Assistant` on press. It was
-feared to be a firmware one-shot (a short tap released in ~0.6 s), but a
-deliberate ~3 s hold showed the trigger key stays down for the whole hold
-(press→release gap = hold duration, ~6.5 s measured; no auto-repeat during
-the hold). **Hold-to-talk is therefore viable** — FR-2 (hold, capture,
-release to submit) is unchanged; no toggle, no Menu fallback, no evdev.
-
-Bind (the bind path of ADR-013, no keyboard-observation privilege):
-```
-bind        = SUPER SHIFT, XF86Assistant, exec, friday-ptt press
-bindrelease = SUPER SHIFT, XF86Assistant, exec, friday-ptt release
-```
-`XF86Assistant` releases before the modifiers, so `bindrelease` fires
-cleanly on trigger key-up. Verify the bind end-to-end when the daemon
-socket exists (progress.md G6). Evdev fallback remains the ADR-013 escape
-hatch only if the live bind misbehaves.
-
----
+## Kept Open (Long-Term / Optional)
 
 ### OQ-05 — Does the disk count as the security boundary?
 **Decider:** USER · **Blocks:** nothing today · **Status:** OPEN (answered
@@ -98,120 +42,24 @@ does not exist yet.
 
 ---
 
-### OQ-06 — Voice preset
-**Decider:** USER · **Blocks:** G5 · **Status:** CLOSED by OQ-22 2026-08-23
-(af_bella primary / af_heart fallback — ADR-005/040)
+### OQ-11 — Does the desktop actually consume dGPU VRAM?
+**Decider:** MEASURE · **Blocks:** nothing in Phase 1 · **Status:** OPEN
 
-Audition `af_heart`, `af_bella`, `af_sky` on the same five sentences,
-through the laptop speakers (not headphones — that is the real listening
-condition). Lock one, record it in ADR-005.
+```bash
+nvidia-smi --query-compute-apps=pid,used_memory --format=csv
+```
 
-**Default if undecided:** `af_heart`.
+with Hyprland running and a browser open playing video. On hybrid
+graphics, both should be on the Intel iGPU. If the output is empty,
+roughly 1.9 GB of the projected VRAM peak does not exist and the working
+ceiling can rise.
 
 ---
 
-### OQ-18 — Preference key vocabulary
-**Decider:** USER · **Blocks:** G4 · **Status:** CLOSED 2026-08-23 —
-option (d): free slugified key + curated alias anchors + confirm-on-save.
-See ADR-035.
-
-`schema.py` currently lets the model supply `remember_preference.key` as
-free text. That decides how predictable the digest is and whether
-`forget_preference` can reliably find the key the user means.
-
-```
-   (a) Closed enum      fixed keys (name, editor, browser, terminal,
-                        media_player, ...). Model maps to a known key or
-                        the write fails closed. Predictable digest, forget
-                        always matches. New pref kind = code change.
-   (b) Free, normalized any key, slugified (lowercase, spaces->_, strip).
-                        Flexible; risk of near-dupes (my_name vs name).
-   (c) Free, raw        store verbatim. Most flexible, least findable.
-```
-
-**Default if undecided:** (a) closed enum — smallest T2 surface, matches
-the "model supplies an opaque ID from a closed set" invariant in spirit,
-digest is deterministic for the FR-55 snapshot test.
-
-**On answer:** update `schema.py` PARAM_SCHEMA, `validate.py`, the digest
-renderer, and `forget_preference` matching; write ADR-035.
-
----
-
-### OQ-19 — `forget_preference` / `prefs reset`: hard-delete vs soft-expire
-**Decider:** USER · **Blocks:** G4 · **Status:** CLOSED 2026-08-23 —
-(c) split: voice soft-expires, keyboard `--hard`/`--yes` hard-deletes.
-See ADR-036.
-
-Hard-deleting user data is a prohibited-by-default action in the safety
-rules. This is the user's own local prefs, user-initiated, so it is
-allowed — but the *mechanism* is a real choice.
-
-```
-   (a) Soft-expire     set expires_at=now; row stops being injected at
-                       once, survives until retention sweep. Recoverable,
-                       audit-friendly.
-   (b) Hard delete     DELETE the row. Literal 'forget', nothing lingers.
-                       Not recoverable.
-   (c) Split           voice forget_preference soft-expires (safe on a
-                       mishear); CLI `prefs forget --hard` / `reset --yes`
-                       hard-deletes when explicit at the keyboard.
-```
-
-**Default if undecided:** (c) split — protects against a misheard voice
-command while giving the keyboard an explicit hard path.
-
-**On answer:** write ADR-036; wire into the tool + the `prefs` CLI.
-
----
-
-### OQ-20 — Confirm a spoken preference before storing?
-**Decider:** USER · **Blocks:** G4 · **Status:** CLOSED 2026-08-23 —
-(b) confirm first, deterministic UI handshake (no 2nd model turn).
-source='user_confirmed'. See ADR-037.
-
-Decides what the `source` column means (`user_confirmed` vs `user_typed`,
-per the schema CHECK) and whether the turn loop grows a handshake.
-
-```
-   (a) Store directly  remember_preference writes, then speaks the
-                       confirmation template (execute-first, ADR-009).
-                       source='user_typed'. No new turn machinery.
-   (b) Confirm first   'Remember that your browser is brave?' -> writes
-                       only on yes. source='user_confirmed'. Adds a
-                       two-turn handshake + pending state this gate.
-```
-
-**Default if undecided:** (a) store directly — a misheard pref is cheap to
-forget, and (b) is real new turn-loop machinery not otherwise needed at G4.
-
-**On answer:** if (b), the turn loop + a pending-preference state are G4
-work; note in ADR-034/architecture §3.1. Record in ADR-037.
-
----
-
-### OQ-21 — Retention scope: do preferences auto-expire by age?
-**Decider:** USER · **Blocks:** G4 · **Status:** CLOSED 2026-08-23 —
-(a) logs only; preferences never age out. See ADR-038.
-
-The retention job caps at 90 days / 50 MB (config.toml `[memory]`). Audit
-rows and session summaries are logs; preferences are user data with a
-lifecycle.
-
-```
-   (a) Logs only       purge action_audit + session_summaries only.
-                       Preferences never expire by age — they live until
-                       forgotten or their own expires_at fires.
-   (b) Everything      preferences also age out at 90 days unless
-                       pinned=1. Smallest DB; a set-and-forgotten pref
-                       vanishes.
-```
-
-**Default if undecided:** (a) logs only — a preference the user stated
-should not silently disappear; the `pinned` column then only matters if
-(b) is ever chosen.
-
-**On answer:** scope the retention job accordingly; record in ADR-038.
+### OQ-09 — Is ~1.4 s TTFA actually a problem?
+**Decider:** MEASURE then USER · **Blocks:** any streaming work · **Status:**
+ANSWERED 2026-08-23 — TTFA measured at G6 spoken eval: p50 2156 ms, p95 2731 ms
+(well within the 4.4 s hard fail cap). Streaming is not needed for Phase 1.
 
 ---
 
