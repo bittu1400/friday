@@ -190,6 +190,14 @@ conversational-chat-design.md`), G9 is service — reordered 2026-08-23 so
 conversation ships before the service layer. See
 `diagrams/06-build-gates.md`.
 
+**Phase 2 (planned 2026-08-24, not built): `G10 -> G11 -> G12 -> G13`** —
+wake word + AEC, proactive, action surface, speaker verification. Design:
+`docs/superpowers/specs/2026-08-24-phase2-design.md` (ADR-054…059). G10
+plan ready: `docs/superpowers/plans/2026-08-24-g10-wake-word.md` — start
+there, its Tasks 1–3 are the AEC/wake/VAD dependency spikes. Note: Phase 2
+does NOT relax invariant #10 — destructive command classes are permanently
+banned (ADR-057), reversibility is enforced by a three-tier confirm.
+
 **G1 (toolchain) before anything else.** This GPU is Blackwell, sm_120.
 A CUDA build without sm_120 kernels fails at runtime with
 `no kernel image is available for execution on the device`. The archived

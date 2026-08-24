@@ -83,11 +83,21 @@ Phase 2 = four gates, `G10 -> G11 -> G12 -> G13`:
   dangerous confirm** (spoken yes AND silent voiceprint match). G12's
   dangerous tier ships gated-off until G13 lands. (ADR-059)
 
-Three dependency spikes gate their gates (OQ-21 AEC lib, OQ-22 Wayland
-typer, OQ-23 speaker model) — each measured on this laptop, no torch/CUDA
+Dependency spikes gate their gates (OQ-21 AEC lib, OQ-22 Wayland typer,
+OQ-23 speaker model, **OQ-24 VAD** — added during G10 planning: a
+wake-initiated capture has no PTT release, so end-of-utterance needs a
+voice-activity detector) — each measured on this laptop, no torch/CUDA
 drag (invariant #6), before wiring. No Phase 1 invariant relaxed.
-Next: user reviews the spec, then writing-plans → per-gate implementation
-plan, starting G10.
+
+**G10 plan WRITTEN** (this session): `docs/superpowers/plans/2026-08-24-g10-wake-word.md`
+— 8 tasks, TDD, rechecked cold against the real code (matches the
+`_daemon()`/`asyncio.run` test pattern; no `pytest-asyncio` in this repo;
+wake path is a background listener orthogonal to the FSM, not a new
+state). Design §2 synced to match (orthogonal listener + VAD).
+**Next session:** execute the G10 plan — Task 1/2/3 are the AEC/wake/VAD
+spikes (ADR-060/061/062) BEFORE any wiring. Baseline to protect:
+`uv run pytest` 241 passed, `just eval` 28/28. G11–G13 plans written when
+reached (per-gate discipline).
 
 ---
 

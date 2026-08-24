@@ -199,6 +199,14 @@ alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
+### OQ-24 — VAD (end-of-utterance) library (gates G10)
+**Status:** OPEN — spike. Discovered during G10 planning: a wake-initiated
+capture has **no PTT release** to end it, so it needs voice-activity
+detection for end-of-utterance (and for barge-in during TTS).
+`webrtcvad` (tiny C, aggressiveness 0-3) vs `silero-vad` (ONNX, must be
+the non-torch path — invariant #6). Measure end-of-speech responsiveness,
+noise false-trigger, CPU on this laptop. Record in ADR-062.
+
 ---
 
 ### OQ-13 — Multilingual re-enablement plan

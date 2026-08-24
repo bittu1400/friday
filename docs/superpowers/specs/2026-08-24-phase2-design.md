@@ -12,8 +12,13 @@ makes Friday **hands-free, proactive, and capable of more real actions**,
 without relaxing a single Phase 1 invariant.
 
 This document is the design agreed in the 2026-08-24 brainstorming
-session. Decisions here are recorded in `adr.md` (ADR-054…ADR-058),
-`open-questions.md`, `spec.md` (FR-85…), and `diagrams/06-build-gates.md`.
+session. Decisions here are recorded in `adr.md` (ADR-054…ADR-059; the
+G10 spikes add ADR-060/061/062), `open-questions.md` (OQ-21…24), a Phase 2
+pointer in `spec.md` §1.1, and `diagrams/06-build-gates.md`. Per-gate
+acceptance tests live in each gate's plan (this doc's §-sections are the
+requirements; FR IDs are assigned into `spec.md` if/when a gate is
+finalized). The G10 implementation plan is
+`docs/superpowers/plans/2026-08-24-g10-wake-word.md`.
 
 ---
 
@@ -77,28 +82,43 @@ silent speaker-voiceprint match on the confirmation utterance (§4.3).
 
 ### 2.2 Architecture
 ```
-  mic ─▶ [AEC filter]───▶ [wake detector]───▶ arm capture ─▶ existing STT
-          ▲                                        (existing pipeline)
-          │ far-end reference
+  mic ─▶ [AEC filter]─▶ cleaned ─┬▶ [wake detector] ─▶ on_wake  ─▶ begin capture
+          ▲                      └▶ [VAD] ─▶ on_speech_end ─▶ end capture (no key)
+          │ far-end reference               on_barge (while speaking) ─▶ cut + capture
        TTS render
 ```
-- AEC runs as a preprocessing stage in the capture path. Far-end
-  reference = the TTS playback signal. The wake detector consumes the
-  **cleaned** stream.
-- **Barge-in becomes achievable** (not free): with the near-end cleaned
-  of TTS, a real utterance during playback is detectable, which is the
-  precondition barge-in needs. Still requires cut-playback logic and live
-  verification — addressed here and checked in §2.4 (the open G6 item).
-- Daemon FSM gains `LISTENING_WAKE`, entered when idle and armed. Wake
-  hit → transition into the existing capture/STT states. PTT press still
-  short-circuits straight to capture.
+- The wake path is a **background `WakeListener`, orthogonal to the turn
+  FSM** — NOT a new FSM state. It runs whenever the daemon is up, on its
+  own always-on stream, and reads the existing FSM via `is_idle` /
+  `is_speaking` predicates. (Refinement over an earlier `LISTENING_WAKE`
+  idea: a separate state complicated the proven IDLE↔CAPTURING
+  transitions for no gain.) The existing capture/STT/PTT pipeline is
+  unchanged; a wake hit simply drives the same `begin_capture`, and PTT
+  still short-circuits straight to capture.
+- AEC runs as a preprocessing stage. Far-end reference = the TTS playback
+  signal (a `FarEndRef` the `Speaker` writes played PCM into). Wake
+  detector and VAD both consume the **cleaned** stream.
+- **VAD is required** (not optional): a wake-initiated capture has **no
+  key release** to end it, so a voice-activity detector supplies
+  end-of-utterance (`on_speech_end`). VAD also detects the user speaking
+  during TTS, which is what drives **barge-in** (`on_barge`). Library
+  chosen by a measured spike (OQ-24).
+- **Barge-in becomes achievable** (not free): the cleaned near-end makes a
+  real utterance during playback detectable (the precondition); the cut-
+  playback logic + live check are done here and verified in §2.4 (closes
+  the open G6 item).
 
-### 2.3 Spike (dependency drill, ADR-039/041) — gates G10
-Choose the AEC library on THIS machine before wiring:
-`webrtc-audio-processing` vs `speexdsp` (echo canceller). Measure:
-residual echo (does `hey_jarvis` self-trigger during TTS?), added
-latency, CPU. `--dry-run` the footprint first (must not drag CUDA/torch —
-invariant #6). Record numbers + rejected option in the ADR.
+### 2.3 Spikes (dependency drill, ADR-039/041) — gate G10
+Three, each measured on THIS machine before wiring, `--dry-run` footprint
+first (none may drag CUDA/torch — invariant #6):
+1. **AEC library** (OQ-21): `webrtc-audio-processing` vs `speexdsp` echo
+   canceller. Measure residual echo (does `hey_jarvis` self-trigger during
+   TTS?), added latency, CPU. → ADR-060.
+2. **openWakeWord footprint** (confirms ADR-055's model): ensure it pulls
+   onnxruntime CPU, not torch; record `hey_jarvis` SHA256, licence,
+   per-frame latency. → ADR-061.
+3. **VAD library** (OQ-24): `webrtcvad` vs `silero-vad` (ONNX). Measure
+   end-of-speech responsiveness, noise false-trigger, CPU. → ADR-062.
 
 ### 2.4 Acceptance
 - 30-min always-on session: TTS playback never self-triggers wake (0
@@ -315,9 +335,11 @@ others). Pin the weights (SHA256). Record in ADR.
 
 | Spike | Gate | Question |
 | :-- | :-- | :-- |
-| AEC library | G10 | webrtc-audio-processing vs speexdsp: residual echo, latency, CPU, footprint |
-| Wayland typer | G12 | wtype vs ydotool: focus reliability, latency, setup cost |
-| Speaker embedding | G13 | ECAPA vs Resemblyzer: latency, RAM, separation, footprint |
+| AEC library (OQ-21) | G10 | webrtc-audio-processing vs speexdsp: residual echo, latency, CPU, footprint → ADR-060 |
+| VAD library (OQ-24) | G10 | webrtcvad vs silero-vad: end-of-speech responsiveness, noise false-trigger, CPU → ADR-062 |
+| openWakeWord footprint | G10 | onnxruntime-CPU not torch; hey_jarvis SHA256/licence/latency → ADR-061 |
+| Wayland typer (OQ-22) | G12 | wtype vs ydotool: focus reliability, latency, setup cost |
+| Speaker embedding (OQ-23) | G13 | ECAPA vs Resemblyzer: latency, RAM, separation, footprint |
 
 None may drag torch/CUDA (invariant #6). All measured on this laptop,
 pinned, recorded — no datasheet trust.
