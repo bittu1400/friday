@@ -61,6 +61,36 @@ give-up on a slow GPU cold start).
 
 ---
 
+## SESSION 2026-08-24 — Phase 2 planning (design only, NO code yet)
+
+Phase 1 remains the current *built* state. This session **planned Phase 2**
+— nothing implemented. Design committed to
+`docs/superpowers/specs/2026-08-24-phase2-design.md`; decisions in
+ADR-054…059; `open-questions.md` and `diagrams/06-build-gates.md` updated.
+
+Phase 2 = four gates, `G10 -> G11 -> G12 -> G13`:
+- **G10** wake word `hey_jarvis` (CPU) + mandatory AEC + RAM buffer, **PTT
+  kept**; custom "Friday" word deferred within Phase 2. (ADR-055)
+- **G11** proactive: timers/reminders, habit suggestions, briefings
+  (startup + "goodnight/bye" close-summary); single-queue arbitration so
+  FR-5 holds; conversational DND (no clock); speak-when-idle + notify-send.
+  (ADR-056)
+- **G12** action surface: system control, Hyprland, notes, clipboard,
+  file-open registry, **dictation** (toggle, verbatim, never auto-Enter);
+  three-tier confirm; **permanent hard ban** on shell/package/file-delete.
+  (ADR-057, ADR-058)
+- **G13** speaker verification (voiceprint gate on wake) + **two-pass
+  dangerous confirm** (spoken yes AND silent voiceprint match). G12's
+  dangerous tier ships gated-off until G13 lands. (ADR-059)
+
+Three dependency spikes gate their gates (OQ-21 AEC lib, OQ-22 Wayland
+typer, OQ-23 speaker model) — each measured on this laptop, no torch/CUDA
+drag (invariant #6), before wiring. No Phase 1 invariant relaxed.
+Next: user reviews the spec, then writing-plans → per-gate implementation
+plan, starting G10.
+
+---
+
 ## SESSION 2026-08-23 — live-review + hardening (post-G9, the current state)
 
 A full senior audit of G7–G9 followed by a **real spoken session** through the

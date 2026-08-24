@@ -1723,3 +1723,143 @@ the grammar, or dispatch, so no invariant is affected.
 
 **Evidence.** Live: "what apps can you open?" now lists all five apps
 accurately; `uv run pytest` 241 passed.
+
+## ADR-054 — Phase 2 scope, gate ordering, and the G12→G13 dependency
+
+**Status:** Accepted (2026-08-24, Phase 2 brainstorming).
+
+**Context.** Phase 1 (G0–G9) shipped a reactive PTT assistant. The user
+chose three themes for Phase 2 — hands-free (wake word), proactive, and a
+wider action surface — in the order hands-free → proactive → actions, and
+added an only-my-voice requirement mid-session.
+
+**Decision.** Phase 2 = four gates, built `G10 → G11 → G12 → G13`:
+G10 wake word + AEC, G11 proactive, G12 action surface, G13 speaker
+verification. All independent except **one hard dependency**: G12's
+*dangerous* confirm tier requires G13's voiceprint core, so dangerous
+actions are defined in G12 but ship **gated-off (fail closed)** until G13
+activates them. Multilingual (OQ-13) and screen vision (OQ-14) stay out
+of Phase 2. Full design: `docs/superpowers/specs/2026-08-24-phase2-design.md`.
+
+**Consequences.** A single mid-phase coupling to track; everything else
+parallelizable. No Phase 1 invariant is relaxed to reach any gate.
+
+## ADR-055 — G10 wake word: hey_jarvis + PTT kept + mandatory AEC + RAM buffer
+
+**Status:** Accepted (2026-08-24). Extends ADR-012, ADR-014.
+
+**Context.** ADR-012 deferred the wake word and warned that a custom
+"Friday" word is an FA/FR training cost, recommending pretrained
+`hey_jarvis` first. Always-on listening makes Friday's own TTS a
+self-trigger source (ADR-014 flagged AEC as the consequence).
+
+**Decision.** Use openWakeWord pretrained `hey_jarvis` (CPU, invariant
+#6; non-commercial licence, acceptable single-user). Wake word is
+**additive — PTT (ADR-044) stays** as the reliable fallback. **AEC is
+mandatory**, placed as a capture-path filter with TTS render as far-end
+reference; the wake detector consumes the cleaned stream, which also
+yields **true barge-in** (closes the open G6 item). Rolling PCM buffer is
+**RAM only** (invariant #7). AEC library chosen by a measured spike
+(webrtc-audio-processing vs speexdsp) before wiring. Custom "Friday" word
+deferred within Phase 2 (OQ-12 update).
+
+**Consequences.** Continuous mic + a resident CPU detector and AEC stage.
+Cost bounded by the spike (must not drag torch/CUDA). Barge-in becomes
+real, not just unit-tested.
+
+## ADR-056 — G11 proactive: single-queue arbitration, conversational DND, briefings
+
+**Status:** Accepted (2026-08-24).
+
+**Context.** Proactivity means Friday speaks without being addressed —
+directly at odds with FR-5 (one turn in flight) if done carelessly.
+
+**Decision.** A **scheduler thread** owns time and persisted
+timers/reminders (SQLite, survives restart) but never touches mic/TTS; it
+**enqueues proactive turns into the same single turn queue** as voice
+turns. The arbiter runs one turn at a time, proactive ones only when idle
+and not in DND — so FR-5 holds by construction and ADR-009
+(execute-then-speak) is unchanged. Delivery is **both** speak-when-idle
+**and** `notify-send`. Quiet is a **conversational DND state machine, not
+a clock**: quiet by default, startup briefing allowed, suggestions
+surface mainly during active conversation, hush phrases ("let's talk
+later", "do not disturb") mute until the user asks a question or says
+resume; user-set reminders still fire. Briefings fire on **startup** and
+on the **voice sign-off** ("goodnight"/"bye") close-summary; system
+shutdown stays silent (audio teardown is unreliable).
+
+**Consequences.** One serialization point preserved. No wall-clock quiet
+hours to configure. Close-summary is tied to a spoken phrase, not to
+process exit.
+
+## ADR-057 — G12 action surface: enum tools, three-tier confirm, permanent destructive ban
+
+**Status:** Accepted (2026-08-24).
+
+**Context.** Phase 2 widens what Friday can do (system control, Hyprland,
+notes, clipboard, file-open). Invariant #2 (no model-supplied
+path/string) and invariant #10 (no irreversible tools) both apply.
+
+**Decision.** Every new tool is a **closed enum → code builds argv**
+(invariants #2/#3); file-open uses a closed alias→path registry like the
+app registry. Instead of lifting #10, add a **three-tier confirm
+policy**: *harmless* (volume/brightness/media/workspace/read) executes
+immediately; *consequential* (close window, wifi off, clipboard
+overwrite, dictation submit) needs a **spoken "yes"**; *dangerous* needs
+the **two-pass gate** (ADR-058/ADR-059). Any non-affirmative confirm
+fails closed to `action=none` (invariant #5). A **permanent hard ban** —
+enforced as a denylist in the tool layer, not prompt text — forbids any
+tool exposing shell/terminal execution, package install/removal, or file
+deletion; a resolved argv matching a banned program/verb is rejected
+before spawn. Lifting the ban for any future tool needs its own ADR and
+does not generalize.
+
+**Consequences.** New capability without relaxing an invariant. A confirm
+turn is added to the FSM. The ban is code-enforced, so a prompt jailbreak
+cannot reach a banned program.
+
+## ADR-058 — G12 dictation: explicit-toggle mode, verbatim, never auto-Enter
+
+**Status:** Accepted (2026-08-24).
+
+**Context.** The user asked Friday to type what they say into the focused
+app. Dictated words must NOT be interpreted as commands, and typing into
+an arbitrary focused window (terminal, password box, chat-on-Enter) is
+sensitive.
+
+**Decision.** Dictation is an **explicit toggle** ("start/stop
+dictation") that switches the STT sink: in `DICTATION` mode the
+transcript is typed **verbatim** into the focused window and never enters
+the planner; the wake word is **paused** so "hey jarvis" mid-sentence is
+typed, not fired. Friday **never presses Enter/submit on its own** —
+submit is a *consequential* action requiring spoken confirm (ADR-057).
+Punctuation/format by spoken command. The Wayland typing backend (`wtype`
+vs `ydotool`) is chosen by a measured spike before wiring.
+
+**Consequences.** Clear command/dictation boundary; dictated text is
+Zone-1 user input, not model-interpreted, so it opens no injection sink.
+A uinput-permission cost may apply if the spike picks ydotool.
+
+## ADR-059 — G13 speaker verification + two-pass dangerous gate
+
+**Status:** Accepted (2026-08-24).
+
+**Context.** The user wants only-their-voice activation ("like Siri") and
+asked that dangerous actions additionally re-check their voice silently
+at confirm time — two independent passes — for very low attack surface.
+
+**Decision.** G13 is its own gate with its own FA/FR eval. Enroll the
+owner once → store a **voiceprint embedding** (not raw audio, invariant
+#7). After a `hey_jarvis` hit, cosine-match the utterance embedding to the
+enrolled print; below threshold → ignore (other people, TV). PTT bypasses
+(physical presence = owner). The same verify call backs G12's
+**dangerous tier second pass**: dangerous action = spoken "yes" AND a
+**silent** voiceprint match on that confirmation utterance; failure
+refuses and logs without revealing the threshold. Until G13 lands,
+dangerous actions are disabled (fail closed). Embedding model (SpeechBrain
+ECAPA vs Resemblyzer, CPU only) chosen by a measured spike, weights pinned
+(SHA256).
+
+**Consequences.** A resident CPU embedding model and an enrollment flow.
+False-rejects are mitigated by the PTT bypass. Threshold is never spoken
+or logged.

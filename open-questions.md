@@ -166,18 +166,38 @@ ceiling can rise.
 
 ---
 
-## Deferred to Phase 2
+## Phase 2 — active and deferred
+
+Phase 2 = G10 wake word, G11 proactive, G12 action surface, G13 speaker
+verification (ADR-054; design `docs/superpowers/specs/2026-08-24-phase2-design.md`).
 
 ### OQ-12 — Wake word: which one, and at what FA/FR?
-**Status:** DEFERRED (ADR-012)
+**Status:** PARTIALLY ANSWERED 2026-08-24 (ADR-055).
 
-If always-on listening is ever wanted: start with pretrained
-`hey_jarvis`. A custom "Friday" needs sample synthesis, augmentation,
-training, and a measured false-accept/false-reject target across rooms
-and noise conditions — not a threshold picked by feel. Note the
-non-commercial licence on openWakeWord's pretrained models.
+`hey_jarvis` (openWakeWord pretrained, non-commercial licence, CPU)
+adopted for G10, additive to PTT, with mandatory AEC (ADR-014) and a
+RAM-only buffer. **Still open:** the custom "Friday" word — deferred
+*within* Phase 2; the user will cue when it is worth the sample
+synthesis + augmentation + per-room FA/FR training. FA/FR targets for
+both `hey_jarvis` (G10) and the eventual custom word are measured, not
+felt.
 
-A wake word also makes acoustic echo cancellation mandatory (ADR-014).
+### OQ-21 — AEC library choice (gates G10)
+**Status:** OPEN — spike. `webrtc-audio-processing` vs `speexdsp` echo
+canceller, measured on this laptop: residual echo (self-trigger?),
+latency, CPU, footprint (must not drag torch/CUDA — invariant #6).
+Record in the G10 ADR.
+
+### OQ-22 — Wayland typing backend for dictation (gates G12 dictation)
+**Status:** OPEN — spike. `wtype` vs `ydotool` (+uinput daemon) on this
+Hyprland machine: focus reliability, latency, setup/permission cost.
+Record in ADR-058's follow-up.
+
+### OQ-23 — Speaker-embedding model (gates G13)
+**Status:** OPEN — spike. SpeechBrain ECAPA-TDNN vs Resemblyzer vs
+alternatives, CPU only: embedding latency, RAM, owner/non-owner
+separation on real samples, footprint. Pin weights (SHA256). Record in
+the G13 ADR (extends ADR-059).
 
 ---
 

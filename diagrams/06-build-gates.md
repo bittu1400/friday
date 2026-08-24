@@ -84,15 +84,43 @@ wheel does not run on Blackwell.
    +------------------------------------------------------------------+
 ```
 
-## Explicitly NOT gates in Phase 1
+## Phase 2 gates (ADR-054; design 2026-08-24-phase2-design.md)
 
 ```
-    custom "Friday" wake word    -> Phase 2.  ADR-012.
-    Hindi / Spanish              -> Phase 2.
-    screen vision / VLM          -> Phase 3.
+   G10 -> G11 -> G12 -> G13
+   (one dependency: G12 dangerous tier needs G13 voiceprint core)
+
+   +------------------------------------------------------------------+
+   |  G10 WAKE WORD + AEC                                              |
+   |      hey_jarvis (CPU), PTT kept, mandatory AEC, RAM buffer        |
+   |      accept: TTS never self-triggers; FA/FR measured; barge-in    |
+   +------------------------------------------------------------------+
+   |  G11 PROACTIVE                                                    |
+   |      timers/reminders, habit suggestions, briefings              |
+   |      single-queue arbitration (FR-5), conversational DND         |
+   |      accept: reminder fires post-restart; never breaks a turn    |
+   +------------------------------------------------------------------+
+   |  G12 ACTION SURFACE                                               |
+   |      system/Hyprland/notes/clipboard/file-open/dictation        |
+   |      3-tier confirm, hard destructive ban, enum->argv           |
+   |      accept: no free string to subprocess; dictation not exec'd  |
+   +------------------------------------------------------------------+
+   |  G13 SPEAKER VERIFY                                               |
+   |      voiceprint gate on wake + 2-pass dangerous confirm          |
+   |      accept: FA/FR measured; non-owner + TV rejected             |
+   +------------------------------------------------------------------+
+```
+
+## Explicitly NOT gates in Phase 1 (scheduled or later)
+
+```
+    custom "Friday" wake word    -> Phase 2, deferred within.  ADR-055.
+    acoustic echo cancellation   -> Phase 2, G10.  ADR-055.
+    Hindi / Spanish              -> Phase 2 deferred (OQ-13).
+    screen vision / VLM          -> Phase 3 (OQ-14).
     voice cloning                -> needs hardware that does not exist here
     streaming TTFA optimization  -> after G6 measures the real number
-    acoustic echo cancellation   -> only needed once a wake word exists
+    arbitrary shell / destructive-> permanently banned.  ADR-057.
 ```
 
 ## Risk ordering — why G1 is first
