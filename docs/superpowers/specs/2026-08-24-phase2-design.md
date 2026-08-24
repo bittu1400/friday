@@ -85,9 +85,10 @@ silent speaker-voiceprint match on the confirmation utterance (§4.3).
 - AEC runs as a preprocessing stage in the capture path. Far-end
   reference = the TTS playback signal. The wake detector consumes the
   **cleaned** stream.
-- **Barge-in falls out for free:** with the near-end cleaned of TTS, a
-  real utterance during playback is detectable — the open G6 barge-in
-  item is closed here, live-verified.
+- **Barge-in becomes achievable** (not free): with the near-end cleaned
+  of TTS, a real utterance during playback is detectable, which is the
+  precondition barge-in needs. Still requires cut-playback logic and live
+  verification — addressed here and checked in §2.4 (the open G6 item).
 - Daemon FSM gains `LISTENING_WAKE`, entered when idle and armed. Wake
   hit → transition into the existing capture/STT states. PTT press still
   short-circuits straight to capture.
@@ -193,10 +194,15 @@ Every action carries a static tier in its tool definition:
   confirm.
 - **consequential** — close window, wifi off, clipboard overwrite, any
   dictation submit/Enter. Require a **spoken "yes"** (confirm turn).
-- **dangerous** — reserved for the highest-risk actions; **two-pass**
-  (§4.3). No dangerous action exists in the initial G12 tool set beyond
-  what earns the tier; the tier + machinery are built so a future one
-  cannot bypass it.
+- **dangerous** — **two-pass** (§4.3). Important: the genuinely
+  destructive classes (shell, package, file-delete) are **banned
+  outright** (§4.5), not placed in this tier — so the initial G12 toolset
+  may have **no dangerous-tier members at all**. The tier and its
+  two-pass machinery are still built now (gated on G13) so any action
+  later judged dangerous is covered and cannot bypass it. Whether any
+  specific initial action (e.g. wifi-off mid-transfer) is promoted from
+  *consequential* to *dangerous* is decided per-tool during the G12
+  build, not assumed here.
 
 Any confirm that is not a clear affirmative fails closed to
 `action=none` (invariant #5 discipline).

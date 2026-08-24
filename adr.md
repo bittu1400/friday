@@ -1784,7 +1784,9 @@ and not in DND — so FR-5 holds by construction and ADR-009
 a clock**: quiet by default, startup briefing allowed, suggestions
 surface mainly during active conversation, hush phrases ("let's talk
 later", "do not disturb") mute until the user asks a question or says
-resume; user-set reminders still fire. Briefings fire on **startup** and
+resume. (OPEN, not decided by the user: whether a user-set reminder still
+fires during DND — leaning yes since the user set it, but confirm during
+G11 build.) Briefings fire on **startup** and
 on the **voice sign-off** ("goodnight"/"bye") close-summary; system
 shutdown stays silent (audio teardown is unreliable).
 
