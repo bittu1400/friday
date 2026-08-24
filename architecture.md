@@ -27,18 +27,19 @@ See `diagrams/00-system-overview.md`.
 
 ## 2. Module layout
 
-As-built through G9. The FSM lives in `audio/state.py`, the half-duplex gate
+As-built through Phase 2 (G13). The FSM lives in `audio/state.py`, the half-duplex gate
 is a property on it (`TurnState.mic_open`), dialogue context lives in RAM
-(`dialogue.py`), habits & session summaries distill into SQLite (`store/`),
+(`dialogue.py`), habits, session summaries, reminders, and notes distill into SQLite (`store/`),
+proactive scheduling & DND live in `proactive/`, hands-free wake/AEC/VAD/speaker verification live in `audio/`,
 and logging & health audits live in `logging_config.py` and `selftest.py`.
 
 ```
    friday/
      __main__.py            text-mode entrypoint (TUI), --selftest CLI flag
-     voice_main.py          voice-in entrypoint: builds daemon + startup wait
-     daemon.py              the voice loop: PTT -> capture -> STT -> turn ->
-                            speak, barge-in, confirm-first voice handshake
-     config.py              typed config, fixed paths, panic switch, log params
+     voice_main.py          voice-in entrypoint: builds daemon, wake listener + startup wait
+     daemon.py              the voice loop: PTT/Wake -> capture -> STT -> turn ->
+                            speak, barge-in, confirm-first voice handshake, DND/signoff
+     config.py              typed config, fixed paths, panic switch, wake/AEC/VAD/speaker constants
      errors.py              Outcome enum + error taxonomy codes (spec §4)
      turn.py                one turn: utterance -> plan -> execute -> outcome
                             (TurnResult); execute-first (ADR-009)
@@ -47,6 +48,7 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
      selftest.py            unified 7-subsystem sanity & health check CLI (G9)
      prefs_cli.py           `just prefs` — list/export/forget/reset
      ptt_cli.py             `friday-ptt toggle|press|release|cancel` client
+     speaker_enroll.py      `just enroll-voice` — interactive 10-utterance profiler (G13)
      eval_harness.py        the G2 runner (the 3 ADR-030 numbers)
 
      llm/
@@ -60,27 +62,43 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        prompt.py            SYSTEM POLICY + <preferences> digest assembly
        validate.py          strict parse, fail-closed
 
+     proactive/
+       __init__.py          proactive module package
+       dnd.py               conversational DND state manager & hush phrase matchers (G11)
+       notifier.py          notify-send desktop notification adapter (G11)
+       briefing.py          startup & sign-off close summaries (G11)
+       scheduler.py         background reminder poller & single turn arbiter (G11)
+
      tools/
-       registry.py          frozen dict: tool_id -> ToolSpec
-       executor.py          subprocess argv, no shell, bounded timeout
+       registry.py          frozen dict: tool_id -> ToolSpec (system, hyprland, files, apps)
+       executor.py          subprocess argv, no shell, bounded timeout, ban preflight
        apps.py              app_id -> argv map
        search.py            searxng client + sanitizer (G7)
+       ban.py               permanent hard ban validator & RiskTier enum (G12)
+       typer.py             Wayland typer using ydotool or wtype fail-soft (G12)
 
      audio/
        capture.py           sounddevice input, 15 s ring, gate, ensure_open (G6/G9)
        state.py             the FSM (diagram 01) + mic_open gate
        stt.py               faster-whisper backend + FR-12/13 policy
        ptt.py               unix-socket PTT server + client (FR-3)
-       tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8t, NO torch)
+       tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8t, far-end reference tap)
        say.py               `just say` / audition CLI (G5)
+       aec.py               WebRTC APM EchoCanceller adapter (G10)
+       vad.py               WebRTC VAD & SpeechGate debounce state machine (G10)
+       wake.py              openWakeWord hey_jarvis detector, FarEndRef, WakeListener (G10)
+       dictation.py         DictationManager & spoken punctuation formatter (G12)
+       speaker.py           SpeakerVerifier using sherpa-onnx 3D-Speaker CAM++ (G13)
 
      store/
        db.py                connection, WAL, single-writer (FR-50..53)
-       migrations/          001_init.sql (forward only)
+       migrations/          001_init.sql, 002_reminders.sql, 003_notes.sql (forward only)
        prefs.py             slug+alias keys, CRUD, inert digest rendering
        audit.py             redacted dispatch records + retention sweep
        habits.py            deterministic habit pattern mining (ADR-049)
        summarizer.py        session dialogue distillation into summary (ADR-050)
+       reminders.py         SQLite reminder & timer store (G11)
+       notes.py             SQLite quick notes store (G12)
 
      ui/
        tui.py               textual app, mode indicator, confirm prompt
@@ -94,12 +112,15 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        friday-llm.service       llama-server systemd user unit
        friday.service           orchestrator daemon systemd user unit
 
+   scripts/
+     wake_bench.py          live wake-word, AEC, and VAD benchmark harness
+
    tests/
      fixtures/
        eval.jsonl           28 fixtures (ADR-030)
        adversarial.jsonl    AS-1..12 (+ youtube AS-13..16 in test_youtube)
        injection.jsonl      20 hostile search results (FR-63)
-     test_*.py              236 unit tests across all subsystems
+     test_*.py              290 unit tests across all subsystems
 
    diagrams/                ASCII, authoritative, updated with code
 ```

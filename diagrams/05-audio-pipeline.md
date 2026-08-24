@@ -1,105 +1,90 @@
-# Diagram 05 — Audio Pipeline and Half-Duplex Gate
+# Diagram 05 — Audio Pipeline (AEC, Wake, VAD, Speaker Verification, STT, TTS)
 
-## Signal path
+## Signal path (Phase 2, G10–G13)
 
 ```
    +-------------------+
-   | Dual array DMIC   |
-   | Realtek / SOF     |
-   +---------+---------+
-             |
-             v
-   +---------+---------+
-   | PipeWire 1.6.8    |
-   | source            |
-   | 48 kHz f32 stereo |
-   +---------+---------+
-             |
-             v
-   +---------+---------+
-   | sounddevice       |  InputStream, blocksize 1024, callback
-   | (PortAudio ->     |  non-blocking, never allocate in callback
-   |  pipewire-pulse)  |
-   +---------+---------+
-             |
-             v
-   +---------+---------+
-   | resample 16 kHz   |
-   | mono, s16         |
+   | Mic Array Input   |
+   | PipeWire 16kHz f32|
    +---------+---------+
              |
              v
    +---------+---------+          +--------------------+
-   | ring buffer       |--------->|  MIC GATE          |
-   | 15 s, preallocated|          |  open only while   |
-   +---------+---------+          |  state==CAPTURING  |
-             |                    +--------------------+
-             v
-   +---------+---------+
-   | faster-whisper    |  language="en" hardcoded (no detect pass)
-   | small.en (ADR-042)|  compute_type="int8", device="cpu", beam_size=1
-   | CPU, 8 threads    |  vad_filter=True, hotwords=domain vocab
-   +---------+---------+  p95 741 ms measured (large-v3-turbo was 2.7 s)
+   | WebRTC APM AEC    |<---------| FarEndRef (TTS tap)| (Polyphase resample 24k->16k)
+   | Echo Cancellation |          | Reference Ring     |
+   +---------+---------+          +--------------------+
              |
-             v
-        transcript text
-
-
-        speech text
-             |
-             v
-   +---------+---------+
-   | Kokoro-82M (ONNX) |  voice af_bella (G5, ADR-005/039), single preset
-   | CPU, 8 threads    |  RTF ~0.14 -> faster than realtime
-   | 24 kHz f32        |
-   +---------+---------+
-             |
-             v
-   +---------+---------+
-   | sounddevice       |  OutputStream
-   | OutputStream      |
-   +---------+---------+
-             |
-             v
-   +---------+---------+
-   | PipeWire sink     |
-   | Acer speakers     |
-   +-------------------+
+             v (Clean Near-End 16kHz PCM)
+   +---------+---------+--------------------+--------------------+
+   |                   |                    |                    |
+   v                   v                    v                    v
++--+--------------+ +--+---------------+ +--+---------------+ +--+---------------+
+| openWakeWord    | | WebRTC VAD       | | SpeakerVerifier   | | DictationManager  |
+| hey_jarvis.onnx | | SpeechGate       | | 3D-Speaker CAM++  | | Verbatim Typer    |
+| (CPU, 80ms chunk| | 20ms frames, M=2 | | 512-dim embedding | | (ydotool / wtype) |
++--------+--------+ +--+---------------+ +--+---------------+ +--+---------------+
+         |             |                    |                    |
+         | on_wake     | on_speech_end      | is_match           | typed chars
+         v             v                    v                    v
+   +-----+-------------+--------------------+--------------------+
+   |                     Turn State / Daemon                      |
+   +------------------------------+-------------------------------+
+                                  |
+                                  v
+   +------------------------------+-------------------------------+
+   | faster-whisper small.en (CPU int8, beam=1)                   |
+   +------------------------------+-------------------------------+
+                                  |
+                                  v
+                            transcript text
+                                  |
+                                  v
+                            speech text
+                                  |
+                                  v
+   +------------------------------+-------------------------------+
+   | Kokoro-82M (ONNX CPU, voice af_bella, 24kHz f32)             |
+   +------------------------------+-------------------------------+
+                                  |
+            +---------------------+---------------------+
+            |                                           |
+            v                                           v
+   +--------+----------+                       +--------+----------+
+   | FarEndRef Tap     |                       | sounddevice       |
+   | resample 24k->16k |                       | OutputStream      |
+   +-------------------+                       +--------+----------+
+                                                        |
+                                                        v
+                                               +--------+----------+
+                                               | PipeWire sink     |
+                                               | Speakers          |
+                                               +-------------------+
 ```
 
-## Half-duplex gate — why Friday does not hear herself
+## Acoustic Echo Cancellation & Barge-In
 
-Speakers and mic array sit ~10 cm apart in the same chassis. Without a
-gate, TTS output is transcribed as user input and the assistant talks to
-itself in a loop.
+Speakers and mic array sit in the same laptop chassis. WebRTC APM AEC cleans the near-end
+signal using the synthesized TTS reference from `FarEndRef`, preventing self-triggering while
+allowing the user's voice to be detected mid-playback for **hands-free barge-in**.
 
 ```
     time --->
 
-    state:   IDLE      CAPTURING     ...processing...      SPEAKING       IDLE
-             |         |                                   |              |
-    mic:     CLOSED    OPEN =========  CLOSED  ============ CLOSED ====== CLOSED
-                       ^         ^                          ^
-                       |         |                          |
-                  PTT press  PTT release              TTS playing
-                                                            |
-                                                            |  PTT press here
-                                                            v
-                                                    +---------------+
-                                                    |   BARGE-IN    |
-                                                    | stop playback |
-                                                    | drop turn     |
-                                                    | -> CAPTURING  |
-                                                    +---------------+
+    state:   IDLE      CAPTURING     ...processing...      SPEAKING (AEC active)   IDLE
+             |         |                                   |                      |
+    AEC:     PASS-THRU PASS-THRU     PASS-THRU             CANCELLING ECHO        PASS-THRU
+             |         |                                   |                      |
+             |         v                                   v                      |
+             |    VAD trailing silence               User speaks over TTS         |
+             |    triggers turn                      triggers barge-in            |
+             |                                             |                      |
+             |                                             v                      |
+             |                                     +---------------+              |
+             |                                     |   BARGE-IN    |              |
+             |                                     | stop playback |              |
+             |                                     | -> CAPTURING  |              |
+             |                                     +---------------+              |
 ```
-
-Phase 1 implementation: a single boolean checked in the input callback.
-Nine lines of code. Ships day one.
-
-**Not** in Phase 1: acoustic echo cancellation, simultaneous listen-while-
-speaking, overlapping turns. If a wake word is ever added (Phase 2), AEC
-becomes mandatory, not optional — PipeWire's `module-echo-cancel` with
-the WebRTC backend is the path. Recorded as OQ-12.
 
 ## Latency budget — end of speech to first audio
 

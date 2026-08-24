@@ -1862,7 +1862,14 @@ owner). The same verify call backs G12's **dangerous tier second pass**:
 dangerous action = spoken "yes" AND a **silent** voiceprint match on that
 confirmation utterance; failure refuses and logs without revealing the
 threshold. Until G13 lands, dangerous actions are disabled (fail closed).
-Embedding model (SpeechBrain ECAPA vs Resemblyzer, CPU only) chosen by a
+Embedding model (sherpa-onnx 3D-Speaker/CAM++ on CPU, zero torch/CUDA) chosen by
+measured spike (ADR-063, closes OQ-23).
+
+**Consequences.** Only the owner can wake Friday hands-free; dangerous actions
+are double-gated by voiceprint; zero CUDA memory or PyTorch bloat.
+
+---
+
 ## ADR-060 — AEC library: pywebrtc-audio (WebRTC APM EchoCanceller)
 
 **Status:** Accepted (2026-08-24, G10 Spike). Closes OQ-21.
@@ -1931,5 +1938,36 @@ after trailing silence, and to detect barge-in during TTS playback.
 `SpeechGate` debouncer (min speech 300ms, trailing silence 800ms).
 
 **Consequences.** Crisp, deterministic end-of-utterance transitions without PTT key dependency.
+
+---
+
+## ADR-063 — Speaker embedding model: sherpa-onnx 3D-Speaker/CAM++ ONNX (CPU only)
+
+**Status:** Accepted (2026-08-24, G13 Spike). Closes OQ-23.
+
+**Context.** Speaker verification (G13, ADR-059) requires extracting a compact speaker
+embedding from a short audio utterance (1–3s) and comparing against an enrolled voiceprint
+via cosine similarity. Invariant #6 strictly forbids any package dragging in PyTorch or CUDA
+wheels into the Python runtime.
+
+**Measured Spike:**
+- `speechbrain` and `resemblyzer`: Pulled `torch` + 40+ NVIDIA CUDA wheels (multi-gigabytes
+  of dependencies). Strictly rejected under Invariant #6.
+- `sherpa-onnx` (v1.13.6): Pure C++ ONNX runtime core with Python bindings. Installed in 78ms
+  with zero PyTorch and zero CUDA dependencies.
+- **Model:** `3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` staged at
+  `~/.local/share/friday/models/speaker/3dspeaker_campplus.onnx` (28.2 MB).
+  SHA256: `357a834f702b80161e5b981182c038e18553c1f2ca752ed6cec2052365d4129b`.
+- **Latency & Throughput:** Extracts a 512-dimensional normalized embedding in **31.90 ms**
+  for 2.0s of 16kHz audio on CPU.
+- **Enrollment:** 10 sample utterances (user decision 2026-08-24) averaged into a single
+  normalized 512-dim vector stored at `~/.local/state/friday/voiceprint.npy` (mode 0600, dir 0700).
+
+**Decision.** Use `sherpa-onnx` with the 3D-Speaker CAM++ ONNX model for CPU speaker
+verification and 10-utterance enrollment.
+
+**Consequences.** Ultra-fast verification (~32ms) gating wake word triggers and enabling
+two-pass confirmation without consuming any GPU VRAM.
+
 
 

@@ -289,8 +289,13 @@ months.)_
   utterances during voice enrollment to capture vocal variation.
 - **OQ-21 — AEC library choice (G10):** ANSWERED 2026-08-24. `pywebrtc-audio` (WebRTC APM
   EchoCanceller) adopted on CPU (73.3 µs/frame, RTF 0.0073). See ADR-060.
+- **OQ-22 — Wayland typing backend (G12):** ANSWERED 2026-08-24. `ydotool` / `wtype` fail-soft
+  in `friday/tools/typer.py` with standard punctuation formatting. See ADR-058.
+- **OQ-23 — Speaker embedding model choice (G13):** ANSWERED 2026-08-24. `sherpa-onnx`
+  3D-Speaker/CAM++ ONNX model (`3dspeaker_campplus.onnx`, 512-dim, 31.9 ms/2s audio on CPU, 0 torch/CUDA). See ADR-063.
 - **OQ-24 — VAD library choice (G10):** ANSWERED 2026-08-24. `webrtcvad` mode 2 paired with
   pure `SpeechGate` debouncer (4.0 µs/frame, RTF 0.00020). See ADR-062.
+
 
 
 
