@@ -8,16 +8,16 @@ import stat
 from friday.store.db import Database
 
 
-def test_fresh_db_reaches_version_1(tmp_path) -> None:
+def test_fresh_db_reaches_version_3(tmp_path) -> None:
     db = Database(tmp_path / "memory.db")
-    assert db.version == 1
+    assert db.version == 3
 
 
 def test_existing_db_reaches_same_version(tmp_path) -> None:
     p = tmp_path / "memory.db"
     Database(p).close()
-    # Reopen: migrations already applied, version stays 1 (forward-only, FR-53).
-    assert Database(p).version == 1
+    # Reopen: migrations already applied, version stays 3 (forward-only, FR-53).
+    assert Database(p).version == 3
 
 
 def test_migration_creates_all_tables(tmp_path) -> None:
@@ -26,7 +26,7 @@ def test_migration_creates_all_tables(tmp_path) -> None:
         r["name"]
         for r in db.query("SELECT name FROM sqlite_master WHERE type='table'")
     }
-    assert {"schema_version", "preferences", "action_audit", "session_summaries"} <= names
+    assert {"schema_version", "preferences", "action_audit", "session_summaries", "reminders", "notes"} <= names
 
 
 def test_permissions_enforced(tmp_path) -> None:

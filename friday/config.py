@@ -103,7 +103,36 @@ PTT_SOCKET: Path = RUNTIME_DIR / "ptt.sock"
 # speaking) — 0.4 s clears the burst without swallowing a real second tap.
 PTT_DEBOUNCE_S: float = float(os.environ.get("FRIDAY_PTT_DEBOUNCE_S", "0.4"))
 
+# Voice in — hands-free (G10, ADR-055/060/061/062). All CPU (invariant #6).
+WAKE_ENABLED: bool = os.environ.get("FRIDAY_WAKE_DISABLE") is None
+_WAKE_DIR: Path = _DATA_DIR / "models" / "wake"
+WAKE_MODEL: Path = _WAKE_DIR / "hey_jarvis.onnx"   # ADR-061; SHA256 pinned in ADR-061
+WAKE_THRESHOLD: float = float(os.environ.get("FRIDAY_WAKE_THRESHOLD", "0.5"))
+WAKE_FRAME_MS: int = 20            # detector/VAD frame size; must divide evenly at 16 kHz
+WAKE_REFRACTORY_S: float = 1.5     # ignore repeat wake hits within this window (debounce)
+
+# VAD end-of-utterance for wake-initiated capture (no key release exists).
+VAD_END_SILENCE_S: float = 0.8     # trailing silence that ends a capture
+VAD_MIN_SPEECH_S: float = 0.3      # ignore sub-this blips (barge-in + end-of-speech)
+VAD_AGGRESSIVENESS: int = 2        # webrtcvad 0-3
+
+# AEC (ADR-060). Far-end reference = TTS playback.
+AEC_ENABLED: bool = os.environ.get("FRIDAY_AEC_DISABLE") is None
+AEC_FRAME_MS: int = 10             # per ADR-060's chosen library
+
+# Speaker verification (G13, ADR-059). All CPU (invariant #6).
+SPEAKER_VERIFY_ENABLED: bool = os.environ.get("FRIDAY_SPEAKER_VERIFY_ENABLE") is not None
+_SPEAKER_DIR: Path = _DATA_DIR / "models" / "speaker"
+SPEAKER_MODEL: Path = _SPEAKER_DIR / "3dspeaker_campplus.onnx"
+VOICEPRINT_FILE: Path = STATE_DIR / "voiceprint.npy"
+SPEAKER_SIMILARITY_THRESHOLD: float = float(
+    os.environ.get("FRIDAY_SPEAKER_THRESHOLD", "0.75")
+)
+SPEAKER_ENROLL_UTTERANCES: int = 10  # User decision (2026-08-24): 10 utterances
+
 
 def is_disabled() -> bool:
     """True if the panic switch is engaged (file present or env var set)."""
     return PANIC_FILE.exists() or bool(os.environ.get(PANIC_ENV))
+
+

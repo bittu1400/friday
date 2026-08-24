@@ -60,6 +60,8 @@ async def execute(
         argv = spec.build_argv(params)
         display = spec.display(params)
         target = spec.target_binary(params)
+        from .ban import assert_not_banned
+        assert_not_banned(argv)
     except PolicyRejected as exc:
         return ToolResult(Outcome.DENIED, "", exc.code)
     except KeyError:

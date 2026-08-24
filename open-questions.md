@@ -18,18 +18,6 @@ _None — all Phase 1 questions are resolved and all gates G0 through G9 have pa
 
 ## Kept Open (Long-Term / Optional)
 
-### OQ-27 — Should "open browser" focus the running instance instead of a new window?
-**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (surfaced by the
-2026-08-23 live-review; deferred as scope creep)
-
-Each "open my browser" spawns a NEW Brave window (normal single-instance
-behavior). Combined with the now-fixed false-failure report, this piled up
-windows live. The false report is fixed (ADR-043 amendment). Whether a repeat
-launch should FOCUS the existing window rather than open a new one is a UX
-choice — it needs a per-app running-check (which binary name counts as "already
-running"?) and a per-app decision. Not built. Revisit only if the new-window
-behavior actually bothers the user.
-
 ### OQ-28 — Should a meta-question about capability route to chat, not web_search?
 **Decider:** USER · **Blocks:** nothing · **Status:** OPEN (live-review 2026-08-23)
 
@@ -182,12 +170,6 @@ synthesis + augmentation + per-room FA/FR training. FA/FR targets for
 both `hey_jarvis` (G10) and the eventual custom word are measured, not
 felt.
 
-### OQ-21 — AEC library choice (gates G10)
-**Status:** OPEN — spike. `webrtc-audio-processing` vs `speexdsp` echo
-canceller, measured on this laptop: residual echo (self-trigger?),
-latency, CPU, footprint (must not drag torch/CUDA — invariant #6).
-Record in the G10 ADR.
-
 ### OQ-22 — Wayland typing backend for dictation (gates G12 dictation)
 **Status:** OPEN — spike. `wtype` vs `ydotool` (+uinput daemon) on this
 Hyprland machine: focus reliability, latency, setup/permission cost.
@@ -198,14 +180,6 @@ Record in ADR-058's follow-up.
 alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
-
-### OQ-24 — VAD (end-of-utterance) library (gates G10)
-**Status:** OPEN — spike. Discovered during G10 planning: a wake-initiated
-capture has **no PTT release** to end it, so it needs voice-activity
-detection for end-of-utterance (and for barge-in during TTS).
-`webrtcvad` (tiny C, aggressiveness 0-3) vs `silero-vad` (ONNX, must be
-the non-torch path — invariant #6). Measure end-of-speech responsiveness,
-noise false-trigger, CPU on this laptop. Record in ADR-062.
 
 ---
 
@@ -303,4 +277,20 @@ months.)_
   Distilled at session shutdown when $\ge 2$ in-RAM dialogue turns exist; 1-2 concise
   sentences saved in SQLite `session_summaries`; the 2 most recent summaries are
   injected as `<past_sessions>` DATA in future chat turns. See ADR-050.
+- **OQ-27 — App launch vs focus behavior:** ANSWERED 2026-08-24. If the active
+  window is that app, focus it; if not on that app/workspace, open a new window
+  even if another instance exists, and announce via speech.
+- **DND Timers/Reminders Policy (G11):** ANSWERED 2026-08-24. Explicitly scheduled
+  timers and reminders fire anyway (speak + notify-send) during Conversational DND
+  because they are time-critical and set by the user.
+- **File-Open Registry Placeholders (G12):** ANSWERED 2026-08-24. Keep dictionary/list
+  structure as placeholders in code; user will provide explicit alias-to-path mappings later.
+- **Voiceprint Enrollment Samples (G13):** ANSWERED 2026-08-24. Collect 10 sample
+  utterances during voice enrollment to capture vocal variation.
+- **OQ-21 — AEC library choice (G10):** ANSWERED 2026-08-24. `pywebrtc-audio` (WebRTC APM
+  EchoCanceller) adopted on CPU (73.3 µs/frame, RTF 0.0073). See ADR-060.
+- **OQ-24 — VAD library choice (G10):** ANSWERED 2026-08-24. `webrtcvad` mode 2 paired with
+  pure `SpeechGate` debouncer (4.0 µs/frame, RTF 0.00020). See ADR-062.
+
+
 

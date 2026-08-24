@@ -98,6 +98,83 @@ def _build_app_env() -> Mapping[str, str]:
 _APP_ENV = _build_app_env()
 
 
+def _build_volume_argv(p: Mapping[str, str]) -> list[str]:
+    d = p.get("direction", "up").lower()
+    if d == "up":
+        return ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"]
+    elif d == "down":
+        return ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"]
+    elif d in ("mute", "toggle_mute"):
+        return ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]
+    elif d == "unmute":
+        return ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"]
+    return ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"]
+
+
+def _build_brightness_argv(p: Mapping[str, str]) -> list[str]:
+    d = p.get("direction", "up").lower()
+    return ["brightnessctl", "set", "+5%"] if d == "up" else ["brightnessctl", "set", "5%-"]
+
+
+def _build_media_argv(p: Mapping[str, str]) -> list[str]:
+    ctrl = p.get("action", "play_pause").lower()
+    mapping = {
+        "play_pause": "play-pause",
+        "play": "play",
+        "pause": "pause",
+        "next": "next",
+        "previous": "previous",
+        "stop": "stop",
+    }
+    return ["playerctl", mapping.get(ctrl, "play-pause")]
+
+
+def _build_wifi_argv(p: Mapping[str, str]) -> list[str]:
+    state = p.get("state", "on").lower()
+    if state not in ("on", "off"):
+        raise PolicyRejected("Invalid wifi state")
+    return ["nmcli", "radio", "wifi", state]
+
+
+def _build_workspace_argv(p: Mapping[str, str]) -> list[str]:
+    ws = p.get("workspace", "1")
+    if not ws.isdigit() or not (1 <= int(ws) <= 10):
+        raise PolicyRejected("Invalid workspace number")
+    return ["hyprctl", "dispatch", "workspace", ws]
+
+
+def _build_window_argv(p: Mapping[str, str]) -> list[str]:
+    action = p.get("action", "fullscreen").lower()
+    if action == "focus_left":
+        return ["hyprctl", "dispatch", "movefocus", "l"]
+    elif action == "focus_right":
+        return ["hyprctl", "dispatch", "movefocus", "r"]
+    elif action == "focus_up":
+        return ["hyprctl", "dispatch", "movefocus", "u"]
+    elif action == "focus_down":
+        return ["hyprctl", "dispatch", "movefocus", "d"]
+    elif action == "fullscreen":
+        return ["hyprctl", "dispatch", "fullscreen", "1"]
+    elif action == "close":
+        return ["hyprctl", "dispatch", "closewindow", "active"]
+    raise PolicyRejected(f"Unknown window action: {action}")
+
+
+# User file placeholders (agreed 2026-08-24). Can be overridden on demand.
+FILE_REGISTRY: dict[str, str] = {
+    "notes": str(Path.home() / "notes.md"),
+    "config": str(Path.home() / ".config" / "hypr" / "hyprland.conf"),
+    "todo": str(Path.home() / "todo.md"),
+}
+
+
+def _build_file_argv(p: Mapping[str, str]) -> list[str]:
+    alias = p.get("alias", "notes").lower()
+    path = FILE_REGISTRY.get(alias, FILE_REGISTRY["notes"])
+    editor = APPS["editor"].argv[0]
+    return [editor, path]
+
+
 REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
     {
         "open_app": ToolSpec(
@@ -125,10 +202,77 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
             risk="reversible",
             build_argv=lambda p: [_BROWSER, youtube_url(p["query"])],
             target_binary=lambda p: _BROWSER,
-            # Distinct from open_youtube's flat "YouTube" and echoes the query,
-            # so "Opened YouTube for jazz." differs per search (user ask). The
-            # query is the model's own short text field; speaking it is safe.
             display=lambda p: f"YouTube for {' '.join(p['query'].split())[:40]}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=5.0,
+        ),
+        "system_volume": ToolSpec(
+            tool_id="system_volume",
+            risk="reversible",
+            build_argv=_build_volume_argv,
+            target_binary=lambda p: "wpctl",
+            display=lambda p: f"volume {p.get('direction', 'changed')}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=3.0,
+        ),
+        "system_brightness": ToolSpec(
+            tool_id="system_brightness",
+            risk="reversible",
+            build_argv=_build_brightness_argv,
+            target_binary=lambda p: "brightnessctl",
+            display=lambda p: f"brightness {p.get('direction', 'changed')}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=3.0,
+        ),
+        "system_media": ToolSpec(
+            tool_id="system_media",
+            risk="reversible",
+            build_argv=_build_media_argv,
+            target_binary=lambda p: "playerctl",
+            display=lambda p: f"media {p.get('action', 'playback')}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=3.0,
+        ),
+        "system_wifi": ToolSpec(
+            tool_id="system_wifi",
+            risk="reversible",
+            build_argv=_build_wifi_argv,
+            target_binary=lambda p: "nmcli",
+            display=lambda p: f"Wi-Fi {p.get('state', 'changed')}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=4.0,
+        ),
+        "hypr_workspace": ToolSpec(
+            tool_id="hypr_workspace",
+            risk="reversible",
+            build_argv=_build_workspace_argv,
+            target_binary=lambda p: "hyprctl",
+            display=lambda p: f"workspace {p.get('workspace', '1')}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=3.0,
+        ),
+        "hypr_window": ToolSpec(
+            tool_id="hypr_window",
+            risk="reversible",
+            build_argv=_build_window_argv,
+            target_binary=lambda p: "hyprctl",
+            display=lambda p: f"window {p.get('action', 'action')}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=3.0,
+        ),
+        "file_open": ToolSpec(
+            tool_id="file_open",
+            risk="reversible",
+            build_argv=_build_file_argv,
+            target_binary=lambda p: APPS["editor"].argv[0],
+            display=lambda p: f"file {p.get('alias', 'document')}",
             cwd=_HOME,
             env=_APP_ENV,
             timeout_s=5.0,
@@ -136,7 +280,5 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
     }
 )
 
-# Plan actions that are valid but not executable yet (wired at later gates).
-# Memory (remember/forget) is wired at G4 and web_search at G7, both in the
-# turn loop (no subprocess, so no registry entry) — neither is here.
 NOT_YET_WIRED: Mapping[str, str] = MappingProxyType({})
+

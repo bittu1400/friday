@@ -343,3 +343,135 @@ def test_daemon_close_distills_session_summary(tmp_path, monkeypatch):
     assert rows[0]["summary"] == "User chatted with Friday and asked for help."
     assert rows[0]["session_id"] == d._session_id
 
+
+def test_on_wake_begins_capture_when_idle(monkeypatch):
+    _plan(monkeypatch, TurnResult("none", {}, "(no action)", False))
+    d = _daemon()
+
+    async def go():
+        assert d.state.is_idle
+        await d.on_wake()
+        assert d.state.state is State.CAPTURING
+
+    asyncio.run(go())
+
+
+def test_on_wake_rejected_when_busy(monkeypatch):
+    d = _daemon()
+
+    async def go():
+        d.state.begin_capture()  # already CAPTURING
+        before = d.rejected
+        await d.on_wake()
+        assert d.rejected == before + 1  # FR-5: not queued, rejected
+
+    asyncio.run(go())
+
+
+def test_on_speech_end_runs_the_turn(monkeypatch):
+    _plan(monkeypatch, TurnResult("open_app", {"app": "browser"}, "Opened Brave.", True))
+    d = _daemon()
+
+    async def go():
+        d.state.begin_capture()  # wake already began the capture
+        await d.on_speech_end()  # VAD end-of-utterance stands in for release
+        await d._turn_task
+        assert d._speaker.said == ["Opened Brave."]
+        assert d.state.state is State.IDLE
+
+    asyncio.run(go())
+
+
+def test_on_barge_from_speaking_starts_capture(monkeypatch):
+    d = _daemon()
+
+    async def go():
+        d.state._state = State.SPEAKING  # arrange: mid-playback
+        await d.on_barge()
+        assert d.state.state is State.CAPTURING
+        assert d._speaker.stopped == 1  # playback was cut
+
+    asyncio.run(go())
+
+
+def test_dnd_hush_phrase_enters_dnd(monkeypatch):
+    d = _daemon(transcriber=FakeTranscriber(text="let's talk later"))
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        assert d._dnd.is_dnd
+        assert any("Quiet mode enabled" in s for s in d._speaker.said)
+
+    asyncio.run(go())
+
+
+def test_dnd_resume_phrase_exits_dnd(monkeypatch):
+    d = _daemon(transcriber=FakeTranscriber(text="resume"))
+    d._dnd.set_dnd()
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        assert not d._dnd.is_dnd
+        assert any("Quiet mode disabled" in s for s in d._speaker.said)
+
+    asyncio.run(go())
+
+
+def test_signoff_phrase_speaks_summary(monkeypatch):
+    d = _daemon(transcriber=FakeTranscriber(text="goodnight friday"))
+    d._dialogue.add("open brave", "Opened Brave.")
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        assert any("Goodnight" in s for s in d._speaker.said)
+
+    asyncio.run(go())
+
+
+class MockSpeakerVerifier:
+    def __init__(self, allowed: bool):
+        self.allowed = allowed
+
+    def verify(self, pcm):
+        return self.allowed, (0.95 if self.allowed else 0.2)
+
+
+def test_speaker_verification_blocks_impostor(monkeypatch):
+    _plan(monkeypatch, TurnResult("open_app", {"app": "browser"}, "Opened Brave.", True))
+    verifier = MockSpeakerVerifier(allowed=False)
+    d = _daemon(transcriber=FakeTranscriber(text="open my browser"), speaker_verifier=verifier)
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        # Impostor blocked: nothing spoken, state back to IDLE
+        assert d._speaker.said == []
+        assert d.state.state is State.IDLE
+
+    asyncio.run(go())
+
+
+def test_speaker_verification_allows_enrolled_user(monkeypatch):
+    _plan(monkeypatch, TurnResult("open_app", {"app": "browser"}, "Opened Brave.", True))
+    verifier = MockSpeakerVerifier(allowed=True)
+    d = _daemon(transcriber=FakeTranscriber(text="open my browser"), speaker_verifier=verifier)
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        assert d._speaker.said == ["Opened Brave."]
+        assert d.state.state is State.IDLE
+
+    asyncio.run(go())
+
+
+
+

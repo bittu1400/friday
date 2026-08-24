@@ -51,13 +51,21 @@ def is_affirmation(text: str) -> bool:
 
 
 @dataclass(frozen=True)
+class PendingAction:
+    tool_id: str
+    params: dict[str, str]
+    description: str
+
+
+@dataclass(frozen=True)
 class TurnResult:
     plan_name: str
     params: dict[str, str]
     spoken: str
     dispatched: bool
-    pending: PendingPreference | None = None
+    pending: PendingPreference | PendingAction | None = None
     sources: tuple[SearchResult, ...] = ()
+
 
 
 async def run_turn(
@@ -153,6 +161,53 @@ async def _plan_and_act(
 
     if plan.name == "forget_preference":
         return await _do_forget(params, prefs, audit, request_id)
+
+    if plan.name == "set_reminder":
+        return await _do_set_reminder(params, prefs, audit, request_id)
+
+    if plan.name == "list_reminders":
+        return await _do_list_reminders(prefs)
+
+    if plan.name == "cancel_reminder":
+        return await _do_cancel_reminder(params, prefs)
+
+    if plan.name == "set_dnd":
+        return TurnResult("set_dnd", {}, "Quiet mode enabled. Let me know when you need me.", False)
+
+    if plan.name == "resume_dnd":
+        return TurnResult("resume_dnd", {}, "Quiet mode disabled. How can I help?", False)
+
+    if plan.name == "create_note":
+        return await _do_create_note(params, prefs, audit, request_id)
+
+    if plan.name == "read_notes":
+        return await _do_read_notes(prefs)
+
+    if plan.name == "clipboard_read":
+        return await _do_clipboard_read()
+
+    if plan.name == "clipboard_set":
+        return TurnResult(
+            "clipboard_set", params, "Are you sure you want to overwrite your clipboard?",
+            False, pending=PendingAction("clipboard_set", params, "overwrite clipboard")
+        )
+
+    if plan.name == "system_wifi" and params.get("state") == "off":
+        return TurnResult(
+            "system_wifi", params, "Are you sure you want to turn off Wi-Fi?",
+            False, pending=PendingAction("system_wifi", params, "turn off Wi-Fi")
+        )
+
+    if plan.name == "hypr_window" and params.get("action") == "close":
+        return TurnResult(
+            "hypr_window", params, "Are you sure you want to close the active window?",
+            False, pending=PendingAction("hypr_window", params, "close active window")
+        )
+
+    if plan.name == "dictation_mode":
+        act = params.get("action", "start").lower()
+        spoken = "Dictation mode enabled." if act == "start" else "Dictation mode disabled."
+        return TurnResult("dictation_mode", params, spoken, False)
 
     if plan.name == "web_search":
         return await _do_web_search(
@@ -282,3 +337,163 @@ async def _do_forget(
             duration_ms=0,
         )
     return TurnResult("forget_preference", params, spoken, bool(n))
+
+
+async def _do_set_reminder(
+    params: dict[str, str],
+    prefs: PrefStore | None,
+    audit: AuditLog | None,
+    request_id: str,
+) -> TurnResult:
+    db = prefs._db if prefs else (audit._db if audit else None)
+    if db is None:
+        return TurnResult("set_reminder", params, "Memory unavailable.", False)
+
+    from .store.reminders import ReminderStore
+
+    raw_sec = params.get("seconds", "60")
+    try:
+        # Extract digits/float from seconds string
+        sec = float("".join(c for c in raw_sec if c.isdigit() or c == "."))
+        if sec <= 0:
+            sec = 60.0
+    except ValueError:
+        sec = 60.0
+
+    msg = params.get("message", "Timer up")
+    store = ReminderStore(db)
+    rem = await store.acreate(seconds=sec, message=msg, kind="timer")
+
+    if sec < 60:
+        spoken = f"Timer set for {int(sec)} seconds."
+    elif sec < 3600:
+        mins = int(round(sec / 60))
+        spoken = f"Timer set for {mins} {'minute' if mins == 1 else 'minutes'}."
+    else:
+        hrs = int(round(sec / 3600))
+        spoken = f"Reminder set for {hrs} {'hour' if hrs == 1 else 'hours'}."
+
+    if audit is not None:
+        await audit.arecord(
+            request_id=request_id,
+            tool_id="set_reminder",
+            params={"seconds": str(int(sec)), "message": msg},
+            policy_decision="allowed",
+            outcome="ok",
+            duration_ms=0,
+        )
+
+    return TurnResult("set_reminder", params, spoken, True)
+
+
+async def _do_list_reminders(prefs: PrefStore | None) -> TurnResult:
+    db = prefs._db if prefs else None
+    if db is None:
+        return TurnResult("list_reminders", {}, "Memory unavailable.", False)
+
+    from .store.reminders import ReminderStore
+
+    store = ReminderStore(db)
+    active = await store.alist_active()
+    if not active:
+        return TurnResult("list_reminders", {}, "You have no active timers or reminders.", False)
+
+    n = len(active)
+    msgs = ", ".join(r.message for r in active[:3])
+    spoken = f"You have {n} active {'timer' if n == 1 else 'timers'}: {msgs}."
+    return TurnResult("list_reminders", {}, spoken, False)
+
+
+async def _do_cancel_reminder(params: dict[str, str], prefs: PrefStore | None) -> TurnResult:
+    db = prefs._db if prefs else None
+    if db is None:
+        return TurnResult("cancel_reminder", params, "Memory unavailable.", False)
+
+    from .store.reminders import ReminderStore
+
+    store = ReminderStore(db)
+    rid = params.get("id", "").strip()
+    if rid:
+        ok = await store.acancel(rid)
+    else:
+        # Cancel latest active
+        active = await store.alist_active()
+        ok = await store.acancel(active[-1].id) if active else False
+
+    spoken = "Cancelled." if ok else "No active timer to cancel."
+    return TurnResult("cancel_reminder", params, spoken, ok)
+
+
+async def _do_create_note(
+    params: dict[str, str],
+    prefs: PrefStore | None,
+    audit: AuditLog | None,
+    request_id: str,
+) -> TurnResult:
+    db = prefs._db if prefs else (audit._db if audit else None)
+    if db is None:
+        return TurnResult("create_note", params, "Memory unavailable.", False)
+
+    from .store.notes import NoteStore
+
+    content = params.get("content", "").strip()
+    if not content:
+        return TurnResult("create_note", params, "Note content was empty.", False)
+
+    store = NoteStore(db)
+    await store.acreate(content)
+
+    if audit is not None:
+        await audit.arecord(
+            request_id=request_id,
+            tool_id="create_note",
+            params={"content": content[:40]},
+            policy_decision="allowed",
+            outcome="ok",
+            duration_ms=0,
+        )
+
+    return TurnResult("create_note", params, "Note saved.", True)
+
+
+async def _do_read_notes(prefs: PrefStore | None) -> TurnResult:
+    db = prefs._db if prefs else None
+    if db is None:
+        return TurnResult("read_notes", {}, "Memory unavailable.", False)
+
+    from .store.notes import NoteStore
+
+    store = NoteStore(db)
+    notes = await store.alist_notes(limit=3)
+    if not notes:
+        return TurnResult("read_notes", {}, "You have no saved notes.", False)
+
+    items = "; ".join(f"Note {i+1}: {n.content}" for i, n in enumerate(notes))
+    return TurnResult("read_notes", {}, f"Here are your latest notes: {items}", False)
+
+
+async def _do_clipboard_read() -> TurnResult:
+    import shutil
+    import subprocess
+
+    cmd = shutil.which("wl-paste")
+    if not cmd:
+        return TurnResult("clipboard_read", {}, "Clipboard unavailable.", False)
+
+    try:
+        res = await asyncio.to_thread(
+            subprocess.run,
+            [cmd, "--no-newline"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+        txt = res.stdout.strip()
+        if not txt:
+            return TurnResult("clipboard_read", {}, "Your clipboard is empty.", False)
+        snippet = " ".join(txt.split())[:100]
+        return TurnResult("clipboard_read", {}, f"Clipboard contains: {snippet}", False)
+    except Exception:
+        return TurnResult("clipboard_read", {}, "Could not read clipboard.", False)
+
+

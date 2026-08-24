@@ -90,6 +90,15 @@ ptt CMD:
 selftest *ARGS:
     uv run python -m friday.selftest {{ARGS}}
 
+# Live wake-word and VAD benchmark harness (G10).
+wake-bench *ARGS:
+    uv run python scripts/wake_bench.py {{ARGS}}
+
+# Interactive 10-utterance speaker voiceprint enrollment (G13).
+enroll-voice *ARGS:
+    uv run python -m friday.speaker_enroll {{ARGS}}
+
 # Full unit suite (schema drift, validator, registry, executor, turn, audio, adversarial).
 test:
     uv run pytest -q
+

@@ -61,6 +61,11 @@ class Daemon:
         audit: AuditLog | None = None,
         dry_run: bool = False,
         connected: bool = True,
+        wake_listener: object | None = None,
+        dnd: object | None = None,
+        scheduler: object | None = None,
+        dictation: object | None = None,
+        speaker_verifier: object | None = None,
     ) -> None:
         self.state = TurnState()
         self._client = client
@@ -71,12 +76,38 @@ class Daemon:
         self._audit = audit
         self._dry_run = dry_run
         self._connected = connected
+        self._wake_listener = wake_listener
+
+        from .proactive.dnd import DndManager
+        self._dnd = dnd if dnd is not None else DndManager()
+        self._scheduler = scheduler
+
+        from .audio.dictation import DictationManager
+        self._dictation = dictation if dictation is not None else DictationManager()
+
+        self._speaker_verifier = speaker_verifier
+        if self._speaker_verifier is None and config.SPEAKER_VERIFY_ENABLED:
+            from .audio.speaker import SpeakerVerifier
+            self._speaker_verifier = SpeakerVerifier()
+
+        db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
+        if self._scheduler is None and db is not None:
+            from .store.reminders import ReminderStore
+            from .proactive.scheduler import Scheduler
+            self._scheduler = Scheduler(
+                store=ReminderStore(db),
+                dnd=self._dnd,
+                is_idle=lambda: self.state.is_idle,
+                on_event=self.on_proactive_event,
+            )
+
         self._search = SearchClient(
             base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
         )
         self._turn_task: asyncio.Task | None = None
         self._speak_task: asyncio.Task | None = None
-        self._pending: PendingPreference | None = None  # awaiting voice confirm
+        self._sched_task: asyncio.Task | None = None
+        self._pending: PendingPreference | PendingAction | None = None  # awaiting voice confirm
         self._cap_timer: asyncio.TimerHandle | None = None
         self._confirm_timer: asyncio.TimerHandle | None = None
         self._session_id = uuid.uuid4().hex
@@ -86,6 +117,27 @@ class Daemon:
         self._seq = 0
         self.rejected = 0  # FR-5 counter (observable in tests)
 
+    # --- Hands-free Wake & Barge events (G10) -----------------------------
+
+    async def on_wake(self) -> None:
+        """Wake word detected from idle: begin capturing."""
+        if self.state.begin_capture():
+            self._start_capture()
+        else:
+            self.rejected += 1
+            log.info("E_BUSY: wake ignored in %s", self.state.state.value)
+
+    async def on_speech_end(self) -> None:
+        """VAD detected trailing silence during capture: finish capture."""
+        if self.state.state is State.CAPTURING:
+            self._finish_capture()
+
+    async def on_barge(self) -> None:
+        """Voice activity detected during playback: barge-in."""
+        if self.state.state is State.SPEAKING:
+            if self.state.barge_in():
+                self._cancel_speak()
+                self._start_capture()
 
     # --- PTT events (from the socket) -------------------------------------
 
@@ -135,14 +187,18 @@ class Daemon:
         self._recorder.reset()
         self._arm_capture_cap()
 
-    async def _on_release(self) -> None:
+    def _finish_capture(self) -> None:
         if self.state.state is not State.CAPTURING:
-            return  # release without a capture — ignore
+            return
         self._disarm_capture_cap()
         self.state.end_capture()
         self._capture_end = time.monotonic()  # end of speech -> TTFA clock start
         pcm = self._recorder.collect()
         self._turn_task = asyncio.create_task(self._run_turn(pcm))
+
+    async def _on_release(self) -> None:
+        self._finish_capture()
+
 
     # --- 15 s hard cap (FR-4) ---------------------------------------------
 
@@ -173,9 +229,62 @@ class Daemon:
             if not text:  # FR-12 empty / FR-13 over-limit -> IDLE, silent
                 return
 
+            if self._speaker_verifier is not None:
+                matched, score = self._speaker_verifier.verify(pcm)
+                if not matched:
+                    log.info("Impostor detected (similarity %.3f < threshold); turn dropped", score)
+                    self.state.reset()
+                    return
+
             # If we were waiting on a spoken yes/no, this utterance is it.
             if self._pending is not None:
                 await self._resolve_confirm(text, rid)
+                return
+
+            from .audio.dictation import is_start_dictation, is_stop_dictation
+            from .proactive.briefing import is_signoff_phrase, generate_signoff_summary
+            from .proactive.dnd import is_hush_phrase, is_resume_phrase
+
+            if is_start_dictation(text):
+                self._dictation.start()
+                self.state.got_plan(will_speak=True)
+                await self._speak("Dictation mode enabled.")
+                return
+
+            if is_stop_dictation(text):
+                self._dictation.stop()
+                self.state.got_plan(will_speak=True)
+                await self._speak("Dictation mode disabled.")
+                return
+
+            if self._dictation.is_dictating:
+                # Verbatim typing directly into focused window; bypasses planner
+                self._dictation.handle_transcript(text)
+                self.state.reset()
+                return
+
+            # Conversational DND: user speech clears DND; explicit resume acknowledged
+            if self._dnd.is_dnd:
+                if is_resume_phrase(text):
+                    self._dnd.clear_dnd()
+                    self.state.got_plan(will_speak=True)
+                    await self._speak("Quiet mode disabled. How can I help?")
+                    return
+                self._dnd.clear_dnd()
+
+            # Conversational DND hush phrases
+            if is_hush_phrase(text):
+                self._dnd.set_dnd()
+                self.state.got_plan(will_speak=True)
+                await self._speak("Quiet mode enabled. Let me know when you need me.")
+                return
+
+            # Voice sign-off close summary ("goodnight", "bye")
+            if is_signoff_phrase(text):
+                spoken = generate_signoff_summary(self._dialogue.render(), self._client)
+                self.state.got_plan(will_speak=True)
+                await self._speak(spoken)
+                self._dialogue.add(text, spoken)
                 return
 
             # PLANNING + EXECUTING (execute-first inside run_turn; no speech).
@@ -201,6 +310,12 @@ class Daemon:
                 ),
                 timeout=_PLANNING_TIMEOUT,
             )
+
+            if result.plan_name == "set_dnd":
+                self._dnd.set_dnd()
+            elif result.plan_name == "resume_dnd":
+                self._dnd.clear_dnd()
+
 
 
 
@@ -273,12 +388,31 @@ class Daemon:
         pending, self._pending = self._pending, None
         self._disarm_confirm()
         self._disarm_capture_cap()
-        if is_affirmation(text):
-            spoken = await confirm_preference(
-                pending, self._prefs, self._audit, request_id=rid
-            )
+        from .store.prefs import PendingPreference
+        from .turn import PendingAction
+
+        if isinstance(pending, PendingPreference):
+            if is_affirmation(text):
+                spoken = await confirm_preference(
+                    pending, self._prefs, self._audit, request_id=rid
+                )
+            else:
+                spoken = "Okay, I won't."  # anything but yes cancels the write
+        elif isinstance(pending, PendingAction):
+            if is_affirmation(text):
+                from .tools.registry import REGISTRY
+                from .tools import executor
+                from .ui import templates
+                spec = REGISTRY.get(pending.tool_id)
+                if spec is not None:
+                    res = await executor.execute(spec, pending.params, request_id=rid, dry_run=self._dry_run)
+                    spoken = templates.render(res.outcome, res.display)
+                else:
+                    spoken = "Action completed."
+            else:
+                spoken = "Okay, cancelled."
         else:
-            spoken = "Okay, I won't."  # anything but yes cancels the write
+            spoken = "Cancelled."
         self.state.got_plan(will_speak=True)
         await self._speak(spoken)
 
@@ -338,6 +472,12 @@ class Daemon:
         self._pending = None
         self.state.reset()
 
+    async def on_proactive_event(self, title: str, message: str) -> None:
+        """Deliver a proactive spoken alert when idle without violating FR-5."""
+        while not self.state.is_idle:
+            await asyncio.sleep(0.2)
+        await self._say_now(f"Reminder: {message}")
+
     # --- lifecycle --------------------------------------------------------
 
     async def close(self) -> None:
@@ -356,13 +496,34 @@ class Daemon:
 
     async def run(self) -> None:
         self._recorder.open()  # fail-soft; text-only if no device
+        if self._wake_listener is not None:
+            if not self._wake_listener.start():
+                log.warning("no wake: PTT only")
+
+        db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
+        if db is not None and not self._dnd.is_dnd:
+            from .proactive.briefing import generate_startup_briefing
+            briefing = generate_startup_briefing(db)
+            await self._say_now(briefing)
+
+        if self._scheduler is not None:
+            self._sched_task = asyncio.create_task(self._scheduler.run())
+
         server = await ptt.serve(config.PTT_SOCKET, self.on_ptt)
         log.info("friday daemon listening on %s", config.PTT_SOCKET)
         try:
             await asyncio.Event().wait()  # run until cancelled
         finally:
+            if self._scheduler is not None:
+                self._scheduler.stop()
+            if self._sched_task is not None:
+                self._sched_task.cancel()
+            if self._wake_listener is not None:
+                self._wake_listener.stop()
             await self.close()
             server.close()
             await server.wait_closed()
             self._recorder.close()
+
+
 

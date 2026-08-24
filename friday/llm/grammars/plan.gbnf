@@ -3,7 +3,7 @@
 
 root ::= "{" ws "\"action\"" ws ":" ws action ws "}" ws
 action ::= "{" ws "\"name\"" ws ":" ws name ws "," ws "\"params\"" ws ":" ws params ws "}"
-name ::= "\"none\"" | "\"chat\"" | "\"open_app\"" | "\"web_search\"" | "\"open_youtube\"" | "\"youtube_search\"" | "\"remember_preference\"" | "\"forget_preference\""
+name ::= "\"none\"" | "\"chat\"" | "\"open_app\"" | "\"web_search\"" | "\"open_youtube\"" | "\"youtube_search\"" | "\"remember_preference\"" | "\"forget_preference\"" | "\"set_reminder\"" | "\"list_reminders\"" | "\"cancel_reminder\"" | "\"set_dnd\"" | "\"resume_dnd\"" | "\"system_volume\"" | "\"system_brightness\"" | "\"system_media\"" | "\"system_wifi\"" | "\"hypr_workspace\"" | "\"hypr_window\"" | "\"file_open\"" | "\"create_note\"" | "\"read_notes\"" | "\"clipboard_read\"" | "\"clipboard_set\"" | "\"dictation_mode\""
 params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
 pair ::= string ws ":" ws string
 string ::= "\"" char* "\""

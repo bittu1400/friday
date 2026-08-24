@@ -1,0 +1,135 @@
+import numpy as np
+import time
+from friday import config
+from friday.audio.aec import NullAec
+from friday.audio.wake import WakeListener, WakeCallbacks, FarEndRef, WakeDetector, create_detector
+
+
+class FakeDetector:
+    def __init__(self, score: float):
+        self._s = score
+
+    def score(self, frame: np.ndarray) -> float:
+        return self._s
+
+
+class FakeVad:
+    def __init__(self, voiced: bool):
+        self._v = voiced
+
+    def is_speech(self, frame: np.ndarray) -> bool:
+        return self._v
+
+
+def test_config_constants_present():
+    assert config.WAKE_FRAME_MS in (10, 20, 30)
+    assert 0.0 < config.WAKE_THRESHOLD < 1.0
+    assert config.VAD_END_SILENCE_S > config.VAD_MIN_SPEECH_S
+
+
+def make(*, score: float, voiced: bool, idle: bool, speaking: bool, calls: WakeCallbacks):
+    return WakeListener(
+        detector=FakeDetector(score),
+        vad=FakeVad(voiced),
+        aec=NullAec(),
+        callbacks=calls,
+        far_ref=FarEndRef(),
+        threshold=0.5,
+        frame_len=320,
+        refractory_s=1.5,
+        is_idle=lambda: idle,
+        is_speaking=lambda: speaking,
+        schedule=lambda cb: cb(),
+    )
+
+
+def _frame():
+    return np.zeros(320, dtype=np.float32)
+
+
+def test_wake_hit_when_idle_fires_on_wake():
+    fired = []
+    calls = WakeCallbacks(
+        on_wake=lambda: fired.append("wake"),
+        on_speech_end=lambda: None,
+        on_barge=lambda: None,
+    )
+    wl = make(score=0.9, voiced=False, idle=True, speaking=False, calls=calls)
+    wl._on_frame(_frame())
+    assert fired == ["wake"]
+
+
+def test_no_wake_when_below_threshold():
+    fired = []
+    calls = WakeCallbacks(
+        on_wake=lambda: fired.append("wake"),
+        on_speech_end=lambda: None,
+        on_barge=lambda: None,
+    )
+    wl = make(score=0.2, voiced=False, idle=True, speaking=False, calls=calls)
+    wl._on_frame(_frame())
+    assert fired == []
+
+
+def test_speech_during_speaking_fires_barge():
+    fired = []
+    calls = WakeCallbacks(
+        on_wake=lambda: None,
+        on_speech_end=lambda: None,
+        on_barge=lambda: fired.append("barge"),
+    )
+    wl = make(score=0.0, voiced=True, idle=False, speaking=True, calls=calls)
+    for _ in range(20):  # exceed min_speech_s (15 frames = 300ms)
+        wl._on_frame(_frame())
+    assert "barge" in fired
+
+
+def test_refractory_suppresses_second_wake():
+    fired = []
+    calls = WakeCallbacks(
+        on_wake=lambda: fired.append("wake"),
+        on_speech_end=lambda: None,
+        on_barge=lambda: None,
+    )
+    wl = make(score=0.9, voiced=False, idle=True, speaking=False, calls=calls)
+    wl._on_frame(_frame())
+    wl._on_frame(_frame())  # immediately again, inside refractory
+    assert fired == ["wake"]
+
+
+def test_farend_ref_ring():
+    ref = FarEndRef(max_samples=16000)
+    assert ref.read(320) is None
+    pcm = np.ones(640, dtype=np.float32)
+    ref.write(pcm)
+    chunk1 = ref.read(320)
+    assert chunk1 is not None
+    assert len(chunk1) == 320
+    assert np.all(chunk1 == 1.0)
+    chunk2 = ref.read(320)
+    assert chunk2 is not None
+    assert len(chunk2) == 320
+    assert ref.read(320) is None  # drained
+
+
+def test_detector_create_smoke():
+    det = create_detector(model_path=config.WAKE_MODEL, threshold=0.5)
+    assert det is not None
+    # Feed silent frame
+    score = det.score(np.zeros(320, dtype=np.float32))
+    assert 0.0 <= score <= 1.0
+
+
+def test_self_trigger_suppressed_during_speaking():
+    fired = []
+    calls = WakeCallbacks(
+        on_wake=lambda: fired.append("wake"),
+        on_speech_end=lambda: None,
+        on_barge=lambda: None,
+    )
+    # Even if detector gives high score, speaking state suppresses wake trigger
+    wl = make(score=0.99, voiced=False, idle=False, speaking=True, calls=calls)
+    for _ in range(10):
+        wl._on_frame(_frame())
+    assert fired == []
+

@@ -23,9 +23,12 @@ import time
 import urllib.request
 
 from . import config
+from .audio import aec, vad, wake
 from .audio.capture import Recorder
+from .audio.state import State
 from .audio.stt import FasterWhisperBackend, Transcriber
 from .audio.tts import Speaker
+from .audio.wake import FarEndRef, WakeCallbacks, WakeListener
 from .daemon import Daemon
 from .llm.client import LlamaClient
 from .logging_config import setup_logging
@@ -66,10 +69,12 @@ def wait_for_llm(base_url: str, timeout_s: float = 30.0, poll_interval_s: float 
     return False
 
 
-def _build(args) -> tuple[Daemon, Database]:  # noqa: ANN001
+def _build(args, loop_holder: dict[str, asyncio.AbstractEventLoop]) -> tuple[Daemon, Database]:  # noqa: ANN001
     db = Database(config.MEMORY_DB)
     sweep_retention(db, retention_days=config.RETENTION_DAYS)
     prefs, audit = PrefStore(db), AuditLog(db)
+
+    far_ref = FarEndRef()
 
     speaker = None
     if not args.no_voice:
@@ -77,6 +82,7 @@ def _build(args) -> tuple[Daemon, Database]:  # noqa: ANN001
             config.KOKORO_MODEL, config.KOKORO_VOICES,
             voice=config.KOKORO_VOICE, fallback=config.KOKORO_VOICE_FALLBACK,
             threads=config.KOKORO_THREADS,
+            far_ref=far_ref,
         )
     if speaker is None:
         logging.getLogger("friday").warning("no TTS: outcomes will be silent")
@@ -92,10 +98,43 @@ def _build(args) -> tuple[Daemon, Database]:  # noqa: ANN001
     state_holder: dict[str, Daemon] = {}
     recorder = Recorder(gate=lambda: state_holder["d"].state.mic_open)
     connected = config.SEARCH_CONNECTED_DEFAULT and not args.local
+
+    wake_listener = None
+    if not args.no_wake and config.WAKE_ENABLED:
+        aec_proc = aec.create(enabled=config.AEC_ENABLED, sample_rate=16000, frame_ms=config.AEC_FRAME_MS)
+        vad_detector = vad.create(mode=config.VAD_AGGRESSIVENESS, sample_rate=16000)
+        wake_det = wake.create_detector(config.WAKE_MODEL, threshold=config.WAKE_THRESHOLD)
+
+        def _schedule(coro_fn):
+            def cb() -> None:
+                loop = loop_holder.get("loop")
+                if loop is not None and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(coro_fn(), loop)
+            return cb
+
+        callbacks = WakeCallbacks(
+            on_wake=_schedule(lambda: state_holder["d"].on_wake()),
+            on_speech_end=_schedule(lambda: state_holder["d"].on_speech_end()),
+            on_barge=_schedule(lambda: state_holder["d"].on_barge()),
+        )
+        wake_listener = WakeListener(
+            detector=wake_det,
+            vad=vad_detector,
+            aec=aec_proc,
+            callbacks=callbacks,
+            far_ref=far_ref,
+            threshold=config.WAKE_THRESHOLD,
+            frame_len=(16000 * config.WAKE_FRAME_MS) // 1000,
+            refractory_s=config.WAKE_REFRACTORY_S,
+            is_idle=lambda: state_holder["d"].state.is_idle,
+            is_speaking=lambda: state_holder["d"].state.state is State.SPEAKING,
+        )
+
     d = Daemon(
         client=LlamaClient(base_url=args.base_url), recorder=recorder,
         transcriber=transcriber, speaker=speaker, prefs=prefs, audit=audit,
         dry_run=args.dry_run, connected=connected,
+        wake_listener=wake_listener,
     )
     state_holder["d"] = d  # close the gate closure over the built daemon
     return d, db
@@ -105,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="friday-voice")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-voice", action="store_true", help="do not load Kokoro")
+    ap.add_argument("--no-wake", action="store_true", help="disable hands-free wake word")
     ap.add_argument(
         "--local",
         action="store_true",
@@ -124,9 +164,15 @@ def main(argv: list[str] | None = None) -> int:
     # Startup health wait — tolerates llama-server cold start (G9)
     wait_for_llm(args.base_url, timeout_s=args.startup_timeout)
 
-    d, db = _build(args)
+    loop_holder: dict[str, asyncio.AbstractEventLoop] = {}
+    d, db = _build(args, loop_holder)
+
+    async def _runner():
+        loop_holder["loop"] = asyncio.get_running_loop()
+        await d.run()
+
     try:
-        asyncio.run(d.run())
+        asyncio.run(_runner())
     except KeyboardInterrupt:
         pass
     finally:
@@ -136,3 +182,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

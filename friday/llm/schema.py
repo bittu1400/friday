@@ -48,6 +48,25 @@ PARAM_SCHEMA: Final = MappingProxyType(
             {"key": {"kind": "text"}, "value": {"kind": "text"}}
         ),
         "forget_preference": MappingProxyType({"key": {"kind": "text"}}),
+        "set_reminder": MappingProxyType(
+            {"seconds": {"kind": "text"}, "message": {"kind": "text"}}
+        ),
+        "list_reminders": MappingProxyType({}),
+        "cancel_reminder": MappingProxyType({"id": {"kind": "text"}}),
+        "set_dnd": MappingProxyType({}),
+        "resume_dnd": MappingProxyType({}),
+        "system_volume": MappingProxyType({"direction": {"kind": "text"}}),
+        "system_brightness": MappingProxyType({"direction": {"kind": "text"}}),
+        "system_media": MappingProxyType({"action": {"kind": "text"}}),
+        "system_wifi": MappingProxyType({"state": {"kind": "text"}}),
+        "hypr_workspace": MappingProxyType({"workspace": {"kind": "text"}}),
+        "hypr_window": MappingProxyType({"action": {"kind": "text"}}),
+        "file_open": MappingProxyType({"alias": {"kind": "text"}}),
+        "create_note": MappingProxyType({"content": {"kind": "text"}}),
+        "read_notes": MappingProxyType({}),
+        "clipboard_read": MappingProxyType({}),
+        "clipboard_set": MappingProxyType({"text": {"kind": "text"}}),
+        "dictation_mode": MappingProxyType({"action": {"kind": "text"}}),
     }
 )
 

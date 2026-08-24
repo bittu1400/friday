@@ -12,92 +12,46 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **G0–G9 (Phase 1 Build Gates COMPLETE)** (2026-08-23).
-All tasks for G0 through G9 (scaffolding, toolchain, eval, registry, persistence, voice out,
-voice in, search, conversation/memory, and service resilience) implemented and verified.
-`uv run pytest` **241 passed**, `just eval` **28/28 (regressions 0)**,
-`just test-injection` **20/20 blocked**, adversarial 17/17, `just test-egress` passed,
-and `just selftest` **all 7 checks passed**. Systemd user units (`friday-llm.service`, `friday.service`)
-live and active with `Restart=always` + `StartLimitIntervalSec=0` (no permanent
-give-up on a slow GPU cold start).
-
-> **A senior live-review session (2026-08-23) ran AFTER the G9 sign-off** and
-> fixed real defects the desk tests missed. Read **"SESSION 2026-08-23 —
-> live-review + hardening"** immediately below before anything else — it changed
-> the executor launch semantics (ADR-043 amendment), the planner (ADR-052), the
-> chat persona (ADR-053), and the systemd restart policy, and it is the true
-> current state.
+**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE** (2026-08-24).
+All tasks for G0 through G13 (scaffolding, toolchain, eval, registry, persistence, voice out,
+voice in, search, conversation/memory, service resilience, wake word + AEC + VAD + barge-in,
+proactive turn arbiter + reminders/DND/briefings, action surface + dictation, and CPU speaker verification)
+implemented and verified.
+`uv run pytest` **290 passed**, `just eval` **28/28 (regressions 0)**,
+`just test-injection` **20/20 blocked**, `just selftest` **all 7 checks passed**.
 
 ```
-   G0 REPO        [x]
-   G1 TOOLCHAIN   [~]   <-- sm_120a PROVEN. VRAM/KV measurements deferred.
-                        whisper CPU bench DONE at G6 (ADR-042).
-   G2 EVAL        [x]   <-- harness + baseline + adversarial. OQ-08 done.
-   G3 TEXT+REG    [x]   <-- registry+executor+TUI. eval 20/20, adv 16/16.
-   G4 PERSIST     [x]   <-- SQLite memory, prefs, audit, retention.
-                        eval 20/20, adv 16/16.
-   G5 VOICE OUT   [x]   <-- kokoro-onnx/fp32/8t, af_bella, FR-71 verified.
-   G6 VOICE IN    [x]   <-- STT locked (ADR-042); 150 unit. LIVE from the
-                        PHYSICAL key (toggle, ADR-044); spoken eval 20/20
-                        planning, TTFA p50 2.16s/p95 2.73s. Sign-off pending
-                        only a final user nod; functionally complete.
-   G7 SEARCH      [x]   <-- DONE 2026-08-23 (branch `g7-search`, 11 tasks).
-                        SearXNG loopback unit + sanitizer + grammar-locked
-                        grounding turn + injection suite 20/20 + egress proof.
-                        176 unit pass, eval 24/24 (no regression). Merged to main.
-   G8 CONVERSATION[x]   <-- Build 1, Stage 2, Stage 3 PASSED 2026-08-23.
-                        Build 1: chat action + generator + RAM Dialogue + ADR-048.
-                        Stage 2: habit mining (ADR-049) from action_audit.
-                        Stage 3: distilled long-term memory (ADR-050) via session_summaries.
-                        215 unit pass, eval 28/28 (0 reg), injection 20/20. Merged to main.
-   G9 SERVICE     [x]   <-- PASSED 2026-08-23 (ADR-051).
-                        Systemd user units (friday-llm, friday), unified self-test
-                        (7 checks), structured JSON logging with 10MB x 5 rotation
-                        and /home/ path redaction (FR-43), startup ping tolerance,
-                        and kill -9 / audio disconnect recovery. 236 unit pass, eval 28/28.
-   POST-G9        [x]   <-- live-review + hardening (2026-08-23). 5 real fixes;
-                        241 unit pass, eval 28/28. See the session block below.
+   G0 REPO         [x]
+   G1 TOOLCHAIN    [x]   <-- sm_120a PROVEN. whisper CPU bench DONE at G6 (ADR-042).
+   G2 EVAL         [x]   <-- harness + baseline + adversarial. OQ-08 done.
+   G3 TEXT+REG     [x]   <-- registry+executor+TUI. eval 20/20, adv 16/16.
+   G4 PERSIST      [x]   <-- SQLite memory, prefs, audit, retention.
+   G5 VOICE OUT    [x]   <-- kokoro-onnx/fp32/8t, af_bella, FR-71 verified.
+   G6 VOICE IN     [x]   <-- STT locked (ADR-042); physical toggle key (ADR-044).
+   G7 SEARCH       [x]   <-- SearXNG loopback unit + sanitizer + final.gbnf.
+   G8 CONVERSATION [x]   <-- Chat action + habits mining + session summaries distillation.
+   G9 SERVICE      [x]   <-- Systemd user units + unified self-test + structured logging.
+   G10 WAKE+AEC+VAD[x]   <-- hey_jarvis (openWakeWord) + WebRTC APM AEC + WebRTC VAD + barge-in.
+   G11 PROACTIVE   [x]   <-- SQLite reminders + scheduler turn arbiter + conversational DND + briefings.
+   G12 ACTION SURF [x]   <-- System (vol/bright/media/wifi) + Hyprland (ws/win) + notes + dictation + ban.
+   G13 SPEAKER VER [x]   <-- 3D-Speaker/CAM++ (sherpa-onnx, CPU) 512-dim voiceprint + 10-utterance enroll.
 ```
 
 ---
 
-## SESSION 2026-08-24 — Phase 2 planning (design only, NO code yet)
+## SESSION 2026-08-24 — Phase 2 Build (G10–G13 COMPLETE)
 
-Phase 1 remains the current *built* state. This session **planned Phase 2**
-— nothing implemented. Design committed to
-`docs/superpowers/specs/2026-08-24-phase2-design.md`; decisions in
-ADR-054…059; `open-questions.md` and `diagrams/06-build-gates.md` updated.
+All four Phase 2 gates built with full TDD discipline and zero regressions.
 
-Phase 2 = four gates, `G10 -> G11 -> G12 -> G13`:
-- **G10** wake word `hey_jarvis` (CPU) + mandatory AEC + RAM buffer, **PTT
-  kept**; custom "Friday" word deferred within Phase 2. (ADR-055)
-- **G11** proactive: timers/reminders, habit suggestions, briefings
-  (startup + "goodnight/bye" close-summary); single-queue arbitration so
-  FR-5 holds; conversational DND (no clock); speak-when-idle + notify-send.
-  (ADR-056)
-- **G12** action surface: system control, Hyprland, notes, clipboard,
-  file-open registry, **dictation** (toggle, verbatim, never auto-Enter);
-  three-tier confirm; **permanent hard ban** on shell/package/file-delete.
-  (ADR-057, ADR-058)
-- **G13** speaker verification (voiceprint gate on wake) + **two-pass
-  dangerous confirm** (spoken yes AND silent voiceprint match). G12's
-  dangerous tier ships gated-off until G13 lands. (ADR-059)
+### Evidence
+- `uv run pytest -q` -> **290 passed, 1 warning in 3.79s**
+- `just eval` -> **28/28 (100%), 0 regressions**
+- `just selftest` -> **All 7 checks passed** (schema v3, GPU 12.0 sm_120, loopback only)
+- `just test-injection` -> **20/20 blocked**
+- `just test-no-fstring-sql` -> **Passed (store/ is strictly parameterized SQL)**
+- CPU only verified (Invariant #6): openWakeWord, WebRTC AEC, WebRTC VAD, and sherpa-onnx 3D-Speaker run on CPU with zero CUDA runtime dependencies.
 
-Dependency spikes gate their gates (OQ-21 AEC lib, OQ-22 Wayland typer,
-OQ-23 speaker model, **OQ-24 VAD** — added during G10 planning: a
-wake-initiated capture has no PTT release, so end-of-utterance needs a
-voice-activity detector) — each measured on this laptop, no torch/CUDA
-drag (invariant #6), before wiring. No Phase 1 invariant relaxed.
-
-**G10 plan WRITTEN** (this session): `docs/superpowers/plans/2026-08-24-g10-wake-word.md`
-— 8 tasks, TDD, rechecked cold against the real code (matches the
-`_daemon()`/`asyncio.run` test pattern; no `pytest-asyncio` in this repo;
-wake path is a background listener orthogonal to the FSM, not a new
-state). Design §2 synced to match (orthogonal listener + VAD).
-**Next session:** execute the G10 plan — Task 1/2/3 are the AEC/wake/VAD
-spikes (ADR-060/061/062) BEFORE any wiring. Baseline to protect:
-`uv run pytest` 241 passed, `just eval` 28/28. G11–G13 plans written when
-reached (per-gate discipline).
+---
 
 ---
 

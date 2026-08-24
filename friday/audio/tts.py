@@ -30,9 +30,10 @@ class Speaker:
     """Loads Kokoro once, then voices strings on demand. `say()` blocks;
     `stop()` cancels an in-flight `say()` from another thread (barge-in)."""
 
-    def __init__(self, kokoro: object, voice: str) -> None:
+    def __init__(self, kokoro: object, voice: str, far_ref: object | None = None) -> None:
         self._kokoro = kokoro
         self._voice = voice
+        self._far_ref = far_ref
         self._cancel = threading.Event()
 
     @property
@@ -48,6 +49,7 @@ class Speaker:
         voice: str,
         fallback: str,
         threads: int = 8,
+        far_ref: object | None = None,
     ) -> "Speaker | None":
         """Build a Speaker, or return None if the model is absent/unloadable.
 
@@ -85,7 +87,7 @@ class Speaker:
         chosen = voice if voice in available else fallback
         if chosen not in available:
             return None
-        return cls(kokoro, chosen)
+        return cls(kokoro, chosen, far_ref=far_ref)
 
     def say(self, text: str, on_play: Callable[[], None] | None = None) -> bool:
         """Synthesize `text` and play it, blocking until finished or cancelled.
@@ -109,6 +111,22 @@ class Speaker:
                 return False
             import sounddevice as sd
 
+            if self._far_ref is not None:
+                try:
+                    import numpy as np
+                    import scipy.signal
+
+                    if sr == 24000:
+                        samples_16k = scipy.signal.resample_poly(samples, 2, 3).astype(np.float32)
+                    elif sr != 16000:
+                        num_samples = int(len(samples) * 16000 / sr)
+                        samples_16k = scipy.signal.resample(samples, num_samples).astype(np.float32)
+                    else:
+                        samples_16k = samples.astype(np.float32)
+                    self._far_ref.write(samples_16k)
+                except Exception:
+                    pass
+
             if on_play is not None:
                 on_play()
             sd.play(samples, sr)
@@ -124,9 +142,12 @@ class Speaker:
         and stops the output stream so a `wait()` already in progress unblocks.
         """
         self._cancel.set()
+        if self._far_ref is not None:
+            self._far_ref.clear()
         try:
             import sounddevice as sd
 
             sd.stop()
         except Exception:
             return
+

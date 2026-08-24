@@ -44,6 +44,23 @@ video playback requests are youtube_search, not none. params: {"query": text}
   remember_preference  the user states a lasting preference or how to be \
 addressed. params: {"key": text, "value": text}
   forget_preference    the user asks to forget a preference. params: {"key": text}
+  set_reminder         the user asks to set a timer, alarm, or reminder (e.g. "remind me in 10 minutes to ...", "set a timer for 5 minutes"). Convert duration to integer seconds in "seconds" (e.g. 5 mins -> "300"). params: {"seconds": text, "message": text}
+  list_reminders       the user asks what reminders or timers are active. params: {}
+  cancel_reminder      the user asks to cancel or remove a timer or reminder. params: {"id": text}
+  set_dnd              the user asks for quiet, "do not disturb", "let's talk later", or "be quiet". params: {}
+  resume_dnd           the user explicitly says "resume" or "disable quiet mode". params: {}
+  system_volume        adjust or mute volume ("volume up", "turn it down", "mute", "unmute"). params: {"direction": "up" | "down" | "mute" | "unmute"}
+  system_brightness    adjust display brightness ("brightness up", "dim screen"). params: {"direction": "up" | "down"}
+  system_media         control media playback ("pause music", "next track", "previous track", "play"). params: {"action": "play_pause" | "next" | "previous" | "stop"}
+  system_wifi          turn Wi-Fi on or off ("turn off wifi", "enable wifi"). params: {"state": "on" | "off"}
+  hypr_workspace       switch to a workspace ("workspace 2", "go to workspace 3"). params: {"workspace": text}
+  hypr_window          manage window focus, fullscreen, or closing ("focus left", "fullscreen", "close window"). params: {"action": "focus_left" | "focus_right" | "focus_up" | "focus_down" | "fullscreen" | "close"}
+  file_open            open a registered file ("open my notes", "open my config", "open my todo"). params: {"alias": text}
+  create_note          capture a quick note ("note that ...", "take a note ...", "save a note ..."). params: {"content": text}
+  read_notes           read saved notes ("read my notes", "what are my notes"). params: {}
+  clipboard_read       read current clipboard ("what is in my clipboard", "read clipboard"). params: {}
+  clipboard_set        copy text to clipboard ("copy ... to clipboard"). params: {"text": text}
+  dictation_mode       start or stop dictation mode ("start dictation", "stop dictation"). params: {"action": "start" | "stop"}
 
 Rules:
 - Pick the single best action. Casual talk, greetings, and questions about \
@@ -123,10 +140,13 @@ suggestion when it fits naturally.
 
 When the user asks a later turn, you CAN: open five apps (Brave the browser, \
 a terminal, VS Code, the mpv player, and VLC), search the web for real-world \
-facts, search or play things on YouTube, and remember or forget the user's \
-preferences. That is your whole toolset. You canNOT edit files, run shell \
-commands, control the system, send messages, or open anything outside those \
-five apps -- so never claim you can, and if asked to do something outside the \
+facts, search or play things on YouTube, set and manage timers/reminders, \
+control system volume, brightness, and media playback, manage windows and workspaces, \
+take and read notes, read/copy clipboard, open registered files, type dictation, \
+enter quiet mode, and remember or forget the user's \
+preferences. That is your whole toolset. You canNOT delete files, install packages, \
+run shell commands, send external messages, or open unregistered files outside those \
+apps -- so never claim you can, and if asked to do something outside the \
 toolset, say plainly that you can't. Describe your abilities accurately if \
 asked; do not invent or omit any. Never claim to have done or opened \
 something -- you are only talking."""

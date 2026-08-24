@@ -1784,9 +1784,9 @@ and not in DND — so FR-5 holds by construction and ADR-009
 a clock**: quiet by default, startup briefing allowed, suggestions
 surface mainly during active conversation, hush phrases ("let's talk
 later", "do not disturb") mute until the user asks a question or says
-resume. (OPEN, not decided by the user: whether a user-set reminder still
-fires during DND — leaning yes since the user set it, but confirm during
-G11 build.) Briefings fire on **startup** and
+resume. User-set timers and reminders **fire anyway (speak + notify-send)**
+during DND (agreed 2026-08-24) as they are time-critical and explicitly set.
+Briefings fire on **startup** and
 on the **voice sign-off** ("goodnight"/"bye") close-summary; system
 shutdown stays silent (audio teardown is unreliable).
 
@@ -1803,10 +1803,13 @@ notes, clipboard, file-open). Invariant #2 (no model-supplied
 path/string) and invariant #10 (no irreversible tools) both apply.
 
 **Decision.** Every new tool is a **closed enum → code builds argv**
-(invariants #2/#3); file-open uses a closed alias→path registry like the
-app registry. Instead of lifting #10, add a **three-tier confirm
-policy**: *harmless* (volume/brightness/media/workspace/read) executes
-immediately; *consequential* (close window, wifi off, clipboard
+(invariants #2/#3); file-open uses a closed alias→path registry with
+dictionary placeholders (specific custom target paths configured on demand).
+App launching/focus behavior (OQ-27 resolved 2026-08-24): if the currently
+active window is that app, focus it; if not on that app/workspace, open a
+new instance and announce via speech. Instead of lifting #10, add a
+**three-tier confirm policy**: *harmless* (volume/brightness/media/workspace/read)
+executes immediately; *consequential* (close window, wifi off, clipboard
 overwrite, dictation submit) needs a **spoken "yes"**; *dangerous* needs
 the **two-pass gate** (ADR-058/ADR-059). Any non-affirmative confirm
 fails closed to `action=none` (invariant #5). A **permanent hard ban** —
@@ -1851,17 +1854,82 @@ asked that dangerous actions additionally re-check their voice silently
 at confirm time — two independent passes — for very low attack surface.
 
 **Decision.** G13 is its own gate with its own FA/FR eval. Enroll the
-owner once → store a **voiceprint embedding** (not raw audio, invariant
-#7). After a `hey_jarvis` hit, cosine-match the utterance embedding to the
-enrolled print; below threshold → ignore (other people, TV). PTT bypasses
-(physical presence = owner). The same verify call backs G12's
-**dangerous tier second pass**: dangerous action = spoken "yes" AND a
-**silent** voiceprint match on that confirmation utterance; failure
-refuses and logs without revealing the threshold. Until G13 lands,
-dangerous actions are disabled (fail closed). Embedding model (SpeechBrain
-ECAPA vs Resemblyzer, CPU only) chosen by a measured spike, weights pinned
-(SHA256).
+owner once using **10 sample utterances** (agreed 2026-08-24) → store a
+**voiceprint embedding** (not raw audio, invariant #7). After a `hey_jarvis`
+hit, cosine-match the utterance embedding to the enrolled print; below
+threshold → ignore (other people, TV). PTT bypasses (physical presence =
+owner). The same verify call backs G12's **dangerous tier second pass**:
+dangerous action = spoken "yes" AND a **silent** voiceprint match on that
+confirmation utterance; failure refuses and logs without revealing the
+threshold. Until G13 lands, dangerous actions are disabled (fail closed).
+Embedding model (SpeechBrain ECAPA vs Resemblyzer, CPU only) chosen by a
+## ADR-060 — AEC library: pywebrtc-audio (WebRTC APM EchoCanceller)
 
-**Consequences.** A resident CPU embedding model and an enrollment flow.
-False-rejects are mitigated by the PTT bypass. Threshold is never spoken
-or logged.
+**Status:** Accepted (2026-08-24, G10 Spike). Closes OQ-21.
+
+**Context.** In hands-free operation, Friday's own TTS output will be picked
+up by the microphone and risk self-triggering the wake word or disrupting VAD.
+Acoustic Echo Cancellation (AEC) is mandatory (ADR-014, ADR-055). We evaluated
+WebRTC APM vs SpeexDSP on Python 3.12 under invariant #6 (CPU only, zero CUDA/torch).
+
+**Measured Spike:**
+- `speexdsp` and legacy `webrtc-audio-processing`: Failed to build on Python 3.12
+  due to missing SWIG and deprecated distutils/setuptools build requirements.
+- `pywebrtc-audio` (v0.1.0): Modern pybind11 wheel wrapping WebRTC APM C++ core.
+  Single package, zero torch/CUDA dependencies.
+- **Latency & Throughput:** 1000 frames (10 seconds of 16kHz audio) processed in
+  73.30 ms (73.3 µs per 10ms frame, RTF = 0.00733 — less than 1% of a single CPU core).
+  Supports mono float32 and int16 1D arrays directly.
+
+**Decision.** Adopt `pywebrtc-audio` for AEC. `AecProcessor` cleans the near-end mic
+signal using the TTS playback far-end reference. Fail-soft falls back to `NullAec` passthrough.
+
+**Consequences.** Clean near-end audio stream with <0.1 ms latency per frame; completely
+prevents TTS self-triggering.
+
+---
+
+## ADR-061 — openWakeWord `hey_jarvis` model footprint and SHA256 pin
+
+**Status:** Accepted (2026-08-24, G10 Spike). Confirms ADR-055.
+
+**Context.** Hands-free activation requires a lightweight, resident wake word detector
+running on CPU. We need to confirm package footprint, license, inference latency, and pin
+the model weights.
+
+**Measured Spike:**
+- `openwakeword` (v0.4.0): Uses `onnxruntime` on CPU. Zero torch or CUDA dependencies.
+- **Weights Pin:** `hey_jarvis_v0.1.onnx` staged at `~/.local/share/friday/models/wake/hey_jarvis.onnx`.
+  SHA256: `94a13cfe60075b132f6a472e7e462e8123ee70861bc3fb58434a73712ee0d2cb` (1,271,370 bytes).
+- **License:** Non-commercial / Apache 2.0 lineage — acceptable for single-user personal use on this machine.
+- **Latency & Throughput:** 80ms audio chunks (1280 samples at 16kHz) processed in
+  1.98 ms on CPU (RTF = 0.0247 — ~2.5% of one CPU core).
+
+**Decision.** Deploy openWakeWord with `hey_jarvis_v0.1.onnx` on CPU with rolling RAM
+buffer. Threshold default 0.5 (tunable via `FRIDAY_WAKE_THRESHOLD`).
+
+**Consequences.** Hands-free detection without GPU contention.
+
+---
+
+## ADR-062 — VAD library: `webrtcvad` for end-of-utterance and barge-in
+
+**Status:** Accepted (2026-08-24, G10 Spike). Closes OQ-24.
+
+**Context.** Wake-initiated captures have no physical key release to signal the end of
+speech. A robust Voice Activity Detector (VAD) is required to emit end-of-speech events
+after trailing silence, and to detect barge-in during TTS playback.
+
+**Measured Spike:**
+- `webrtcvad-wheels` (v2.0.14): Clean C extension, zero torch/CUDA dependencies.
+- **Latency & Throughput:** 1000 frames (20 seconds of audio at 20ms frames) processed
+  in 4.00 ms (4.0 µs per frame, RTF = 0.00020).
+- Modes: Aggressiveness 0–3. Mode 2 provides excellent separation on clean speech with
+  negligible false trigger on ambient room noise.
+
+**Decision.** Use `webrtcvad` (aggressiveness mode 2) paired with a pure state-machine
+`SpeechGate` debouncer (min speech 300ms, trailing silence 800ms).
+
+**Consequences.** Crisp, deterministic end-of-utterance transitions without PTT key dependency.
+
+
