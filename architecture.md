@@ -285,8 +285,10 @@ explicitly on), raw model output, raw search payloads, key events,
 absolute home paths, preference values. A redaction filter runs on every
 record; a test greps the log for `/home/` and fails on a hit.
 
-Per-stage timings are kept in-process and printed by `just bench` as
-p50/p95. No metrics server, no Prometheus. One user, one machine.
+Per-stage timings are kept in-process. TTFA (end-of-speech → first audio
+sample) is logged as `[debug] vN TTFA … ms` when `FRIDAY_DEBUG` is set
+(`daemon._ttfa_logger`); wake/VAD latency has its own harness, `just
+wake-bench`. No metrics server, no Prometheus. One user, one machine.
 
 Health: `friday --selftest` checks llama-server reachability, GPU arch,
 DB schema version, DB permissions, audio devices, and the panic file, and
