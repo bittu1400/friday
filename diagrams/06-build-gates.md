@@ -1,5 +1,9 @@
 # Diagram 06 — Build Gates and Dependency Order
 
+> **STATUS (2026-08-24): all gates G0–G13 PASSED.** This diagram is the
+> dependency *plan*; `progress.md` owns the live done/not-done state. Next
+> session begins with the reality check in `docs/reality-check.md`.
+
 A gate is passed when its acceptance test runs green **and the evidence
 is pasted into `progress.md`**. No gate is skipped, no gate is passed on
 belief. Work on a later gate before an earlier one is how the original

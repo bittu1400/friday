@@ -99,7 +99,7 @@ class Daemon:
             if getattr(self._speaker_verifier, "_voiceprint", None) is None:
                 log.warning(
                     "speaker verification ENABLED but no voiceprint enrolled at %s; "
-                    "all turns pass unchecked (fail-open). Run `just enroll`.",
+                    "all turns pass unchecked (fail-open). Run `just enroll-voice`.",
                     config.VOICEPRINT_FILE,
                 )
 

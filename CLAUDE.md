@@ -8,30 +8,43 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: G0–G9 done (Phase 1 complete)** (2026-08-23). `friday/` is a real
-text+voice assistant that launches apps, remembers preferences, hears you
-(toggle PTT, ADR-044; spoken eval 20/20, TTFA p50 2.16s/p95 2.73s), searches
-the web (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection
-20/20, egress proof; ADR-045/046/047), converses naturally (G8 Build 1:
-two-stage chat, `CHAT_SYSTEM`, RAM `Dialogue`, ADR-048), personalizes suggestions
-from mined habits (G8 Stage 2: `friday/store/habits.py`, ADR-049), maintains
-cross-session conversational memory (G8 Stage 3: `friday/store/summarizer.py`,
-ADR-050), and runs as hardened background user services with unified health
-self-testing and structured logging with rotation and redaction (G9:
-`deploy/systemd/`, `friday/selftest.py`, `friday/logging_config.py`, ADR-051;
-`uv run pytest` **241 passed**, `just eval` **28/28 reg 0**, `just test-injection` **20/20 blocked**,
-`just selftest` **all 7 checks passed**).
+**Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then a
+post-Phase-2 rigorous review (2026-08-24)** that fixed real defects the build
+suite missed. `friday/` is a real text+voice assistant that launches apps,
+remembers preferences, hears you (toggle PTT **and** `hey_jarvis` wake word,
+ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web (G7: SearXNG loopback,
+sanitizer, `final.gbnf` grounding, injection 20/20, egress proof; ADR-045/046/047),
+converses naturally (G8: two-stage chat, `CHAT_SYSTEM`, RAM `Dialogue`, ADR-048),
+personalizes from mined habits (`friday/store/habits.py`, ADR-049), keeps
+cross-session memory (`friday/store/summarizer.py`, ADR-050), runs as hardened
+background user services (G9: `deploy/systemd/`, `friday/selftest.py`, ADR-051),
+and in **Phase 2** adds hands-free wake + AEC + VAD + barge-in (G10, ADR-055/060/061/062),
+a proactive scheduler with SQLite reminders/timers, conversational DND, and
+briefings (G11, ADR-056), an action surface — system volume/brightness/media/wifi,
+Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
+destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
+verification with a 10-utterance voiceprint (G13, ADR-059).
+`uv run pytest` **306 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+**20/20 blocked**, `just selftest` **7/7**, `just test-no-fstring-sql` **OK**.
 
-**A post-G9 live-review session (2026-08-23) fixed 5 real defects** the desk
-tests missed (found by actually talking to it): the invariant-#1 `assert`→`raise`
-(survives `python -O`), systemd `Restart=always`, the browser-launch
-false-failure (ADR-043 amendment — exit code is no longer a launch verdict), the
-planner now sees conversation history for anaphora (ADR-052), and the chat
-persona now states its real toolset (ADR-053). See the **"SESSION 2026-08-23 —
-live-review + hardening"** block at the top of `progress.md` — that is the true
-current state. NOTE: `friday.service` is `Restart=always`, so `kill <pid>` does
-NOT stop the daemon (systemd respawns it) — use `systemctl --user stop friday`.
-`progress.md` has the full evidence.
+**Two review sessions found defects the desk suite missed** — the pattern here
+is that green tests do NOT prove a feature works, because the tests never
+exercised the broken path. (1) A post-G9 live review (2026-08-23) fixed 5:
+invariant-#1 `assert`→`raise` (survives `python -O`), systemd `Restart=always`,
+the browser-launch false-failure (ADR-043 amendment), planner sees history for
+anaphora (ADR-052), chat persona states its real toolset (ADR-053). (2) A
+post-Phase-2 review (2026-08-24) fixed 8 more, including a **dead-on-import G13
+enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
+that spoke success while doing nothing**. The full, current truth is the two
+**"SESSION 2026-08-24 (part 2)"** and **"SESSION 2026-08-23"** blocks at the top
+of `progress.md`. NOTE: `friday.service` is `Restart=always`, so `kill <pid>`
+does NOT stop the daemon — use `systemctl --user stop friday`. The daemon is
+currently **stopped** (stopped 2026-08-24 to silence test-driven toasts);
+`systemctl --user start friday` brings it back.
+
+**NEXT SESSION: reality check first.** `docs/reality-check.md` is the systematic
+manifest of everything Friday must do and must refuse — verify each item live
+before starting new work, and paste results into `progress.md`.
 
 ## Working agreement — how sessions run
 
@@ -176,7 +189,9 @@ ADR-021, ADR-003, ADR-022). **Do not cite them as current.**
 
    9.  One turn in flight.  Ever.                       FR-5
 
-   10. No irreversible tools in Phase 1.                FR-33
+   10. No irreversible tools.  Destructive command CLASSES are
+       PERMANENTLY banned (not relaxed by Phase 2); reversibility is
+       enforced by a three-tier confirm.        FR-33, ADR-057
 ```
 
 If a task seems to require breaking one of these, it does not. Stop and
@@ -190,13 +205,13 @@ conversational-chat-design.md`), G9 is service — reordered 2026-08-23 so
 conversation ships before the service layer. See
 `diagrams/06-build-gates.md`.
 
-**Phase 2 (planned 2026-08-24, not built): `G10 -> G11 -> G12 -> G13`** —
-wake word + AEC, proactive, action surface, speaker verification. Design:
-`docs/superpowers/specs/2026-08-24-phase2-design.md` (ADR-054…059). G10
-plan ready: `docs/superpowers/plans/2026-08-24-g10-wake-word.md` — start
-there, its Tasks 1–3 are the AEC/wake/VAD dependency spikes. Note: Phase 2
-does NOT relax invariant #10 — destructive command classes are permanently
-banned (ADR-057), reversibility is enforced by a three-tier confirm.
+**Phase 2 (BUILT 2026-08-24): `G10 -> G11 -> G12 -> G13`** — wake word + AEC +
+VAD + barge-in, proactive scheduler, action surface, speaker verification.
+Design: `docs/superpowers/specs/2026-08-24-phase2-design.md` (ADR-054…062);
+per-gate plans in `docs/superpowers/plans/2026-08-24-g1[0-3]-*.md`. All four
+gates are complete and reviewed — see `progress.md`. Phase 2 did NOT relax
+invariant #10: destructive command classes are permanently banned (ADR-057),
+reversibility enforced by a three-tier confirm.
 
 **G1 (toolchain) before anything else.** This GPU is Blackwell, sm_120.
 A CUDA build without sm_120 kernels fails at runtime with
@@ -233,14 +248,23 @@ A diagram that disagrees with the code is a bug in the diagram.
 
 ## Commands
 
+Recipe names are authoritative — check the `justfile` before citing one (there
+is no `setup` or `bench`; environment bootstrap is `uv sync` + `just fetch-voice`
++ the llama.cpp build in ADR-021).
+
 ```bash
-just setup       # uv venv 3.12, install, build llama.cpp with sm_120
-just serve       # start llama-server
-just run         # start the orchestrator (text mode)
-just eval        # 50 fixtures -> pass count
-just test        # unit + adversarial + injection
-just selftest    # health: gpu arch, server, db perms, audio, binds
-just bench       # TTFA p50/p95, VRAM peak
+just serve              # start llama-server (or: systemctl --user start friday-llm)
+just run                # orchestrator, text mode
+just voice              # voice-in daemon (PTT + wake); --dry-run / --no-voice / --no-wake
+just eval               # eval fixtures -> pass count (currently 28)
+just test               # full unit + adversarial + injection suite (pytest -q)
+just test-injection     # G7 hostile-result suite, 20/20 must block
+just test-no-fstring-sql# assert store/ SQL is strictly parameterized
+just selftest           # health: gpu arch, servers, db perms, audio, binds (7 checks)
+just wake-bench         # G10 live wake-word / VAD benchmark
+just enroll-voice       # G13 interactive 10-utterance voiceprint enrollment
+just ptt press|release  # send a PTT command to the running daemon
+just prefs list|forget  # manage stored preferences
 ```
 
 ## Things that will tempt you and are wrong
@@ -253,5 +277,7 @@ just bench       # TTFA p50/p95, VRAM peak
 | "Prompt the model to ignore injected instructions" | ADR-008. Most-of-the-time is not a control. Use the grammar. |
 | "Bump context to 32k, we have room" | Measure first. ADR-003 has the arithmetic; redo it. |
 | "Add streaming TTS now, it's an easy win" | ADR-020. Measure at G6 first. |
-| "Ship the wake word, it's just a training run" | ADR-012. FA/FR tuning is the real cost, and PTT already works. |
+| "Speaker verify is on, so impostors are blocked" | Only if a voiceprint is enrolled — it fails OPEN otherwise, and it is OFF by default (`FRIDAY_SPEAKER_VERIFY_ENABLE`). Enroll with `just enroll-voice` first. |
+| "Make the timer recurring by default / it fired twice so it loops" | Timers are strictly one-shot (marked `fired`). A repeated toast in tests means `notify-send` wasn't stubbed, not a reminder bug. |
+| "A green test suite proves the feature works" | Twice now, tests passed while the real path was broken (G13 enroll, `clipboard_set`). Exercise the actual path; see `docs/reality-check.md`. |
 | "Put the search results in the planning turn, one round-trip" | T1. This is the exact attack the design prevents. |

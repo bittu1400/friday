@@ -5,7 +5,7 @@ embeddings on CPU (invariant #6), computes the mean normalized voiceprint, and
 saves it to ~/.local/state/friday/voiceprint.npy (mode 0600). Raw audio never
 touches disk (invariant #7).
 
-Run with `just enroll` (or `uv run python -m friday.speaker_enroll`).
+Run with `just enroll-voice` (or `uv run python -m friday.speaker_enroll`).
 """
 
 from __future__ import annotations

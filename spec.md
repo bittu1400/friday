@@ -32,13 +32,15 @@ limitation to be lifted later.
 | Smart home, multi-device sync, background agents | Out of mandate | No |
 | Arbitrary shell execution | Explicitly, permanently out of scope | Never |
 
-> **Phase 2 (planned 2026-08-24).** Wake word (`hey_jarvis`, not custom
-> yet), proactivity, a wider *enum-bounded* action surface, and speaker
-> verification are scoped as gates G10–G13. Phase 2 requirements live in
-> `docs/superpowers/specs/2026-08-24-phase2-design.md` (ADR-054…059).
-> Arbitrary shell execution and destructive command classes stay
-> permanently banned in Phase 2 too (ADR-057). This spec stays
-> authoritative for Phase 1.
+> **Phase 2 (BUILT 2026-08-24).** Wake word (`hey_jarvis`, not custom yet),
+> proactivity, a wider *enum-bounded* action surface, and speaker verification
+> shipped as gates G10–G13. Phase 2 requirements + acceptance criteria live in
+> `docs/superpowers/specs/2026-08-24-phase2-design.md` (ADR-054…063); their
+> live, checkable form is `docs/reality-check.md`. The FR table below stays
+> authoritative for Phase 1 and has not yet been extended with per-feature
+> FR IDs for Phase 2 — use the phase2-design spec and reality-check for those.
+> Arbitrary shell execution and destructive command classes stay permanently
+> banned in Phase 2 too (ADR-057).
 
 ---
 

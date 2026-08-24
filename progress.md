@@ -12,13 +12,21 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE** (2026-08-24).
+**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, then a
+**post-Phase-2 rigorous code+docs review (2026-08-24, part 2)** that fixed
+real defects the build suite missed (see the session block just below).
 All tasks for G0 through G13 (scaffolding, toolchain, eval, registry, persistence, voice out,
 voice in, search, conversation/memory, service resilience, wake word + AEC + VAD + barge-in,
 proactive turn arbiter + reminders/DND/briefings, action surface + dictation, and CPU speaker verification)
 implemented and verified.
-`uv run pytest` **290 passed**, `just eval` **28/28 (regressions 0)**,
-`just test-injection` **20/20 blocked**, `just selftest` **all 7 checks passed**.
+`uv run pytest` **306 passed**, `just eval` **28/28 (regressions 0)**,
+`just test-injection` **20/20 blocked**, `just selftest` **all 7 checks passed**,
+`just test-no-fstring-sql` **OK**.
+
+**NEXT SESSION starts with a reality check.** Before any new work, walk
+`docs/reality-check.md` — the full manifest of what Friday MUST do and MUST
+refuse — and verify each item live. That file is the systematic checklist;
+this file is where its results get pasted.
 
 ```
    G0 REPO         [x]
@@ -39,16 +47,88 @@ implemented and verified.
 
 ---
 
-## SESSION 2026-08-24 — Phase 2 Build (G10–G13 COMPLETE)
+## SESSION 2026-08-24 (part 2) — Phase 2 rigorous review + fixes (CURRENT STATE)
+
+A full senior review of ALL Phase 2 code (G10–G13, ~3200 LOC) followed by a
+docs review. The build suite was green, but it never exercised the broken
+paths — a defect pattern this project has now seen twice. Every finding below
+was proven by running, not by reading. All fixed, tested, committed locally
+(`819c200` code fixes; docs sync in the follow-up commit). Nothing speculative.
+
+### Defects found and fixed (code — commit 819c200)
+1. **G13 enrollment was dead on import (CRITICAL).** `friday/speaker_enroll.py`
+   did `from friday.audio.recorder import Recorder` (no such module) plus three
+   more dead API calls (`Recorder()` needs a `gate`; no `.read()`; wrong
+   `SpeechGate` signature). `just enroll-voice` crashed instantly. With no
+   enrollable voiceprint, `SpeakerVerifier.verify` fails **open** forever — G13
+   gave zero real protection. Proven: `python -c "import friday.speaker_enroll"`
+   → `ModuleNotFoundError`. Rewritten against the real APIs (blocking
+   `sd.InputStream` read + correct `SpeechGate(frame_ms,…)` + `push(bool)`).
+   `tests/test_speaker_enroll.py` now guards it.
+2. **`clipboard_set` spoke success, did nothing (ADR-009 violation).** No
+   registry/impl existed; the confirm path fell through to "Action completed."
+   Added `friday/tools/clipboard.py` (text → `wl-copy` on **STDIN**, never argv,
+   so pipes/semicolons/backticks copy verbatim and are never parsed). Wired into
+   the confirm path; unknown pending tools now fail honestly.
+3. **`hypr_window` close was a silent no-op.** `hyprctl dispatch closewindow
+   active` — `active` is not a valid selector for `closewindow`. → `killactive`.
+4. **Invariant #6 latent break (wake).** openWakeWord requests
+   `CUDAExecutionProvider` for its melspec/embedding sessions; safe here only
+   because onnxruntime is the CPU build. `OpenWakeWordDetector` now fails closed
+   if the models land on CUDA (`create_detector` disables wake; PTT still works).
+5. **Planner-routed `dictation_mode` never toggled the manager** (only the regex
+   pre-intercept did) — now wired in the daemon.
+6. Speaker-verify fail-open now logs a loud startup warning when enabled but
+   unenrolled. Proactive idle-wait is bounded (no infinite spin). `set_reminder`
+   audit message truncated `[:40]` (matches notes). Briefing plural fixed.
+
+### The "pasta is ready" notification loop — root cause
+NOT a real reminder. The reminders table was **empty (0 rows)**; "pasta is
+ready" exists only in `tests/test_proactive.py`. `Scheduler` shells to
+`notify-send` for real, and that test never stubbed it — so every `pytest` run
+popped a real desktop toast. Fixed: `test_proactive.py` now stubs `notify`
+(autouse). Timers are and remain strictly **one-shot** (marked `fired`, never
+refired); there is no recurring logic anywhere.
+
+### Reminder robustness (user ask: "flawless, ask if unsure")
+`set_reminder` no longer defaults to a silent 60 s timer on a misheard
+duration. `_parse_reminder_seconds` returns None on garbage → the turn asks
+again with an example and creates nothing. Confirmation is natural:
+"Okay, I'll remind you to check the pasta in 5 minutes."
+
+### Evidence (all re-run this session)
+```
+$ uv run pytest -q            306 passed, 1 warning
+$ just eval                   passed 28/28 (100%), regressions 0
+$ just test-injection         20/20 blocked
+$ just selftest               All 7 checks passed (schema v3, GPU 12.0 sm_120, loopback)
+$ just test-no-fstring-sql    OK: store/ is strictly parameterized SQL
+```
+Note: the daemon was **stopped** this session (`systemctl --user stop friday`)
+to silence the test-driven toasts. `friday-llm` + `friday-searxng` still run.
+Restart Friday with `systemctl --user start friday`.
+
+### Docs reconciled this session
+- `just test-no-fstring-sql` was cited as evidence but **did not exist** as a
+  recipe — added it to the justfile (the property already held).
+- `just enroll` → real name is `just enroll-voice` (fixed in code docstrings).
+- CLAUDE.md status block said "G0–G9 done / Phase 2 not built" — corrected to
+  reflect Phase 2 complete + this review.
+- New `docs/reality-check.md`: the systematic capability manifest for next
+  session's live verification.
+
+---
+
+## SESSION 2026-08-24 (part 1) — Phase 2 Build (G10–G13 COMPLETE)
 
 All four Phase 2 gates built with full TDD discipline and zero regressions.
+(Superseded by part 2 above for the true current test count.)
 
 ### Evidence
 - `uv run pytest -q` -> **290 passed, 1 warning in 3.79s**
 - `just eval` -> **28/28 (100%), 0 regressions**
 - `just selftest` -> **All 7 checks passed** (schema v3, GPU 12.0 sm_120, loopback only)
 - `just test-injection` -> **20/20 blocked**
-- `just test-no-fstring-sql` -> **Passed (store/ is strictly parameterized SQL)**
 - CPU only verified (Invariant #6): openWakeWord, WebRTC AEC, WebRTC VAD, and sherpa-onnx 3D-Speaker run on CPU with zero CUDA runtime dependencies.
 
 ---

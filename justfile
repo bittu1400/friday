@@ -41,6 +41,13 @@ test-adversarial:
 test-injection:
     uv run pytest tests/test_injection.py -v
 
+# Assert store/ SQL is strictly parameterized (no f-string/format/concat) — guards user free-text (notes, reminder messages, prefs) against SQL injection.
+test-no-fstring-sql:
+    @echo "asserting store/ contains no f-string / interpolated SQL:"
+    @! grep -rniE "f[\"'][^\"']*(select|insert|update|delete|from|where|values)" friday/store/ \
+      && echo "OK: store/ is strictly parameterized SQL" \
+      || (echo "FAIL: interpolated SQL literal found in store/" && exit 1)
+
 # G7 egress proof (FR-60, invariant #8): SearXNG is the ONLY outbound path.
 # Confirms no service binds beyond loopback. The block-all-non-loopback half
 # is a manual step (needs privileges) documented in progress.md.
