@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import time
 from friday import config
 from friday.audio.aec import NullAec
@@ -118,6 +119,30 @@ def test_detector_create_smoke():
     # Feed silent frame
     score = det.score(np.zeros(320, dtype=np.float32))
     assert 0.0 <= score <= 1.0
+
+
+def test_detector_on_cuda_is_rejected(monkeypatch):
+    """Invariant #6: wake must run on CPU. If openWakeWord lands the melspec /
+    embedding sessions on CUDA, the detector must fail (create_detector then
+    disables wake) rather than silently break the invariant."""
+    import openwakeword.model as owm
+    from friday.audio.wake import OpenWakeWordDetector, create_detector
+
+    class _FakePreproc:
+        onnx_execution_provider = "CUDAExecutionProvider"
+
+    class _FakeModel:
+        def __init__(self, *a, **k):
+            self.preprocessor = _FakePreproc()
+            self.models = {"hey_jarvis": object()}
+
+    monkeypatch.setattr(owm, "Model", _FakeModel)
+
+    with pytest.raises(RuntimeError):
+        OpenWakeWordDetector(config.WAKE_MODEL)
+
+    # Fail-soft at the factory: wake disabled, not a crash.
+    assert create_detector(model_path=config.WAKE_MODEL) is None
 
 
 def test_self_trigger_suppressed_during_speaking():

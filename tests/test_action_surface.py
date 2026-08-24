@@ -63,7 +63,7 @@ def test_hypr_tools_argv():
     win_spec = REGISTRY["hypr_window"]
     assert win_spec.build_argv({"action": "focus_left"}) == ["hyprctl", "dispatch", "movefocus", "l"]
     assert win_spec.build_argv({"action": "fullscreen"}) == ["hyprctl", "dispatch", "fullscreen", "1"]
-    assert win_spec.build_argv({"action": "close"}) == ["hyprctl", "dispatch", "closewindow", "active"]
+    assert win_spec.build_argv({"action": "close"}) == ["hyprctl", "dispatch", "killactive"]
 
 
 def test_file_open_argv():

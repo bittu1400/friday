@@ -47,6 +47,9 @@ _TRANSCRIBE_TIMEOUT = 5.0
 # (FR-64), so the turn cannot actually hang to 20 s.
 _PLANNING_TIMEOUT = 20.0
 _CONFIRM_WINDOW = 30.0
+# A proactive alert waits this long for an in-flight turn to finish before it
+# gives up speaking (the desktop notification fired regardless).
+_PROACTIVE_WAIT_S = 30.0
 
 
 class Daemon:
@@ -89,6 +92,16 @@ class Daemon:
         if self._speaker_verifier is None and config.SPEAKER_VERIFY_ENABLED:
             from .audio.speaker import SpeakerVerifier
             self._speaker_verifier = SpeakerVerifier()
+            # Verify fails OPEN with no enrolled voiceprint (a mic-only check
+            # cannot reject an unknown speaker). Say so loudly at startup so an
+            # operator who flipped the flag is not lulled into thinking turns
+            # are being gated when they are not. Enroll with `just enroll`.
+            if getattr(self._speaker_verifier, "_voiceprint", None) is None:
+                log.warning(
+                    "speaker verification ENABLED but no voiceprint enrolled at %s; "
+                    "all turns pass unchecked (fail-open). Run `just enroll`.",
+                    config.VOICEPRINT_FILE,
+                )
 
         db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
         if self._scheduler is None and db is not None:
@@ -315,6 +328,14 @@ class Daemon:
                 self._dnd.set_dnd()
             elif result.plan_name == "resume_dnd":
                 self._dnd.clear_dnd()
+            elif result.plan_name == "dictation_mode":
+                # The regex pre-intercept above catches most phrasings; this is
+                # the fallback for a planner-routed toggle ("dictation on"), so
+                # the manager state actually matches what we speak.
+                if result.params.get("action", "start").lower() == "stop":
+                    self._dictation.stop()
+                else:
+                    self._dictation.start()
 
 
 
@@ -400,15 +421,26 @@ class Daemon:
                 spoken = "Okay, I won't."  # anything but yes cancels the write
         elif isinstance(pending, PendingAction):
             if is_affirmation(text):
-                from .tools.registry import REGISTRY
-                from .tools import executor
-                from .ui import templates
-                spec = REGISTRY.get(pending.tool_id)
-                if spec is not None:
-                    res = await executor.execute(spec, pending.params, request_id=rid, dry_run=self._dry_run)
-                    spoken = templates.render(res.outcome, res.display)
+                if pending.tool_id == "clipboard_set":
+                    # Not a subprocess-registry tool: text goes to wl-copy on
+                    # STDIN (see tools/clipboard.py). Speak the real outcome —
+                    # never a blanket "done" (ADR-009).
+                    from .tools.clipboard import set_clipboard
+                    text_val = pending.params.get("text", "")
+                    ok = await asyncio.to_thread(set_clipboard, text_val)
+                    spoken = "Copied to your clipboard." if ok else "Clipboard unavailable."
                 else:
-                    spoken = "Action completed."
+                    from .tools.registry import REGISTRY
+                    from .tools import executor
+                    from .ui import templates
+                    spec = REGISTRY.get(pending.tool_id)
+                    if spec is not None:
+                        res = await executor.execute(spec, pending.params, request_id=rid, dry_run=self._dry_run)
+                        spoken = templates.render(res.outcome, res.display)
+                    else:
+                        # Unknown pending tool: fail honestly, do not claim success.
+                        log.warning("confirm resolved unknown pending tool %s", pending.tool_id)
+                        spoken = "I couldn't do that."
             else:
                 spoken = "Okay, cancelled."
         else:
@@ -473,8 +505,17 @@ class Daemon:
         self.state.reset()
 
     async def on_proactive_event(self, title: str, message: str) -> None:
-        """Deliver a proactive spoken alert when idle without violating FR-5."""
+        """Deliver a proactive spoken alert when idle without violating FR-5.
+
+        Wait bounded (a busy turn should not block a reminder forever, nor spin
+        the scheduler indefinitely). The desktop notification already fired in
+        the scheduler, so on timeout we drop the spoken line rather than talk
+        over an in-progress turn."""
+        deadline = time.monotonic() + _PROACTIVE_WAIT_S
         while not self.state.is_idle:
+            if time.monotonic() >= deadline:
+                log.info("proactive '%s' not spoken: busy past %.0fs", message, _PROACTIVE_WAIT_S)
+                return
             await asyncio.sleep(0.2)
         await self._say_now(f"Reminder: {message}")
 

@@ -156,7 +156,10 @@ def _build_window_argv(p: Mapping[str, str]) -> list[str]:
     elif action == "fullscreen":
         return ["hyprctl", "dispatch", "fullscreen", "1"]
     elif action == "close":
-        return ["hyprctl", "dispatch", "closewindow", "active"]
+        # `killactive` closes the focused window with no argument. `closewindow`
+        # takes a window regex/address — "active" is not a valid selector there
+        # and silently matches nothing (reported OK on a no-op).
+        return ["hyprctl", "dispatch", "killactive"]
     raise PolicyRejected(f"Unknown window action: {action}")
 
 

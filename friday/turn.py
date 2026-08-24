@@ -339,6 +339,36 @@ async def _do_forget(
     return TurnResult("forget_preference", params, spoken, bool(n))
 
 
+def _parse_reminder_seconds(raw: str) -> float | None:
+    """Parse the planner's `seconds` field to a positive finite float, or None
+    if it is missing/garbled. None means "ask", NOT "guess a default" — a
+    misheard duration must never silently become a random timer."""
+    digits = "".join(c for c in raw if c.isdigit() or c == ".")
+    try:
+        v = float(digits)
+    except ValueError:
+        return None
+    if v != v or v in (float("inf"), float("-inf")) or v <= 0:
+        return None
+    return v
+
+
+def _humanize_duration(sec: float) -> str:
+    if sec < 60:
+        n = int(round(sec))
+        return f"{n} second{'' if n == 1 else 's'}"
+    if sec < 3600:
+        m = int(round(sec / 60))
+        return f"{m} minute{'' if m == 1 else 's'}"
+    h = int(round(sec / 3600))
+    return f"{h} hour{'' if h == 1 else 's'}"
+
+
+# Placeholder messages the planner emits when it heard a duration but no task;
+# treat them as "no message" so the spoken line stays natural.
+_EMPTY_REMINDER_MSGS = frozenset({"", "timer up", "timer", "reminder", "alarm"})
+
+
 async def _do_set_reminder(
     params: dict[str, str],
     prefs: PrefStore | None,
@@ -351,33 +381,34 @@ async def _do_set_reminder(
 
     from .store.reminders import ReminderStore
 
-    raw_sec = params.get("seconds", "60")
-    try:
-        # Extract digits/float from seconds string
-        sec = float("".join(c for c in raw_sec if c.isdigit() or c == "."))
-        if sec <= 0:
-            sec = 60.0
-    except ValueError:
-        sec = 60.0
+    sec = _parse_reminder_seconds(params.get("seconds", ""))
+    if sec is None:
+        # Don't set a wrong timer on a mishear — ask again, with an example so
+        # the retry is easy and natural. Nothing is created; dispatched=False.
+        return TurnResult(
+            "set_reminder", params,
+            "I didn't catch how long. Try, for example, "
+            "remind me in ten minutes to check the pasta.",
+            False,
+        )
 
-    msg = params.get("message", "Timer up")
+    msg = params.get("message", "").strip()
+    has_task = msg.lower() not in _EMPTY_REMINDER_MSGS
+
     store = ReminderStore(db)
-    rem = await store.acreate(seconds=sec, message=msg, kind="timer")
+    await store.acreate(seconds=sec, message=msg or "Timer up", kind="timer")
 
-    if sec < 60:
-        spoken = f"Timer set for {int(sec)} seconds."
-    elif sec < 3600:
-        mins = int(round(sec / 60))
-        spoken = f"Timer set for {mins} {'minute' if mins == 1 else 'minutes'}."
-    else:
-        hrs = int(round(sec / 3600))
-        spoken = f"Reminder set for {hrs} {'hour' if hrs == 1 else 'hours'}."
+    dur = _humanize_duration(sec)
+    spoken = (
+        f"Okay, I'll remind you to {msg} in {dur}." if has_task
+        else f"Timer set for {dur}."
+    )
 
     if audit is not None:
         await audit.arecord(
             request_id=request_id,
             tool_id="set_reminder",
-            params={"seconds": str(int(sec)), "message": msg},
+            params={"seconds": str(int(sec)), "message": msg[:40]},
             policy_decision="allowed",
             outcome="ok",
             duration_ms=0,
@@ -473,27 +504,15 @@ async def _do_read_notes(prefs: PrefStore | None) -> TurnResult:
 
 
 async def _do_clipboard_read() -> TurnResult:
-    import shutil
-    import subprocess
+    from .tools.clipboard import read_clipboard
 
-    cmd = shutil.which("wl-paste")
-    if not cmd:
+    raw = await asyncio.to_thread(read_clipboard)
+    if raw is None:
         return TurnResult("clipboard_read", {}, "Clipboard unavailable.", False)
-
-    try:
-        res = await asyncio.to_thread(
-            subprocess.run,
-            [cmd, "--no-newline"],
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        )
-        txt = res.stdout.strip()
-        if not txt:
-            return TurnResult("clipboard_read", {}, "Your clipboard is empty.", False)
-        snippet = " ".join(txt.split())[:100]
-        return TurnResult("clipboard_read", {}, f"Clipboard contains: {snippet}", False)
-    except Exception:
-        return TurnResult("clipboard_read", {}, "Could not read clipboard.", False)
+    txt = raw.strip()
+    if not txt:
+        return TurnResult("clipboard_read", {}, "Your clipboard is empty.", False)
+    snippet = " ".join(txt.split())[:100]
+    return TurnResult("clipboard_read", {}, f"Clipboard contains: {snippet}", False)
 
 

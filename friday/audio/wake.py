@@ -75,6 +75,21 @@ class OpenWakeWordDetector:
 
         p = str(model_path)
         self._model = Model(wakeword_model_paths=[p])
+
+        # Invariant #6: only llama-server (a separate process) touches CUDA;
+        # everything in this process — STT, TTS, and wake — is CPU. openWakeWord
+        # hardcodes ["CUDAExecutionProvider", "CPUExecutionProvider"] for its
+        # melspec/embedding sessions (utils.py), so on a machine with
+        # onnxruntime-gpu installed it would silently grab the GPU. Fail closed
+        # instead: create_detector() catches this and disables wake (PTT still
+        # works) rather than let the invariant break unnoticed.
+        provider = getattr(self._model.preprocessor, "onnx_execution_provider", "")
+        if "CUDA" in str(provider):
+            raise RuntimeError(
+                f"wake models loaded on {provider}; invariant #6 requires CPU. "
+                "Ensure onnxruntime (CPU), not onnxruntime-gpu, is installed."
+            )
+
         self._model_key = list(self._model.models.keys())[0]
         self._chunk_size = chunk_size
         self._buffer = np.zeros(0, dtype=np.int16)

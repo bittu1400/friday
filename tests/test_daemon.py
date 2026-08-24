@@ -473,5 +473,82 @@ def test_speaker_verification_allows_enrolled_user(monkeypatch):
     asyncio.run(go())
 
 
+def test_clipboard_set_confirm_yes_actually_writes(monkeypatch):
+    """clipboard_set has no registry entry; the confirm path must run wl-copy
+    and speak the REAL outcome, never a blanket 'Action completed.' (ADR-009)."""
+    from friday.turn import PendingAction
+    import friday.tools.clipboard as clip
+
+    calls = []
+    monkeypatch.setattr(clip, "set_clipboard", lambda text, **kw: calls.append(text) or True)
+
+    pending = PendingAction("clipboard_set", {"text": "hello world"}, "overwrite clipboard")
+    _plan(monkeypatch, TurnResult(
+        "clipboard_set", {"text": "hello world"},
+        "Are you sure you want to overwrite your clipboard?", False, pending=pending))
+
+    d = _daemon()
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        assert d._pending is pending
+        d._transcriber = FakeTranscriber(text="yes")
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+
+    asyncio.run(go())
+    assert calls == ["hello world"]  # wl-copy really ran with the text
+    assert any("Copied to your clipboard." in s for s in d._speaker.said)
+    assert d.state.state is State.IDLE
+
+
+def test_clipboard_set_confirm_no_does_not_write(monkeypatch):
+    from friday.turn import PendingAction
+    import friday.tools.clipboard as clip
+
+    calls = []
+    monkeypatch.setattr(clip, "set_clipboard", lambda text, **kw: calls.append(text) or True)
+
+    pending = PendingAction("clipboard_set", {"text": "secret"}, "overwrite clipboard")
+    _plan(monkeypatch, TurnResult(
+        "clipboard_set", {"text": "secret"}, "Are you sure?", False, pending=pending))
+
+    d = _daemon()
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+        d._transcriber = FakeTranscriber(text="no")
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+
+    asyncio.run(go())
+    assert calls == []  # nothing copied when declined
+    assert any("cancelled" in s.lower() for s in d._speaker.said)
+
+
+def test_planner_dictation_mode_toggles_manager(monkeypatch):
+    """A planner-routed dictation_mode (phrasing the regex misses) must flip the
+    DictationManager, not just speak — otherwise state and speech disagree."""
+    _plan(monkeypatch, TurnResult(
+        "dictation_mode", {"action": "start"}, "Dictation mode enabled.", False))
+    # A transcript the dictation regex does NOT match, forcing the planner path.
+    d = _daemon(transcriber=FakeTranscriber(text="dictation on"))
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+
+    asyncio.run(go())
+    assert d._dictation.is_dictating  # actually activated
+    assert any("Dictation mode enabled." in s for s in d._speaker.said)
+
+
 
 

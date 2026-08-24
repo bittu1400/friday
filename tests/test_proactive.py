@@ -8,6 +8,19 @@ from friday.store.db import Database
 from friday.store.reminders import ReminderStore
 
 
+@pytest.fixture(autouse=True)
+def _no_desktop_notifications(monkeypatch):
+    """The Scheduler shells out to `notify-send` for real. Under test that pops
+    actual desktop notifications on the developer's machine (a running suite
+    once spammed real 'pasta is ready' toasts). Stub it everywhere the tests
+    can reach it so pytest has no side effect on the desktop."""
+    import friday.proactive.scheduler as sched_mod
+    import friday.proactive.notifier as notifier_mod
+
+    monkeypatch.setattr(sched_mod, "notify", lambda *a, **k: True)
+    monkeypatch.setattr(notifier_mod, "notify", lambda *a, **k: True)
+
+
 @pytest.fixture
 def db(tmp_path):
     return Database(tmp_path / "memory.db")

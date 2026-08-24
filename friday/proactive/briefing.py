@@ -43,7 +43,7 @@ def generate_startup_briefing(db: Database) -> str:
         parts = ["Good day."]
         if active:
             n = len(active)
-            parts.append(f"You have {n} active {'timer' if n == 1 else 'reminders'}.")
+            parts.append(f"You have {n} active {'timer' if n == 1 else 'timers'}.")
         if summaries:
             parts.append("Systems online and ready.")
         else:
