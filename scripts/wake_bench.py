@@ -19,6 +19,30 @@ from friday import config
 from friday.audio import aec, vad, wake
 
 
+class _Probe:
+    """Wraps the detector to record peak input level and the highest score seen.
+
+    Without these two numbers a dead microphone and a genuinely quiet room both
+    print "Wake Hits: 0", and a zero that cannot distinguish them is not
+    evidence of anything.
+    """
+
+    def __init__(self, inner: object) -> None:
+        self._inner = inner
+        self.max_score = 0.0
+        self.peak = 0.0
+
+    def score(self, frame: np.ndarray) -> float:
+        if frame.size:
+            self.peak = max(self.peak, float(np.abs(frame).max()))
+        s = self._inner.score(frame)
+        self.max_score = max(self.max_score, s)
+        return s
+
+    def reset(self) -> None:
+        self._inner.reset()
+
+
 def run_benchmark(duration_s: float = 10.0, threshold: float = 0.5) -> None:
     print(f"=== Friday Wake-Word & VAD Benchmark ({duration_s}s) ===")
     print(f"Model: {config.WAKE_MODEL}")
@@ -29,6 +53,7 @@ def run_benchmark(duration_s: float = 10.0, threshold: float = 0.5) -> None:
     aec_proc = aec.create(enabled=config.AEC_ENABLED, sample_rate=16000, frame_ms=config.AEC_FRAME_MS)
     vad_det = vad.create(mode=config.VAD_AGGRESSIVENESS, sample_rate=16000)
     wake_det = wake.create_detector(config.WAKE_MODEL, threshold=threshold)
+    probe = _Probe(wake_det) if wake_det is not None else None
 
     events: list[tuple[float, str]] = []
 
@@ -54,7 +79,7 @@ def run_benchmark(duration_s: float = 10.0, threshold: float = 0.5) -> None:
     )
 
     listener = wake.WakeListener(
-        detector=wake_det,
+        detector=probe,
         vad=vad_det,
         aec=aec_proc,
         callbacks=callbacks,
@@ -85,6 +110,15 @@ def run_benchmark(duration_s: float = 10.0, threshold: float = 0.5) -> None:
     print(f"Wake Hits: {wake_count}")
     print(f"Speech End Triggers: {speech_end_count}")
     print(f"Barge-In Triggers: {barge_count}")
+    if probe is not None:
+        print(f"Peak input level: {probe.peak:.4f}")
+        print(f"Max wake score:   {probe.max_score:.3f}  (threshold {threshold})")
+        if probe.peak == 0.0:
+            print("VERDICT: microphone delivered pure zeros - this run proves NOTHING.")
+        elif wake_count == 0 and probe.max_score < 0.05:
+            print("VERDICT: mic live, wake word never came close. Clean silence run.")
+        elif wake_count == 0:
+            print("VERDICT: mic live, wake word approached but did not cross threshold.")
     print("=========================")
 
 
