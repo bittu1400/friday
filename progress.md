@@ -97,6 +97,66 @@ dir created 0700, llama ready, whisper STT + openWakeWord (CPU) loaded, PTT sock
 listening on `/run/user/1000/friday/ptt.sock`. Commit `d6be8ca`. Live voice/mic
 rows (A8/A15/A16 + real state changes + store-backed) are being walked by the user.
 
+### FULL-CODEBASE AUDIT (same session, after defects #1 and #2)
+6608 LOC production audited along the axis that actually produces defects here:
+**paths tests never exercise**. Findings 3–7 below; 3–5 fixed in one commit.
+
+3. **(root cause) Phase 2 control params were `text`, not `enum`.** Every G12
+   control param — `system_volume.direction`, `system_brightness.direction`,
+   `system_media.action`, `system_wifi.state`, `hypr_window.action`,
+   `dictation_mode.action`, `file_open.alias` — was declared `{"kind":"text"}`
+   in `PARAM_SCHEMA`, so `_validate_params` only checked non-emptiness. The
+   prompt advertises them as closed sets (`"up" | "down" | "mute"`), but a
+   prompt is not a control (ADR-008) — that is the exact reasoning this project
+   uses to reject prompt-based defences. This is the **root cause behind defect
+   #1 (`file_open`)**, not a separate bug. Fixed: declared as real enums, so the
+   validator fails closed to `action=none` (invariant #5) and the model supplies
+   an opaque ID from a closed enum rather than free text that becomes an argv
+   element (invariant #2). Grammar files unaffected (`plan.gbnf` constrains the
+   action *name*; params are generic string pairs), so no regeneration.
+4. **Three builders guessed instead of failing closed — wrong action, honest-
+   sounding speech.** `_build_volume_argv` returned **volume UP** for any
+   direction that wasn't down/mute/unmute; `_build_brightness_argv` was a bare
+   `if d == "up" else` so **anything not exactly "up" DIMMED the screen**
+   ("brighten"/"increase" → darker); `_build_media_argv` fell back to
+   play-pause. In each case the spoken template names what the *user asked for*
+   (`p.get('direction','changed')`), so Friday reports an action that never
+   happened — an ADR-009 violation. All three now `raise PolicyRejected`; kept
+   as a second layer because invariant #5 requires grammar AND app validation.
+5. **`FRIDAY_DEBUG` wrote raw transcripts and raw model output to disk
+   (invariant #7 / FR-26/57).** `daemon.py` debug-logs `heard=%r` and
+   `spoken=%r` through the root logger, and the rotating file handler is
+   *always* attached — so both landed in `~/.local/state/friday/friday.log`.
+   `redact()` only rewrites `/home/` paths; it cannot know the message body IS
+   the transcript. Fixed: `NoDiskFilter` on the file handler + both sites marked
+   `extra={"no_disk": True}` — debug reaches the console and stops there.
+   `tests/test_log_no_disk.py` asserts a fake secret never reaches the file.
+6. **(BLOCKER, not fixed — needs your call) There is no PTT keybinding.**
+   `grep -rniE 'friday|ptt' ~/.config/hypr/` returns **nothing**, and
+   `friday-ptt` is not on PATH. ADR-044 and `docs/reality-check.md` both say
+   "tap the bound key (XF86Presentation)" — on this machine there has never been
+   a key to press. This is why the live voice test appeared dead. Manifest
+   corrected; the bind itself is a change to the user's compositor config, so it
+   is not made unilaterally. Workaround: `just ptt press|release|toggle`.
+7. **(not fixed) A rejected press silently desyncs the toggle.** FR-5 correctly
+   refuses a press while a turn is in flight, but `on_press` only logs
+   `E_BUSY`. With tap-toggle semantics the user's next tap then *starts* a
+   capture they think they are *ending*. The 2026-08-25 14:28 logs show exactly
+   this: two `E_BUSY: press ignored in planning`, then captures of 13.3s / 15.0s
+   / 11.3s that whisper reported as **100% VAD-removed** (pure silence) — the
+   "it's not working" symptom. Rejection is correct; the silence is not. Needs a
+   decision on the feedback channel (toast vs. earcon) before coding.
+
+Also verified clean: every module imports (the G13-enroll defect class is not
+repeated anywhere); no `shell=True` and every subprocess is an argv list with a
+bounded timeout (invariant #3); the confirm path fails honestly on an unknown
+pending tool; all 15 action-surface binaries exist except `wtype` (ydotool +
+running `ydotoold` cover dictation). One latent nit left unfixed: `typer.py`
+passes text as `[wtype, text]`, so dictated text starting with `-` would be
+parsed as a flag — `wtype` is not installed here and I could not verify its
+`--` support, so it is reported rather than blind-fixed (the ydotool path
+correctly uses stdin).
+
 ### Reality-check results by section (text-mode driver, dry-run)
 - **A1 apps:** browser→brave, terminal→foot, editor→code, vlc→vlc — PASS.
   `"play a video"` routed to **youtube_search**, not mpv (`open_app video`).

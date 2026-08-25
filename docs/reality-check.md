@@ -29,7 +29,17 @@ just selftest                                         # expect: all 7 checks PAS
 Then either:
 - **Text mode** (fastest to verify logic): `just run` — type utterances, read outcomes.
 - **Voice mode** (full stack): `systemctl --user start friday` (or `just voice`).
-  PTT = tap the bound key (XF86Presentation, ADR-044); wake = say "hey jarvis".
+  Wake = say "hey jarvis". PTT = tap the bound key (XF86Presentation, ADR-044)
+  — **but verify the bind exists first**: as of 2026-08-25 there was NO friday
+  bind anywhere in `~/.config/hypr/`, and `friday-ptt` is not on PATH, so there
+  was no key to press and this row could never have passed. Until the bind is
+  installed, drive PTT from a terminal: `just ptt press` … speak …
+  `just ptt release` (or `just ptt toggle` for the one-tap ADR-044 semantic).
+- **To watch a live session**, run the daemon in the foreground instead of as a
+  service (stop the service first — two daemons fight over the mic and socket):
+  `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`. `FRIDAY_DEBUG`
+  echoes `heard=…` and `action=… spoken=…` to the console only; those lines are
+  filtered out of the on-disk log (invariant #7).
 
 - [ ] `just selftest` → all 7 PASS (llama, searxng, sm_120 GPU, DB 0600/0700,
       audio in/out, panic disarmed, loopback-only)
