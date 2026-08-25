@@ -24,9 +24,9 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **326 passed**, `just eval` **28/28 reg 0** (9.9 s on GPU), `just test-injection`
+`uv run pytest` **328 passed**, `just eval` **28/28 reg 0** (9.9 s on GPU), `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**, `just test-egress` loopback-only.
-(Verified 2026-08-25 with the LLM confirmed on GPU — see `llm_on_gpu`.)
+(Verified 2026-08-25 evening with the LLM confirmed on GPU — see `llm_on_gpu`.)
 
 **Three review sessions found defects the desk suite missed** — the pattern here
 is that green tests do NOT prove a feature works, because the tests never
@@ -46,37 +46,87 @@ run `just voice` while the service is up: two daemons fight over the mic and the
 PTT socket. Stop the service first.
 
 **NEXT SESSION: read the `>>> START HERE <<<` block at the top of
-`progress.md` first.** It has the exact first four commands, the one open bug,
-and the ordered task list. Short version:
+`progress.md` first.** It has the exact first commands, what changed, and the
+ordered task list. Short version:
 
 ```bash
 just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
 ```
 
-A **2026-08-25 session** ran the first live reality check, then a full-codebase
-audit, then a post-Arch-upgrade sweep. It found **8 defects**, 7 fixed:
-`file_open` opened the wrong file; `friday.service` had been crash-looping
-`226/NAMESPACE` (missing `RuntimeDirectory`); every G12 control param was
-declared free `text` instead of a closed enum, so off-vocabulary values reached
-the registry; three builders then *guessed* — **brightness "brighten" actually
-dimmed the screen** — while speaking the outcome the user asked for; `FRIDAY_DEBUG`
-wrote raw transcripts to disk (invariant #7); a rejected PTT/wake trigger
-desynced tap-toggle silently; and **llama-server had been serving from CPU for
-hours** after losing a boot race with the NVIDIA driver — 22x slower, `/health`
-still "ok", and `gpu_arch` reported PASS the whole time. The one open bug is the
-**15-second empty-capture loop (OQ-29)**, which needs the user at a mic.
+Then, to test voice — **one daemon only**, never `just voice` while the service
+is up (they fight over the mic and the PTT socket; last time `just voice`
+segfaulted and its logs were worthless):
 
-Three lessons that block repeats, all earned this session:
-- **A check that cannot fail is worthless.** `gpu_arch` asked "does a GPU
-  exist", never "is the LLM using it". New checks need a test for the FAIL path.
-- **Grepping a config is not asking the system.** "The PTT key is not bound" was
-  a false positive from `grep`; `hyprctl binds` showed it bound all along.
+```bash
+systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
+```
+
+A **2026-08-25 daytime session** ran the first live reality check, a
+full-codebase audit and a post-Arch-upgrade sweep, finding **8 defects**:
+`file_open` opened the wrong file; `friday.service` crash-looped
+`226/NAMESPACE` (missing `RuntimeDirectory`); every G12 control param was free
+`text` instead of a closed enum, so off-vocabulary values reached the registry
+and three builders *guessed* — **brightness "brighten" actually dimmed the
+screen** — while speaking the outcome the user asked for; `FRIDAY_DEBUG` wrote
+raw transcripts to disk (invariant #7); a rejected PTT/wake trigger desynced
+tap-toggle silently; and **llama-server served from CPU for hours** after losing
+a boot race with the NVIDIA driver — 22x slower, `/health` still "ok",
+`gpu_arch` PASS throughout.
+
+A **2026-08-25 evening session** then got voice working end to end for the
+first time and fixed **seven more**, none of which the suite could see:
+1. The 15 s empty-capture loop was **detector starvation** — openWakeWord is a
+   streaming model and was scored only while idle, so after a capture it
+   returned the score that started it (OQ-29, closed). The first fix attempt
+   was cosmetic and a live run disproved it: `Model.reset()` clears only a
+   score deque.
+2. Barge-in captures were never armed for VAD end-of-speech, so they always ran
+   to the 15 s cap.
+3. The logs could not say which of wake / barge / PTT opened a capture — now
+   `capture start source=…`.
+4. **`open_app` never launched anything.** `DISPLAY` was missing from the
+   minimal env (FR-32); Brave died with `Missing X server or $DISPLAY` while
+   the detached spawn reported ok. **Every "Opened X." Friday had ever spoken
+   was a lie.**
+5. Friday interrupted herself on every reply. The AEC reference was absent for
+   40% of playback frames and stale past a 5 s ring cap; it is now fed from the
+   playback callback. That was not enough — the canceller manages −52 dB on a
+   synthetic echo and **−5 to −10 dB in this room** — so **voice barge-in is
+   OFF by default** (ADR-064) and PTT is the interrupt. See `docs/aec-probe.md`
+   and OQ-32.
+6. Friday's own suggestion became her own command: after she proposed VS Code
+   and asked "Ready to start coding?", a bare "hey jarvis" dispatched
+   `open_app{editor}` **4/4**. The planner is now asked **without history
+   first**; an action that appears only with history is confirmed, not
+   dispatched (ADR-065).
+7. A false wake cost 15 s of deafness, because `VAD_END_SILENCE_S` can only arm
+   after speech. A capture with no speech at all is now abandoned after 3 s, and
+   the wake score is logged at fire time (ADR-066, OQ-33).
+
+Lessons that block repeats — every one of them paid for:
+- **A check that cannot fail is worthless.** `gpu_arch` passed through a GPU
+  outage; `wake-bench` printed "Wake Hits: 0" whether the mic was live or dead;
+  the launcher still reports ok for an app that never started. New checks need a
+  test that proves the FAIL path.
+- **A green suite is not a working feature.** Seven for seven in one evening.
+  Wake tests missed the streaming bug because their fake returned a constant
+  score; registry tests missed the launcher because nothing ever launched.
+- **A fix is not verified until the real path runs.** Twice today a fix passed
+  its test and did nothing.
+- **Measure before choosing a fix.** The barge cutoff was blamed on the AEC
+  library (does −52 dB), then on misalignment (tolerates 320 ms). Only
+  measurement found the real split.
+- **Grepping a config is not asking the system.** `hyprctl binds` showed a PTT
+  bind `grep` called missing; `pgrep -f "^/usr/bin/brave"` reported no browser
+  while Brave ran as `/opt/brave-bin/brave`.
 - **Degradation is silent and it moves the numbers.** Any latency measured
   without confirming `llm_on_gpu` first is untrustworthy.
 
 `docs/reality-check.md` remains the manifest of what Friday must do and must
-refuse. Its text-mode rows are verified; **every live-voice row is still
-unticked** — that is the next session's main work.
+refuse. Text-mode rows are verified; wake, VAD end-of-speech and "voice barge
+must not fire" are now ticked live. **The rest of the live-voice rows are still
+the main work** — and per defect #4, verify them by asking the system, never by
+what Friday says.
 
 ## Working agreement — how sessions run
 
@@ -293,7 +343,9 @@ just test               # full unit + adversarial + injection suite (pytest -q)
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-no-fstring-sql# assert store/ SQL is strictly parameterized
 just selftest           # health: servers, gpu arch, LLM-actually-on-GPU, db perms, audio, binds (8 checks)
-just wake-bench         # G10 live wake-word / VAD benchmark
+just wake-bench         # G10 live wake-word / VAD benchmark. Reports peak input
+                        # level and max score, so "0 hits" can be told apart
+                        # from a dead microphone. --duration N, --threshold X
 just enroll-voice       # G13 interactive 10-utterance voiceprint enrollment
 just ptt press|release  # send a PTT command to the running daemon
 just prefs list|forget  # manage stored preferences
@@ -316,3 +368,7 @@ just prefs list|forget  # manage stored preferences
 | "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
 | "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |
 | "Put the search results in the planning turn, one round-trip" | T1. This is the exact attack the design prevents. |
+| "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
+| "Only poll the wake detector when we need it" | openWakeWord is a STREAMING model. Starving it leaves stale features and a stale score, and it re-fires the instant you resume — that was OQ-29. Feed it every frame; ignore the result instead. |
+| "Speech during playback means the user is interrupting" | On this hardware the AEC gives −5 to −10 dB, so it is usually Friday. Voice barge-in is off (ADR-064); PTT is the interrupt until OQ-32 lands. |
+| "History is in the prompt, so anaphora just works" | It also lets Friday's own suggestion become her own command — a bare "hey jarvis" dispatched `open_app{editor}` 4/4. Plan without history first; confirm anything only history could supply (ADR-065). |

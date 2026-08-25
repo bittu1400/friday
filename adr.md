@@ -2045,3 +2045,38 @@ asks first. Invariants #1 and #5 are untouched: both passes are the same
 grammar-locked, validated planner over first-party data. Verified live: the
 reproduced bug now answers "Ready for some coding or a break?" instead of
 opening an editor, and "open it" asks "Did you want me to open Brave?".
+
+## ADR-066 — A capture that hears no speech is abandoned, not run to the 15 s cap
+
+**Status:** Accepted (2026-08-25). Amends ADR-062. Opens OQ-33.
+
+**Context.** `VAD_END_SILENCE_S` can only arm *after* speech is first detected,
+so a capture nobody speaks into can never end early — it runs to
+`MAX_CAPTURE_S` (15 s, FR-4). Because FR-5 allows one turn in flight, Friday is
+deaf for that entire time. Measured live 2026-08-25 in a single three-minute
+session: three captures with `heard=''` and 100 % VAD-removed audio, two of them
+the full 14.995 s / 15.000 s cap. A fourth (v1) fired 11 s before the user
+actually spoke, so their real command landed inside a capture opened by a false
+wake. This was named as a candidate fix when OQ-29 was raised and never built;
+the OQ-29 loop was a different defect, and fixing it did not remove this one.
+
+**Decision.** `VAD_NO_SPEECH_TIMEOUT_S = 3.0`. If no frame in a capture is ever
+classified as speech within that window, the capture is abandoned and the turn
+ends silently (FR-12 already keeps an empty transcript silent). Once any speech
+is detected the bail-out is disabled for that capture, so it can never cut off
+someone who is talking — including someone who pauses mid-sentence, since
+`VAD_END_SILENCE_S` owns that case.
+
+The wake score at fire time is now logged (`wake fired score=… threshold=…`).
+A false wake was previously invisible in the logs, which is why the threshold
+has never been chosen from data.
+
+**Consequences.** A false wake costs ~3 s of deafness instead of 15. It does not
+reduce the false-wake *rate* — that needs the score data now being logged
+(OQ-33). The 3.0 s value is a first guess sized to be comfortably longer than
+the gap between a wake word and a command; if users routinely pause longer, it
+is one constant.
+
+**Rejected.** Aborting the capture without running STT. Reusing the existing
+end-of-speech path costs one ~30 ms transcription of silence and keeps a single
+code path for "capture over", which is worth more than the saving.

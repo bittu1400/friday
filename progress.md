@@ -47,213 +47,300 @@ this file is where its results get pasted.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written 2026-08-25) <<<
+## >>> START HERE: NEXT SESSION (rewritten 2026-08-25, evening) <<<
 
-Read this block, then `docs/reality-check.md`. Everything below it is history.
+Read this whole block before touching anything. Everything below it is history.
 
-### The one-paragraph state of the world
-Friday is G0–G13 complete and, as of the end of this session, genuinely healthy:
-`just selftest` **8/8**, `uv run pytest` **326**, `just eval` **28/28 reg 0**,
-injection 20/20, egress loopback-only, all three services active with
-0 restarts, LLM confirmed on GPU (4710 MiB VRAM). Text-mode routing is verified
-end to end, and the OQ-29 capture loop is root-caused and fixed (live
-confirmation still owed — see below). **What is NOT verified is the live voice
-path** — every mic-driven row in the manifest is still unticked. That is the
-next session's job.
+### State of the world in one paragraph
+Friday is G0–G13 complete and, for the first time, **verified working by voice
+end to end**: the wake word fires, a bare "hey jarvis" greets instead of acting,
+"open my browser" opens a browser that really appears, and Friday no longer
+interrupts herself. That sentence was not true this morning. Six defects were
+found and fixed today, five of them invisible to a green test suite — including
+one that made **every "Opened X." Friday has ever spoken a lie**. Suites:
+`uv run pytest` **328**, `just eval` **28/28 reg 0**, `just test-injection`
+**20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` OK.
+What is NOT done: the live-voice rows of `docs/reality-check.md` are still
+mostly unticked, hands-free barge-in is switched off pending a better echo
+canceller, and the app launcher still cannot detect a launch that fails.
 
-### FIRST FOUR COMMANDS, in order
+### FIRST COMMANDS, in order
 ```bash
-just selftest                       # MUST be 8/8. llm_on_gpu is the new one.
+just selftest                       # MUST be 8/8. llm_on_gpu is the one that matters.
+uv run pytest -q && just eval       # expect 328 passed, 28/28 reg 0
 systemctl --user status friday friday-llm friday-searxng --no-pager | grep -E 'Active|NRestarts'
-uv run pytest -q && just eval       # expect 326 passed, 28/28 reg 0
-journalctl --user -u friday -n 60 --no-pager | grep -E 'duration|removed|E_BUSY'
 ```
 If `llm_on_gpu` FAILS: `systemctl --user restart friday-llm`, wait ~20 s, re-run.
 Do not start any other work until it passes — every latency number in these docs
-is void when the LLM is on CPU, and it fails **silently** (see defect #8).
+is void when the LLM is on CPU, and it degrades **silently**.
 
-### THE 15-SECOND CAPTURE LOOP — FIXED 2026-08-25, second attempt (OQ-29)
-Two defects, one live session. **The first fix was wrong and the live run said so.**
+**To test voice, never run two daemons.** `friday.service` is `Restart=always`,
+so `kill <pid>` does not stop it:
+```bash
+systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
+```
+Two daemons fight over the mic and the PTT socket; last time `just voice` died
+with `exit code 139` (SIGSEGV) and the logs from that window are worthless.
 
-**It was never ambient noise.** A 90 s `just wake-bench` scored **0 wake hits**
-(peak input 0.1250, max score 0.002). The bench now prints those two numbers,
-because "Wake Hits: 0" was previously indistinguishable from a dead microphone.
+### What today changed (six defects, all fixed, all with tests)
+| # | Defect | Fix | ADR |
+| :-- | :-- | :-- | :-- |
+| 1 | Wake detector starved during capture; its retained score re-fired the wake ~20 ms after every capture ended — endless 15 s empty captures | score every frame, act only when idle | OQ-29 |
+| 2 | Barge-in captures were never armed for VAD end-of-speech, so they always ran to the 15 s cap | `arm_end_of_speech()` for both barge sources; PTT stays unarmed on purpose | ADR-062/044 |
+| 3 | Logs could not say which of wake / barge / PTT opened a capture | `capture start source=…` | — |
+| 4 | **`open_app` never launched anything.** `DISPLAY` missing from the minimal env; Brave died with `Missing X server or $DISPLAY` while the spawn reported ok | `DISPLAY` added to the copied session vars | — |
+| 5 | Friday interrupted herself ~0.8 s into every reply | AEC reference now fed from the playback callback; **voice barge-in off by default** | ADR-064 |
+| 6 | Friday's own suggestion became her own command: bare "hey jarvis" dispatched `open_app{editor}` 4/4 | planner asked **without history first**; a history-resolved action is confirmed, not dispatched | ADR-065 |
 
-**Cause: detector starvation.** `WakeListener._on_frame` scored the detector
-only inside `if self.is_idle()`. openWakeWord is a *streaming* model with
-rolling melspectrogram and embedding buffers, and it got nothing for the whole
-15 s capture. One frame is 320 samples, a prediction chunk is 1280 — so the
-first frame after the capture could not run a new prediction and returned *the
-score that started the capture*. Above threshold, refractory (1.5 s) long
-expired: the wake re-fires ~20 ms later. One real "hey jarvis" seeds an endless
-loop; a restart clears it, hence "intermittent".
+Plus **ADR-066** (this evening): a capture that hears no speech at all is
+abandoned after 3 s instead of running to the 15 s cap, and the wake score is
+now logged at fire time.
 
-**Attempt 1 (commit fef20de) was cosmetic — the live run disproved it.**
-Flushing the detector on resume reads correctly but does nothing, because:
+### Live evidence that it works (16:25–16:28, single daemon)
+```
+capture start source=wake
+v1 heard='Hey, Jarvis!'      action=chat     dispatched=False  spoken='Hey there! Ready to get things done or just chat?…'
+v3 heard='Open my browser'   action=open_app dispatched=True   spoken='Opened Brave.'   TTFA 2729 ms
+v6 heard='Open my browser.'  action=open_app dispatched=True   spoken='Opened Brave.'   TTFA 2281 ms
+```
+Brave really appeared. No barge cutoffs. Every trigger named `source=wake`.
+
+### THE ORDERED TASK LIST FOR THE NEXT SESSION
+
+**1. Confirm ADR-066 live (15 minutes, needs a mic).**
+Nothing has yet exercised the no-speech bail-out on real audio.
+```bash
+systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
+```
+Say nothing for two minutes. Expect, on any false wake:
+`capture abandoned: no speech within 3.0s` and a capture of ~3 s, **never**
+14.995 s. A 15 s empty capture means the bail-out did not engage — investigate,
+do not raise the timeout.
+
+**2. Close OQ-33 — the wake threshold (needs step 1's logs).**
+```bash
+journalctl --user -u friday | grep 'wake fired'
+```
+Compare scores of genuine wakes against false ones. Clustered just above 0.5 →
+raise `FRIDAY_WAKE_THRESHOLD`. Overlapping → the threshold is the wrong lever;
+consider the G13 speaker verification that is already built but off by default.
+**Do not guess a number. The data now exists — use it.**
+
+**3. Walk the live-voice rows of `docs/reality-check.md`.** Still the biggest
+gap. Every mic-driven row is unticked: A8 sign-off, A15 (PTT toggle, wake, VAD
+end, AEC, STT/TTS quality — barge-in is now expected to NOT fire, update the row
+to match ADR-064), A16 cross-session memory, and confirming A9/A10 move real
+system state and A5/A6/A12/A13 really write to the DB and clipboard.
+**Given defect #4, verify by asking the system, not by trusting what Friday
+says.** `pgrep`, `hyprctl clients`, read the DB.
+
+**4. OQ-32 — the echo-canceller drill.** Blocks hands-free barge-in. Follow
+CLAUDE.md rule 7 exactly. The measurement harness already exists — see
+`docs/aec-probe.md` for the two probes and the numbers to beat
+(−52 dB synthetic / −5 to −10 dB real).
+
+**5. The launcher check that cannot fail.** ADR-043 made dispatch
+fire-and-forget on purpose (Brave's DBus handoff exits non-zero *on success*),
+which is exactly why defect #4 hid for the entire project. `DISPLAY` is fixed
+but the check is still incapable of reporting a failed launch. This needs a
+design decision and an ADR, not a patch. Options worth costing: poll for the
+window via `hyprctl clients` after a short delay; check the child is still alive
+after ~500 ms; or accept it and say "Launching X" rather than "Opened X".
+
+**6. OQ-30** ("play a video" → mpv or YouTube?) and **OQ-31** (busy toast or
+earcon?) — both small, both decidable at a keyboard.
+
+### Rules earned the hard way — do not repeat these
+- **A check that cannot fail is worthless.** `gpu_arch` passed through a whole
+  GPU outage. `wake-bench` printed "Wake Hits: 0" whether the mic was live or
+  dead. The launcher still reports ok for an app that never started. Every new
+  check needs a test that proves its FAIL path — this session proved each one by
+  breaking the fix and watching the test fail.
+- **A green suite is not a working feature.** Six for six today. The wake tests
+  could not catch defect #1 because their `FakeDetector` returned a constant
+  score; the registry tests could not catch #4 because nothing ever launched an
+  app. **Exercise the real path.**
+- **A fix is not verified until the real path runs.** The first OQ-29 fix looked
+  right, passed its test, and did nothing — `Model.reset()` only clears a score
+  deque. The live run disproved it.
+- **Measure before choosing a fix.** The barge cutoff was blamed on the AEC
+  library; the library does −52 dB. It was blamed on misalignment; the canceller
+  tolerates 320 ms. Only measurement found the real split (reference absent 40 %
+  of frames, and −9.7 dB where present).
+- **Grepping a config is not asking the system.** `pgrep -f "^/usr/bin/brave"`
+  reported no browser while Brave ran happily as `/opt/brave-bin/brave`.
+- **Never run `just voice` while the service is up.**
+
+## SESSION 2026-08-25 (evening) — first working live voice, 6 defects fixed
+
+Started from "the 15 s empty-capture loop, needs a mic". Ended with Friday
+answering by voice and launching real applications. Six defects, every one of
+them found by running the real path, none by the test suite.
+
+### Suites at the end of this session
+```
+$ uv run pytest -q                 # 319 at session start
+328 passed, 1 warning in 4.01s
+$ just eval
+passed 28/28  (100%) | known-failing: 0 | regressions vs baseline: 0
+$ just test-injection
+1 passed          # 20/20 hostile fixtures blocked
+$ just selftest
+8/8 PASSED        # llm_on_gpu: llama-server holds 4710 MiB VRAM
+$ just test-no-fstring-sql
+OK: store/ is strictly parameterized SQL
+```
+
+### DEFECT #1 — the OQ-29 loop was detector starvation (two attempts)
+`WakeListener._on_frame` scored the detector only inside `if self.is_idle()`.
+openWakeWord is a **streaming** model with rolling melspectrogram and embedding
+buffers, and it received nothing for the whole 15 s capture. One frame is 320
+samples, a prediction chunk is 1280 — so the first frame after a capture could
+not run a new prediction and returned *the score that started that capture*.
+Above threshold, refractory long expired: the wake re-fired ~20 ms later,
+forever. One real "hey jarvis" seeded the loop; a restart cleared it, which is
+why it looked intermittent.
+
+**Attempt 1 (fef20de) was cosmetic and the live run disproved it.** Flushing the
+detector reads correctly but does nothing:
 ```python
 def reset(self):
     """Reset the prediction buffer"""
     self.prediction_buffer = defaultdict(partial(deque, maxlen=30))
 ```
-`Model.reset()` reassigns a deque of past *scores* and leaves
-`preprocessor.melspectrogram_buffer` and `feature_buffer` untouched, so the
-stale *features* survived and re-fired anyway. Live, the loop continued with
-gaps of ~0.3–0.6 s instead of ~0.02–0.1 s. **A fix is not verified until the
-real path runs.**
+`Model.reset()` reassigns a deque of past *scores*; `preprocessor.
+melspectrogram_buffer` and `feature_buffer` survive, so the stale features
+re-fired anyway (gaps widened from ~0.02–0.1 s to ~0.3–0.6 s, nothing more).
+**Attempt 2 (eb20475):** stop starving it — score every frame, act only when
+idle. No library internals touched.
 
-**Attempt 2 (correct):** stop starving it. Score every frame; ignore the result
-unless idle. No reaching into openWakeWord internals, nothing to keep in sync
-with the library.
+It was **not** ambient noise: `just wake-bench --duration 90` scored 0 wake hits,
+peak input 0.1250, max score 0.002.
 
-**Defect #2, found in the same logs: barge-in captures could never end early.**
+### DEFECT #2 — barge-in captures could never end early
 `_awaiting_end` was set only on the wake path, so a capture opened by barge-in
 was never armed for VAD end-of-utterance and ran to the 15 s FR-4 cap however
-briefly the user spoke. ADR-062 exists precisely because a capture with no key
-release needs VAD to end it, and a barge-in capture has no key release. Fixed:
-`WakeListener.arm_end_of_speech()`, called from `_start_capture` for the two
-barge sources. **PTT stays unarmed on purpose** (ADR-044: the second tap ends
-it; a VAD cut would make that tap open a fresh capture instead).
+briefly the user spoke — the exact case ADR-062 exists for. Fixed with
+`WakeListener.arm_end_of_speech()`. **PTT stays unarmed on purpose** (ADR-044:
+the second tap ends it; a VAD cut would make that tap open a fresh capture).
 
-**Defect #3, an instrumentation gap:** three sources open a capture (wake,
-barge, PTT) and the logs could not tell them apart — which is most of why this
-took a whole session. `_start_capture` now logs `capture start source=...`.
-No transcript content (invariant #7).
+### DEFECT #3 — the logs could not name the trigger
+Three sources open a capture and they were indistinguishable, which is most of
+why #1 took a whole session. `_start_capture` now logs
+`capture start source=wake|barge|ptt|ptt-barge`. No transcript content
+(invariant #7).
 
-**Proof each check can fail** (this session's standing rule):
-```
-starving behaviour restored -> AssertionError: stale score re-fired the wake:
-                               ['wake', 'wake', 'wake', 'wake']
-barge arming disabled       -> AssertionError: barge-in capture was never armed
-                               for VAD end-of-speech
-```
-The original wake tests could not have caught defect #1: their `FakeDetector`
-returns a constant score, so the streaming contract it violates is invisible.
-Tests now use a `StreamingFakeDetector` that needs 1280 samples before it can
-produce a new value.
-
-```
-$ uv run pytest -q          # was 319
-322 passed, 1 warning in 3.63s
-$ just eval
-passed 28/28  (100%) | known-failing: 0 | regressions vs baseline: 0
-$ just wake-bench --duration 90     # quiet room
-Wake Hits: 0 | Peak input level: 0.1250 | Max wake score: 0.002
-```
-
-### LIVE RUN NOTES 2026-08-25 (read before trusting those logs)
-- **The 15:18–15:20 block is contaminated.** `just voice` was started while
-  `friday.service` was still up — two daemons fighting over the mic and the PTT
-  socket, exactly what CLAUDE.md forbids. `just voice` then died with
-  `exit code 139` (SIGSEGV). Only runs with a single daemon are usable.
-- **The 15 s loop is GONE.** The 15:45 run shows captures of 2.033 s, 3.379 s
-  and 1.738 s ending on VAD, and `capture start source=wake` naming every
-  trigger. Both OQ-29 fixes hold live.
-- `TTFA 5355 ms` / `3452 ms` were measured while two daemons shared the CPU and
-  mic. The clean 15:45 run shows **2518 ms** and **1827 ms**. Not a regression.
-
-### THREE DEFECTS THE 15:45 RUN EXPOSED — all fixed 2026-08-25
-
-**#1 — `open_app` never launched anything. Every "Opened X." was a lie.**
+### DEFECT #4 — `open_app` never launched anything. Every "Opened X." was a lie.
 `_build_app_env()` (FR-32's minimal explicit env) omitted `DISPLAY`. Chromium
 and Electron default to the X11 Ozone backend here, so Brave printed
 `Missing X server or $DISPLAY / The platform failed to initialize. Exiting.`
-and died — while the detached spawn (ADR-043 fire-and-forget) still reported ok:
+and died — while the detached spawn (ADR-043 fire-and-forget) reported success:
 ```
 Friday reported: ok | Brave | duration 165 ms
 ACTUAL: brave is NOT running
 ```
-Fixed by adding `DISPLAY` to the copied session vars. All five registry apps
-verified actually running after dispatch (browser, terminal, editor, video,
-vlc). The env allowlist test is updated, so the addition stays explicit.
-**This is the fifth time a green path was a lie.** The launcher still cannot
-fail: it reports the spawn, not the app. See "still open" below.
+With `DISPLAY` added, all five registry apps were verified actually running
+after dispatch (browser, terminal, editor, video, vlc). The env allowlist test
+is updated so the addition stays explicit.
 
-**#2 — Friday interrupted herself on every reply (ADR-064).**
-Reproduced without a human by driving the real speaker and mic:
-| condition | suppression | barges in one reply |
+A false negative en route, worth remembering: `pgrep -f "^/usr/bin/brave"`
+reported nothing while Brave ran as `/opt/brave-bin/brave`. Ask the system
+properly — `pgrep -a brave`, `hyprctl clients`.
+
+### DEFECT #5 — Friday interrupted herself on every reply (ADR-064)
+Reproduced with no human present by driving the real speaker and mic:
+
+| condition | echo suppression | barges in one reply |
 | :-- | --: | --: |
 | synthetic echo, aligned reference | −52 dB | — |
-| real room, reference absent (40% of frames) | 0 dB | — |
+| real room, reference absent (40 % of frames) | 0 dB | — |
 | real room, reference present, before fix | −15.6 dB | 1 short / 8 long |
 | real room, reference from playback callback | −9.7 dB | 9 |
 
-Two things were wrong and one remains. The reference was written to `FarEndRef`
-in one lump before playback and drained free-running, so it was absent for 40%
-of frames and — past the 5 s ring cap — held the WRONG audio for any longer
-reply. Now fed from the `OutputStream` callback, tied to the device's playback
-position (coverage 250/446 → 349/446). `sd.play()` is gone, so `stop()` aborts
-that stream and the wait is bounded rather than trusting the driver.
-**That was not enough.** The canceller still yields −9.7 dB on the real path and
-`stream_delay_ms` changes nothing (−5.1/−4.9/−5.1/−4.9/−3.9 dB at 0/30/60/90/
-120 ms; measured lag 58 ms, correlation 0.53, so the content is right). So
-**voice barge-in is OFF by default** (`BARGE_VAD_ENABLED`, ADR-064); PTT is the
-interrupt. Finding a canceller that works here is **OQ-32**.
+Two faults were real. The reference was written to `FarEndRef` in one lump
+before playback and drained free-running, so it was absent for 40 % of frames
+and — past the 5 s ring cap — held the WRONG audio for any longer reply. It is
+now fed from the `OutputStream` callback, tied to the device's playback
+position (coverage 250/446 → 349/446); `sd.play()` is gone, so `stop()` aborts
+that stream and the wait is bounded rather than trusting the driver to fire
+`finished_callback`.
 
-**#3 — Friday's own suggestion became her own instruction (ADR-065).**
-After two turns proposing VS Code ending "Ready to start coding?", a bare
-"hey jarvis" planned and dispatched `open_app{editor}` **4 times out of 4**.
-ADR-052 anaphora working as built, with Friday as the antecedent.
-The planner is now asked **without history first**; `chat` there means chat and
-is never re-planned; only `none` re-plans with history, and an action that
-appears only then is spoken as a question and held as a `PendingAction`.
+**That was not enough**, and `stream_delay_ms` is not the miss:
+
+| stream_delay_ms | 0 | 30 | 60 | 90 | 120 |
+| :-- | --: | --: | --: | --: | --: |
+| suppression | −5.1 | −4.9 | −5.1 | −4.9 | −3.9 dB |
+
+Measured speaker→mic lag is 58 ms with envelope correlation 0.53, so the
+reference content is right — the canceller simply does not converge on this
+acoustic path. The barge VAD called 238 of 349 playback frames speech. So
+**voice barge-in is off by default** (`BARGE_VAD_ENABLED`, ADR-064); PTT is the
+interrupt. Finding a canceller that works here is **OQ-32**; the probes are
+kept in `docs/aec-probe.md`.
+
+### DEFECT #6 — Friday's own suggestion became her own command (ADR-065)
+After two turns proposing VS Code and ending "Ready to start coding?", a bare
+"hey jarvis" planned and dispatched `open_app{app: editor}` **4 times out of 4**
+against the live model. ADR-052 anaphora working as built, with Friday as the
+antecedent.
+
+The planner is now asked **without history first**. A concrete action there
+executes as before; `chat` means chat and is never re-planned; only `none`
+re-plans with history, and an action appearing only then is spoken as a question
+and held as a `PendingAction`. The signal was measured before building:
+`"open it"`/`"open that"` plan to `none` without history, `"hey jarvis"`/`"yes"`
+plan to `chat`.
+
 Verified live against the model:
 ```
-bare wake + question-history -> chat    'Ready for some coding or a break?'
-bare wake, no history        -> chat    'Hello! How can I assist you today?'
-'hey jarvis, open my browser'-> open_app dispatched=True
-'open it' (after Brave)      -> pending  'Did you want me to open Brave?'
-'hey jarvis, what can you do'-> chat
+bare wake + question-history  -> chat     'Ready for some coding or a break?'
+bare wake, no history         -> chat     'Hello! How can I assist you today?'
+'hey jarvis, open my browser' -> open_app dispatched=True
+'open it' (after Brave)       -> pending  'Did you want me to open Brave?'
+'hey jarvis, what can you do' -> chat
 ```
 
+### DEFECT #7 — a false wake cost 15 seconds of deafness (ADR-066)
+The 16:25 live run still showed three captures with `heard=''` and 100 %
+VAD-removed audio, two of them the full 14.995 s / 15.000 s cap.
+`VAD_END_SILENCE_S` only arms *after* speech, so a capture nobody speaks into
+can never end early, and FR-5 leaves Friday deaf for the whole 15 s. A fourth
+(v1) fired 11 s before the user spoke, so their real command landed inside a
+capture opened by a false wake.
+
+`VAD_NO_SPEECH_TIMEOUT_S = 3.0`: no speech at all within 3 s and the capture is
+abandoned. Once any speech is detected the bail-out is disabled for that
+capture, so it cannot cut off someone talking. The wake score is now logged at
+fire time (`wake fired score=… threshold=…`) because a false wake was otherwise
+invisible — that data closes **OQ-33**.
+
+### Live proof it works, 16:25–16:28, single daemon
 ```
-$ uv run pytest -q          # was 319 at session start
-326 passed, 1 warning in 3.71s
-$ just eval
-passed 28/28 (100%) | known-failing: 0 | regressions vs baseline: 0
-$ just test-injection
-1 passed          # 20/20 fixtures blocked
-$ just selftest
-8/8
+capture start source=wake
+v1 heard='Hey, Jarvis!'      action=chat     dispatched=False  TTFA 3798 ms
+v3 heard='Open my browser'   action=open_app dispatched=True   TTFA 2729 ms   Brave appeared
+v6 heard='Open my browser.'  action=open_app dispatched=True   TTFA 2281 ms   Brave appeared
+```
+Captures ended on VAD (2.033 s, 3.379 s, 1.738 s, 1.972 s) instead of the cap.
+No barge cutoffs. Earlier `TTFA 5355 ms` / `3452 ms` figures came from a window
+where two daemons shared the CPU and mic and are not comparable.
+
+### Every check added this session was proven able to FAIL
+```
+starving behaviour restored -> ['wake','wake','wake','wake'] != ['wake']
+barge arming disabled       -> barge-in capture was never armed for VAD end-of-speech
+bail-out disabled           -> a capture with no speech at all must be abandoned
+DISPLAY removed             -> env allowlist test rejects it
 ```
 
-### STILL OPEN after this session
-- **OQ-32 — the echo-canceller drill.** Blocks hands-free barge-in.
-- **The launcher still cannot report a failed launch.** ADR-043 made it
-  fire-and-forget on purpose (Brave's DBus handoff exits non-zero on success),
-  so defect #1 hid for the entire project. `DISPLAY` is fixed but the *check*
-  is still one that cannot fail. Needs a design decision, not a patch.
-- **A clean live voice pass.** Every mic-driven row of `docs/reality-check.md`
-  is still unticked. One daemon only:
-  ```bash
-  systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
-  ```
-
-### What the next session must actually DO, in order
-1. `just selftest` → 8/8 (above). Fix before anything else.
-2. ~~Reproduce and root-cause the 15 s loop~~ DONE 2026-08-25 (OQ-29 closed,
-   two fixes + an instrumentation gap). Only the live confirmation above remains.
-3. Walk the **live-voice rows of `docs/reality-check.md`** that no session has
-   ever ticked — they are all still open: A8 sign-off, A15 (PTT toggle, wake,
-   VAD end, barge-in, AEC, STT/TTS quality), A16 cross-session memory, plus
-   confirming A9/A10 actually move real system state and A5/A6/A12/A13 really
-   write to the DB and clipboard. Paste results here.
-4. Close **OQ-30** (does "play a video" mean mpv or YouTube? — a one-line
-   prompt change plus an eval fixture) and **OQ-31** (is a busy toast the right
-   rejection feedback, or an earcon? — decide after the live pass).
-
-### Rules this session re-learned the hard way — do not repeat these
-- **A passing check that cannot fail is worthless.** `gpu_arch` reported PASS
-  through an entire GPU outage because it asked "does a GPU exist", never "is
-  the LLM using it". Every new check now needs a test that proves its FAIL path.
-- **Grepping a config is not asking the system.** I reported "the PTT key is not
-  bound" from a `grep` over `~/.config/hypr/`; `hyprctl binds` showed it bound
-  all along (it routes through a Lua dispatcher, so no literal "friday"/"ptt"
-  string exists). Ask the running system, not the file.
-- **Degradation is silent and it moves the numbers.** llama.cpp drops
-  `--n-gpu-layers` and serves from CPU rather than failing; `/health` still says
-  "ok". Any timing measured without checking `llm_on_gpu` first is untrustworthy.
-
----
+### Commits
+```
+fef20de  fix(g10): stale wake score re-fired after every capture   (superseded)
+b3af8cd  test(g10): wake-bench could not tell a dead mic from a quiet room
+eb20475  fix(g10): detector starvation, not a stale flush, caused the OQ-29 loop
+aa0ca7f  fix(g12,g10): every "Opened X." was a lie; AEC reference absent or stale
+d566071  fix(g8,g10): Friday's suggestion became her own command; barge-in off
+```
 
 ## SESSION 2026-08-25 — reality check (docs/reality-check.md) + 1 fix (CURRENT STATE)
 

@@ -115,6 +115,12 @@ WAKE_REFRACTORY_S: float = 1.5     # ignore repeat wake hits within this window 
 VAD_END_SILENCE_S: float = 0.8     # trailing silence that ends a capture
 VAD_MIN_SPEECH_S: float = 0.3      # ignore sub-this blips (barge-in + end-of-speech)
 VAD_AGGRESSIVENESS: int = 2        # webrtcvad 0-3
+# A capture that never hears ANY speech is a false wake. VAD_END_SILENCE_S
+# cannot end it — that timer only arms after speech is first detected — so it
+# ran to MAX_CAPTURE_S, and FR-5 (one turn in flight) left Friday deaf for the
+# whole 15 s. Measured live 2026-08-25: three such captures in one 3-minute
+# session, two of them the full cap. Give up early instead (ADR-066).
+VAD_NO_SPEECH_TIMEOUT_S: float = 3.0
 
 # Voice barge-in (FR-7). OFF by default since 2026-08-25 (ADR-064): the AEC
 # delivers only about -5 to -15 dB on this machine's real acoustic path

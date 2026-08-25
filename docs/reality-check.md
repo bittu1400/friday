@@ -201,10 +201,19 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
 ### A15. Voice I/O plumbing
 - [ ] PTT toggle: one tap starts capture, a second tap stops + transcribes (ADR-044)
-- [ ] Wake word "hey jarvis" from idle begins capture (if the model file is present)
-- [ ] VAD ends a wake-initiated capture on trailing silence (no key release)
-- [ ] Barge-in: talking (or a key press) over Friday's speech cuts it and re-captures (FR-7)
-- [ ] AEC: Friday speaking does not trigger its own wake word / barge-in
+- [x] Wake word "hey jarvis" from idle begins capture — 2026-08-25,
+      `capture start source=wake` on every trigger of the 16:25 run
+- [x] VAD ends a wake-initiated capture on trailing silence (no key release) —
+      2026-08-25, captures of 2.033 / 3.379 / 1.738 / 1.972 s, not the 15 s cap
+- [x] A capture nobody speaks into is abandoned after ~3 s, not run to the 15 s
+      cap (ADR-066) — **built 2026-08-25, NOT yet confirmed on live audio.**
+      Expect `capture abandoned: no speech within 3.0s` in the log.
+- [ ] Barge-in by KEY PRESS over Friday's speech cuts it and re-captures (FR-7)
+- [x] Barge-in by VOICE is **OFF by default and must NOT fire** (ADR-064). The
+      AEC yields only −5 to −10 dB on this hardware, so speech heard during
+      playback is usually Friday herself. A voice barge event during a reply is
+      now a FAILURE, not a pass. Re-enable only via `FRIDAY_BARGE_VAD_ENABLE=1`
+      after OQ-32. Verified 2026-08-25: no cutoffs in the 16:25 run.
 - [ ] STT transcribes accurately (small.en); TTS speaks (Kokoro af_bella)
 
 ### A16. Cross-session memory
@@ -291,8 +300,9 @@ Confirm-first tools correctly return a pending confirm (wifi-off, window close,
 clipboard_set, remember_preference).
 
 **NOT verified — every live-voice row. This is the next session's work:**
-- **A15 in full** — PTT toggle, wake from idle, VAD end-of-speech, barge-in,
-  AEC not self-triggering, STT accuracy, TTS quality.
+- **A15 remainder** — PTT toggle, key-press barge-in, STT/TTS quality, and the
+  ADR-066 no-speech bail-out on live audio. Wake, VAD end-of-speech and the
+  "voice barge must not fire" row were ticked 2026-08-25.
 - **A8 sign-off** — it is a daemon regex intercept (`daemon.py`
   `is_signoff_phrase`), NOT a planner action, so text mode returns `none`
   correctly and can never exercise it.
@@ -305,5 +315,18 @@ clipboard_set, remember_preference).
 - **Enrolled speaker verification** — still OFF by default and fails OPEN with
   no voiceprint. `just enroll-voice` first.
 
-**Known open bug: OQ-29, the 15-second empty-capture loop.** See
-`open-questions.md`. Do not tick any A15 row until it is understood.
+**A1 apps must be RE-verified.** Text mode only proved the routing. Until
+2026-08-25 `open_app` never launched anything — `DISPLAY` was missing from the
+minimal env, so Brave died with `Missing X server or $DISPLAY` while Friday
+still said "Opened Brave." Fixed and confirmed for all five apps, but the
+launcher still cannot report a launch that fails, so **verify by asking the
+system** (`pgrep -a brave`, `hyprctl clients`), never by what Friday says.
+Note `/usr/bin/brave` is a wrapper — the process is `/opt/brave-bin/brave`.
+
+**Closed since the last revision:** OQ-29 (the 15-second empty-capture loop —
+detector starvation, fixed and confirmed live 2026-08-25).
+
+**Still open and relevant here:** OQ-32 (which echo canceller works on this
+laptop — blocks hands-free barge-in, see `docs/aec-probe.md`) and OQ-33 (what
+`WAKE_THRESHOLD` should be — three false wakes in one live session; the score
+is now logged at fire time so it can be chosen from data).

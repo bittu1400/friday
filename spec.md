@@ -57,6 +57,9 @@ limitation to be lifted later.
 | FR-5 | Only one turn is in flight at a time; a second request while busy is rejected audibly, not queued | Concurrency test: 5 rapid submits produce 1 turn + 4 rejections |
 | FR-6 | Mic is closed in every state except CAPTURING | Assert in the audio callback; unit test on the gate |
 | FR-7 | PTT during SPEAKING is barge-in: cancel playback, drop the turn, go to CAPTURING | Manual test recorded at G6 |
+| FR-7a | VOICE barge-in (speech detected during playback) is OFF by default and must not fire; PTT is the interrupt. The AEC yields only −5 to −10 dB on this hardware, so speech heard during playback is usually Friday herself (ADR-064). Re-enable with `FRIDAY_BARGE_VAD_ENABLE=1` once OQ-32 lands | `test_voice_barge_is_off_by_default` |
+| FR-7b | A capture in which no speech is ever detected is abandoned after `VAD_NO_SPEECH_TIMEOUT_S` (3 s) rather than running to the 15 s cap, since `VAD_END_SILENCE_S` can only arm after speech (ADR-066) | `test_silent_capture_is_abandoned_early`, `test_capture_with_speech_is_not_abandoned` |
+| FR-25a | An action the planner produces ONLY when conversation history is in the prompt is confirmed, never dispatched. The planner is asked without history first; `chat` there is never re-planned (ADR-065) | `test_bare_greeting_never_dispatches_from_history`, `test_history_reaches_the_planner_system` |
 | FR-8 | Wake word is NOT implemented in Phase 1 | Absence of an `openwakeword` dependency in the lockfile |
 
 ### 2.2 Speech-to-text

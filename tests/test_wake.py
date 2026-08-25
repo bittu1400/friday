@@ -245,3 +245,44 @@ def test_self_trigger_suppressed_during_speaking():
         wl._on_frame(_frame())
     assert fired == []
 
+
+
+def test_silent_capture_is_abandoned_early(monkeypatch):
+    """ADR-066: a false wake starts a capture nobody speaks into. The
+    end-of-speech timer can only arm AFTER speech, so such a capture ran to the
+    15 s FR-4 cap with Friday deaf the whole time (FR-5). Measured live
+    2026-08-25: three in one 3-minute session, two of them the full cap."""
+    ended = []
+    calls = WakeCallbacks(
+        on_wake=lambda: None,
+        on_speech_end=lambda: ended.append("end"),
+        on_barge=lambda: None,
+    )
+    wl = make(score=0.0, voiced=False, idle=False, speaking=False, calls=calls)
+    wl._arm()
+
+    quiet = int(config.VAD_NO_SPEECH_TIMEOUT_S * 1000 / wl.frame_ms)
+    for _ in range(quiet - 1):
+        wl._on_frame(_frame())
+    assert ended == [], "must not give up before the timeout"
+
+    wl._on_frame(_frame())
+    assert ended == ["end"], "a capture with no speech at all must be abandoned"
+
+    # and it must be far cheaper than the 15 s cap it replaces
+    assert quiet * wl.frame_ms / 1000 < config.MAX_CAPTURE_S
+
+
+def test_capture_with_speech_is_not_abandoned(monkeypatch):
+    """The bail-out must never cut off someone who is actually talking."""
+    ended = []
+    calls = WakeCallbacks(
+        on_wake=lambda: None,
+        on_speech_end=lambda: ended.append("end"),
+        on_barge=lambda: None,
+    )
+    wl = make(score=0.0, voiced=True, idle=False, speaking=False, calls=calls)
+    wl._arm()
+    for _ in range(int(config.VAD_NO_SPEECH_TIMEOUT_S * 1000 / wl.frame_ms) + 50):
+        wl._on_frame(_frame())
+    assert ended == [], "continuous speech must not trigger the no-speech bail-out"

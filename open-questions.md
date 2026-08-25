@@ -202,6 +202,29 @@ alternatives in an ADR before wiring anything in.
 **What blocks it:** nothing but the work. The measurement harness exists.
 **What it unblocks:** hands-free interruption. Until then PTT is the interrupt.
 
+### OQ-33 — What should `WAKE_THRESHOLD` actually be? (needs logged score data)
+**Status:** OPEN — needs one live session's logs. Raised 2026-08-25.
+
+`WAKE_THRESHOLD` is 0.5 and has never been chosen from data. A 90 s bench in a
+quiet room scored **0 false fires** (peak input 0.1250, max score 0.002), but a
+live 3-minute session with the user present produced **three captures with no
+speech in them at all** — false wakes. Ambient silence is clearly not the
+trigger; something in the room (movement, keyboard, speech that is not the wake
+word) crosses 0.5.
+
+ADR-066 caps the *cost* of a false wake at ~3 s but does not reduce the rate.
+
+**What blocks the answer:** score data at fire time, which did not exist until
+ADR-066 added `wake fired score=… threshold=…`. Run one normal live session,
+then:
+```bash
+journalctl --user -u friday | grep 'wake fired'
+```
+Compare the scores of genuine wakes against the false ones. If false fires
+cluster just above 0.5 and real ones sit near 0.9, raise the threshold. If they
+overlap, the threshold is the wrong lever and the answer is a second-stage
+check (speaker verification, G13, already built but off by default).
+
 ### OQ-30 — Should "play a video" open mpv or search YouTube?
 **Status:** OPEN — one-line prompt change either way. Raised 2026-08-25.
 

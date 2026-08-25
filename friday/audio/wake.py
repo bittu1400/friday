@@ -193,9 +193,15 @@ class WakeListener:
 
         self._last_wake_time: float = 0.0
         self._awaiting_end: bool = False
+        self._heard_speech = False   # any speech at all in the current capture
+        self._silent_frames = 0      # frames since the capture began
         self._stream: Any = None
 
         frame_ms = (frame_len * 1000) // 16000
+        self.frame_ms = frame_ms
+        self._no_speech_frames = max(
+            1, int(round(config.VAD_NO_SPEECH_TIMEOUT_S * 1000 / frame_ms))
+        )
         self._capture_gate = SpeechGate(
             frame_ms=frame_ms,
             end_silence_s=config.VAD_END_SILENCE_S,
@@ -207,6 +213,12 @@ class WakeListener:
             min_speech_s=config.VAD_MIN_SPEECH_S,
         )
 
+    def _arm(self) -> None:
+        self._awaiting_end = True
+        self._capture_gate.reset()
+        self._heard_speech = False
+        self._silent_frames = 0
+
     def arm_end_of_speech(self) -> None:
         """Arm VAD end-of-utterance for a capture this listener did not start.
 
@@ -216,8 +228,7 @@ class WakeListener:
         FR-4 cap, however briefly the user spoke. PTT is deliberately excluded:
         a tap-toggle capture ends on the user's second tap (ADR-044).
         """
-        self._awaiting_end = True
-        self._capture_gate.reset()
+        self._arm()
 
     def _on_frame(self, frame: np.ndarray) -> None:
         """Route one 16 kHz mono frame from audio thread."""
@@ -257,7 +268,23 @@ class WakeListener:
                 if self.vad is not None:
                     voiced = self.vad.is_speech(cleaned)
                     ev = self._capture_gate.push(voiced)
+                    if voiced:
+                        self._heard_speech = True
+                    self._silent_frames += 1
                     if ev == "end":
+                        self._awaiting_end = False
+                        self._capture_gate.reset()
+                        self.schedule(self.callbacks.on_speech_end)
+                    elif (
+                        not self._heard_speech
+                        and self._silent_frames >= self._no_speech_frames
+                    ):
+                        # ADR-066: a false wake. Nothing was ever said, so the
+                        # end-of-speech timer can never arm and this capture
+                        # would run to the 15 s cap with Friday deaf the whole
+                        # time (FR-5). Give it back now.
+                        log.info("capture abandoned: no speech within %.1fs",
+                                 self._no_speech_frames * self.frame_ms / 1000)
                         self._awaiting_end = False
                         self._capture_gate.reset()
                         self.schedule(self.callbacks.on_speech_end)
@@ -271,8 +298,13 @@ class WakeListener:
             now = time.monotonic()
             if now - self._last_wake_time >= self.refractory_s:
                 self._last_wake_time = now
+                # Score is logged so a threshold can be chosen from data rather
+                # than guessed: a false wake is invisible in the logs otherwise.
+                log.info("wake fired score=%.3f threshold=%.2f", score, self.threshold)
                 self._awaiting_end = True
                 self._capture_gate.reset()
+                self._heard_speech = False
+                self._silent_frames = 0
                 self.schedule(self.callbacks.on_wake)
 
     def _sd_callback(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
