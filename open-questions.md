@@ -181,6 +181,53 @@ alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
+### OQ-29 — What re-triggers the 15-second empty-capture loop? (BLOCKS live voice)
+**Status:** OPEN — needs the user at the mic. Raised 2026-08-25.
+
+Live logs, 14:33–14:35 on 2026-08-25, show captures of exactly 15.000 s /
+14.995 s, back to back, roughly every 15 s, **every one of them 100 %
+VAD-removed** (pure silence). 15 s is `config.MAX_CAPTURE_S` (FR-4 hard cap),
+so each ran to the cap without VAD ending it — consistent with the design,
+since `VAD_END_SILENCE_S` can only arm after speech is first detected, so a
+capture with no speech at all can never end early.
+
+**What is unknown is what re-triggered a new capture immediately each time.**
+Leading hypothesis is wake-word false fires (`WAKE_THRESHOLD` 0.5,
+`WAKE_REFRACTORY_S` 1.5) on ambient sound; unproven, and this project does not
+fix on a guess. It is intermittent — it had stopped by the end of the session,
+and a real capture at 14:52:59 behaved correctly (6.272 s, 3.072 s trimmed,
+speech found), so mic, STT and VAD are all healthy.
+
+**What blocks the answer:** what was audible in the room during a loop —
+music, a TV, a conversation, or silence? That single fact separates "wake
+false-fire" from "something re-arms capture on its own".
+
+Investigate with `FRIDAY_DEBUG=1 just voice` (stop the service first) and
+`just wake-bench`. Two candidate fixes once the cause is known, not before:
+raise `FRIDAY_WAKE_THRESHOLD`, and/or bail out of a capture early when no
+speech is ever detected instead of burning the full 15 s.
+
+### OQ-30 — Should "play a video" open mpv or search YouTube?
+**Status:** OPEN — one-line prompt change either way. Raised 2026-08-25.
+
+`"play a video"` routes to `youtube_search {'query': 'play a video'}`, not
+`open_app {'app': 'video'}` (mpv). Both readings are defensible: the prompt
+tells the planner that playback requests are `youtube_search`, and mpv with no
+file argument opens an empty player. `"open mpv"` unambiguously reaches mpv.
+Reproduced on a healthy GPU, so it is a genuine routing choice, not a
+CPU-degraded artefact. Needs the user's intent, then a prompt tweak and an eval
+fixture.
+
+### OQ-31 — Wake-word feedback: is a busy toast the right channel?
+**Status:** PROVISIONALLY ANSWERED 2026-08-25 — revisit after live use.
+
+A trigger rejected under FR-5 (one turn in flight) now raises a low-urgency
+desktop toast, because a silent rejection desyncs tap-toggle PTT and made the
+user record an empty room. Toast was chosen over an earcon: no new asset, no
+collision with TTS or the mic, and `notify-send` was already a G11 dependency.
+**Open:** whether a toast per rejection becomes noise in real use, or whether a
+short earcon reads better hands-free. Decide after the live-voice pass.
+
 ---
 
 ### OQ-13 — Multilingual re-enablement plan

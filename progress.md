@@ -47,6 +47,81 @@ this file is where its results get pasted.
 
 ---
 
+## >>> START HERE: NEXT SESSION (written 2026-08-25) <<<
+
+Read this block, then `docs/reality-check.md`. Everything below it is history.
+
+### The one-paragraph state of the world
+Friday is G0–G13 complete and, as of the end of this session, genuinely healthy:
+`just selftest` **8/8**, `uv run pytest` **319**, `just eval` **28/28 reg 0**
+(9.9 s), injection 20/20, egress loopback-only, all three services active with
+0 restarts, LLM confirmed on GPU (4696 MiB VRAM). Text-mode routing is verified
+end to end. **What is NOT verified is the live voice path** — every mic-driven
+row in the manifest is still unticked, and there is one open live bug (the 15 s
+capture loop, below). That is the next session's job.
+
+### FIRST FOUR COMMANDS, in order
+```bash
+just selftest                       # MUST be 8/8. llm_on_gpu is the new one.
+systemctl --user status friday friday-llm friday-searxng --no-pager | grep -E 'Active|NRestarts'
+uv run pytest -q && just eval       # expect 319 passed, 28/28 reg 0
+journalctl --user -u friday -n 60 --no-pager | grep -E 'duration|removed|E_BUSY'
+```
+If `llm_on_gpu` FAILS: `systemctl --user restart friday-llm`, wait ~20 s, re-run.
+Do not start any other work until it passes — every latency number in these docs
+is void when the LLM is on CPU, and it fails **silently** (see defect #8).
+
+### THE ONE OPEN BUG — the 15-second capture loop (top priority)
+Live logs, 2026-08-25 14:33–14:35, show captures of **exactly 15.000 s /
+14.995 s, back to back, every ~15 s, every one of them 100 % VAD-removed**
+(pure silence). 15 s is `config.MAX_CAPTURE_S`, the FR-4 hard cap, so each of
+those captures ran to the cap without VAD ever ending it — which is consistent
+with the design (`VAD_END_SILENCE_S` can only arm *after* speech is detected, so
+a capture containing no speech at all can never end early). The open question is
+what kept **re-triggering** a new capture ~immediately after each one ended.
+Leading hypothesis: **wake-word false fires** (`WAKE_THRESHOLD` is 0.5,
+`WAKE_REFRACTORY_S` 1.5) on ambient sound. Not yet proven — do not fix on
+a guess.
+It is **intermittent**: it was not occurring in the final minutes of the session,
+and a genuine capture at 14:52:59 worked correctly (6.272 s, only 3.072 s
+trimmed, speech found). The mic, STT and VAD are all fine.
+How to investigate (needs the user + a mic, which is why it is not done):
+```bash
+systemctl --user stop friday          # never run two daemons: they fight over mic + socket
+FRIDAY_DEBUG=1 just voice             # console shows heard=… and action=… (never written to disk)
+just wake-bench                       # the G10 harness built exactly for this
+```
+Ask the user what was audible in the room during a loop (music, TV, speech), then
+decide between raising `FRIDAY_WAKE_THRESHOLD`, and bailing out of a capture
+early when no speech is ever detected. **Logged as OQ-29 in `open-questions.md`** — the blocking
+fact is what was audible in the room during a loop.
+
+### What the next session must actually DO, in order
+1. `just selftest` → 8/8 (above). Fix before anything else.
+2. Reproduce and root-cause the 15 s loop with the user at the mic (OQ-29).
+3. Walk the **live-voice rows of `docs/reality-check.md`** that no session has
+   ever ticked — they are all still open: A8 sign-off, A15 (PTT toggle, wake,
+   VAD end, barge-in, AEC, STT/TTS quality), A16 cross-session memory, plus
+   confirming A9/A10 actually move real system state and A5/A6/A12/A13 really
+   write to the DB and clipboard. Paste results here.
+4. Close **OQ-30** (does "play a video" mean mpv or YouTube? — a one-line
+   prompt change plus an eval fixture) and **OQ-31** (is a busy toast the right
+   rejection feedback, or an earcon? — decide after the live pass).
+
+### Rules this session re-learned the hard way — do not repeat these
+- **A passing check that cannot fail is worthless.** `gpu_arch` reported PASS
+  through an entire GPU outage because it asked "does a GPU exist", never "is
+  the LLM using it". Every new check now needs a test that proves its FAIL path.
+- **Grepping a config is not asking the system.** I reported "the PTT key is not
+  bound" from a `grep` over `~/.config/hypr/`; `hyprctl binds` showed it bound
+  all along (it routes through a Lua dispatcher, so no literal "friday"/"ptt"
+  string exists). Ask the running system, not the file.
+- **Degradation is silent and it moves the numbers.** llama.cpp drops
+  `--n-gpu-layers` and serves from CPU rather than failing; `/health` still says
+  "ok". Any timing measured without checking `llm_on_gpu` first is untrustworthy.
+
+---
+
 ## SESSION 2026-08-25 — reality check (docs/reality-check.md) + 1 fix (CURRENT STATE)
 
 Ran the reality-check manifest for the first time. Logic/routing rows (A1–A14,
@@ -96,6 +171,56 @@ which the live `~/.config/...` unit symlinks to): add `RuntimeDirectory=friday` 
 dir created 0700, llama ready, whisper STT + openWakeWord (CPU) loaded, PTT socket
 listening on `/run/user/1000/friday/ptt.sock`. Commit `d6be8ca`. Live voice/mic
 rows (A8/A15/A16 + real state changes + store-backed) are being walked by the user.
+
+### POST-ARCH-UPGRADE SWEEP (same session, last) — defect #8, the big one
+The user upgraded Arch mid-session (`pacman` full upgrades at 10:10, 14:04 and
+14:10 on 2026-08-25; kernel 7.1.8→7.1.9 and `nvidia-open` 610.57.04-6→-8 the
+evening before) and reported "too many problems". Re-verified the whole stack
+from the ground up. One severe regression, silent, and every existing check
+called it green.
+
+8. **llama-server had been serving from CPU since 07:38 (SEVERE, fixed).**
+   `journalctl --user -u friday-llm`:
+   ```
+   E ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is detected
+   warning: no usable GPU found, --gpu-layers option will be ignored
+   ```
+   llama.cpp does something worse than crashing: it **drops `--n-gpu-layers` and
+   serves happily from CPU**, while `/health` keeps answering `"ok"`. Nothing
+   downstream noticed. Measured: VRAM held 19 MiB of 8151; one completion took
+   **3.18 s vs 0.141 s (22x)**; `just eval` took **over 5 minutes vs 9.9 s**.
+   This also retroactively explains the `TimeoutError` storm in the first
+   reality-check driver run earlier in this session — that was not a code bug,
+   it was CPU inference blowing the 30 s client timeout.
+   Root cause: a **boot-time race** — the unit started before the NVIDIA stack
+   was ready. Restarting once the driver was up restored offload immediately
+   (4696 MiB VRAM, pid confirmed in `nvidia-smi --query-compute-apps`).
+   Fixed in two layers, because one already proved insufficient:
+   (a) `friday-llm.service` gained an `ExecStartPre` that waits up to 60 s for
+   `nvidia-smi` to answer and **fails rather than starting blind**
+   (`Restart=always` + `StartLimitIntervalSec=0` keep retrying);
+   (b) `friday/selftest.py` gained `check_llm_on_gpu`, which asserts the
+   llama-server **pid actually holds VRAM** and FAILS with the remedy if not.
+   `gpu_arch` could never have caught this — it asks whether a Blackwell card
+   *exists*, not whether the LLM is *using* it, so it passed throughout the
+   outage. `tests/test_selftest_gpu.py` pins the FAIL branch, because a check
+   that cannot fail is worthless. Commit `e5523e7`.
+
+**Everything else survived the upgrade cleanly** (verified, not assumed):
+selftest 8/8; GPU RTX 5070 driver 610.57.04 compute 12.0 sm_120 on kernel
+7.1.9; the venv is uv-managed Python **3.12.13** and therefore untouched by
+Arch's move to system Python **3.14.7**; all 15 action-surface binaries present
+except `wtype` (`ydotool` + a running `ydotoold` cover dictation); Kokoro model
++ voices, `hey_jarvis.onnx`, and the SQLite DB all present; mic enumerates
+(ACE Digital Microphone); services loopback-only.
+
+**Re-ran the full reality-check driver on a healthy GPU** — routing is now
+*better* than the earlier CPU-degraded run: `"open my notes"` correctly routes
+to `file_open {'alias': 'my notes'}` (it was mis-routing to `read_notes`
+before), `"workspace 99"` is now refused at the planner, and **section B
+refusals remain 9/9**. The `file_open` fix from defect #1 is confirmed against
+the real phrasings the planner emits (`"my notes"` → notes.md, `"my config"` →
+hyprland.conf).
 
 ### FULL-CODEBASE AUDIT (same session, after defects #1 and #2)
 6608 LOC production audited along the axis that actually produces defects here:

@@ -3,9 +3,10 @@
 **Purpose.** A single, systematic list of *everything Friday should be able to
 do* and *everything it must refuse or cannot do*, so a session can verify the
 real system against it — feature by feature — instead of trusting a green test
-suite. Twice now, tests passed while the real path was broken (G13 enrollment
-dead on import; `clipboard_set` a no-op that spoke success). This file exists so
-that never slips through again.
+suite. Four times now, tests passed while the real path was broken (G13
+enrollment dead on import; `clipboard_set` a no-op that spoke success;
+`file_open` opening the wrong file; llama-server serving from CPU while every
+health check said PASS). This file exists so that never slips through again.
 
 **How to use it.** Work top to bottom. For each row, actually trigger it (speak
 it, or type it in `just run`) and confirm the *Expect* column. Tick the box.
@@ -15,8 +16,9 @@ verified (no mic, tool missing) is marked `SKIP (reason)`, never silently ticked
 
 Derived from the action schema (`friday/llm/schema.py`), the turn router
 (`friday/turn.py`), the daemon intercepts (`friday/daemon.py`), and the tool
-registry (`friday/tools/registry.py`) as of 2026-08-24. If code and this file
-disagree, one of them is a bug — find out which before ticking.
+registry (`friday/tools/registry.py`); re-verified against the code on
+2026-08-25. If code and this file disagree, one of them is a bug — find out
+which before ticking. See section F at the bottom for what is verified today.
 
 ---
 
@@ -24,8 +26,16 @@ disagree, one of them is a bug — find out which before ticking.
 
 ```
 systemctl --user start friday-llm friday-searxng     # LLM + search backends
-just selftest                                         # expect: all 7 checks PASS
+just selftest                                         # expect: all 8 checks PASS
 ```
+
+**`llm_on_gpu` must PASS before you trust a single timing in this file.** On
+2026-08-25 llama-server lost a boot race with the NVIDIA driver and served from
+**CPU for hours**: it drops `--n-gpu-layers` rather than failing, `/health` still
+answers `"ok"`, and the old `gpu_arch` check reported PASS throughout. A
+completion took 3.18 s instead of 0.141 s and `just eval` took over 5 minutes
+instead of 9.9 s. If `llm_on_gpu` FAILS:
+`systemctl --user restart friday-llm`, wait ~20 s, re-run.
 Then either:
 - **Text mode** (fastest to verify logic): `just run` — type utterances, read outcomes.
 - **Voice mode** (full stack): `systemctl --user start friday` (or `just voice`).
@@ -44,8 +54,9 @@ Then either:
   echoes `heard=…` and `action=… spoken=…` to the console only; those lines are
   filtered out of the on-disk log (invariant #7).
 
-- [ ] `just selftest` → all 7 PASS (llama, searxng, sm_120 GPU, DB 0600/0700,
-      audio in/out, panic disarmed, loopback-only)
+- [x] `just selftest` → all 8 PASS (llama, searxng, sm_120 GPU, **LLM actually
+      on GPU**, DB 0600/0700, audio in/out, panic disarmed, loopback-only)
+      — verified 2026-08-25, llama-server pid held 4696 MiB VRAM
 - [ ] Startup briefing spoken once on voice-daemon boot (unless in DND)
 
 ---
@@ -266,3 +277,33 @@ Create a new dated block in `progress.md`:
 exact utterance and observed outcome, and open an OQ or file a fix for anything
 that fails. Update this manifest if a real capability was added, removed, or
 changed — a row here that disagrees with the code is itself a defect.
+
+
+---
+
+## F. Status of this manifest as of 2026-08-25
+
+**Verified (text mode, real `run_turn`, dry-run):** A1 apps, A2 YouTube,
+A3 search (incl. local-mode refusal), A4 chat, A5/A6/A7 routing, A9 system
+argv, A10 Hyprland argv + workspace bounds, A11 files (both aliases, after the
+`file_open` fix), A12/A13/A14 routing, and **all of section B — 9/9 refusals**.
+Confirm-first tools correctly return a pending confirm (wifi-off, window close,
+clipboard_set, remember_preference).
+
+**NOT verified — every live-voice row. This is the next session's work:**
+- **A15 in full** — PTT toggle, wake from idle, VAD end-of-speech, barge-in,
+  AEC not self-triggering, STT accuracy, TTS quality.
+- **A8 sign-off** — it is a daemon regex intercept (`daemon.py`
+  `is_signoff_phrase`), NOT a planner action, so text mode returns `none`
+  correctly and can never exercise it.
+- **A16 cross-session memory** — needs a real session, a close, and a reboot.
+- **Real state changes** for A9/A10 — that volume/brightness/wifi/workspace
+  actually moved, and that "close this window" really closes it.
+- **Real writes** for A5/A6/A12/A13 — the text-mode driver ran without a store,
+  so those turns spoke "Memory unavailable"; routing was correct but no DB or
+  clipboard write was exercised. Confirm `just prefs list` and `wl-paste`.
+- **Enrolled speaker verification** — still OFF by default and fails OPEN with
+  no voiceprint. `just enroll-voice` first.
+
+**Known open bug: OQ-29, the 15-second empty-capture loop.** See
+`open-questions.md`. Do not tick any A15 row until it is understood.

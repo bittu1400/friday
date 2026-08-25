@@ -8,9 +8,9 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then a
-post-Phase-2 rigorous review (2026-08-24)** that fixed real defects the build
-suite missed. `friday/` is a real text+voice assistant that launches apps,
+**Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then two
+review passes (2026-08-24 desk review, 2026-08-25 first LIVE reality check +
+full-codebase audit)** that fixed real defects the build suite missed. `friday/` is a real text+voice assistant that launches apps,
 remembers preferences, hears you (toggle PTT **and** `hey_jarvis` wake word,
 ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web (G7: SearXNG loopback,
 sanitizer, `final.gbnf` grounding, injection 20/20, egress proof; ADR-045/046/047),
@@ -24,10 +24,11 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **306 passed**, `just eval` **28/28 reg 0**, `just test-injection`
-**20/20 blocked**, `just selftest` **7/7**, `just test-no-fstring-sql` **OK**.
+`uv run pytest` **319 passed**, `just eval` **28/28 reg 0** (9.9 s on GPU), `just test-injection`
+**20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**, `just test-egress` loopback-only.
+(Verified 2026-08-25 with the LLM confirmed on GPU — see `llm_on_gpu`.)
 
-**Two review sessions found defects the desk suite missed** — the pattern here
+**Three review sessions found defects the desk suite missed** — the pattern here
 is that green tests do NOT prove a feature works, because the tests never
 exercised the broken path. (1) A post-G9 live review (2026-08-23) fixed 5:
 invariant-#1 `assert`→`raise` (survives `python -O`), systemd `Restart=always`,
@@ -37,14 +38,45 @@ post-Phase-2 review (2026-08-24) fixed 8 more, including a **dead-on-import G13
 enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
 that spoke success while doing nothing**. The full, current truth is the two
 **"SESSION 2026-08-24 (part 2)"** and **"SESSION 2026-08-23"** blocks at the top
-of `progress.md`. NOTE: `friday.service` is `Restart=always`, so `kill <pid>`
-does NOT stop the daemon — use `systemctl --user stop friday`. The daemon is
-currently **stopped** (stopped 2026-08-24 to silence test-driven toasts);
-`systemctl --user start friday` brings it back.
+of `progress.md`, plus the `>>> START HERE <<<` block written 2026-08-25.
+NOTE: `friday.service` is `Restart=always`, so `kill <pid>` does NOT stop the
+daemon — use `systemctl --user stop friday`. As of 2026-08-25 all three units
+(`friday`, `friday-llm`, `friday-searxng`) are **running**, 0 restarts. Never
+run `just voice` while the service is up: two daemons fight over the mic and the
+PTT socket. Stop the service first.
 
-**NEXT SESSION: reality check first.** `docs/reality-check.md` is the systematic
-manifest of everything Friday must do and must refuse — verify each item live
-before starting new work, and paste results into `progress.md`.
+**NEXT SESSION: read the `>>> START HERE <<<` block at the top of
+`progress.md` first.** It has the exact first four commands, the one open bug,
+and the ordered task list. Short version:
+
+```bash
+just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
+```
+
+A **2026-08-25 session** ran the first live reality check, then a full-codebase
+audit, then a post-Arch-upgrade sweep. It found **8 defects**, 7 fixed:
+`file_open` opened the wrong file; `friday.service` had been crash-looping
+`226/NAMESPACE` (missing `RuntimeDirectory`); every G12 control param was
+declared free `text` instead of a closed enum, so off-vocabulary values reached
+the registry; three builders then *guessed* — **brightness "brighten" actually
+dimmed the screen** — while speaking the outcome the user asked for; `FRIDAY_DEBUG`
+wrote raw transcripts to disk (invariant #7); a rejected PTT/wake trigger
+desynced tap-toggle silently; and **llama-server had been serving from CPU for
+hours** after losing a boot race with the NVIDIA driver — 22x slower, `/health`
+still "ok", and `gpu_arch` reported PASS the whole time. The one open bug is the
+**15-second empty-capture loop (OQ-29)**, which needs the user at a mic.
+
+Three lessons that block repeats, all earned this session:
+- **A check that cannot fail is worthless.** `gpu_arch` asked "does a GPU
+  exist", never "is the LLM using it". New checks need a test for the FAIL path.
+- **Grepping a config is not asking the system.** "The PTT key is not bound" was
+  a false positive from `grep`; `hyprctl binds` showed it bound all along.
+- **Degradation is silent and it moves the numbers.** Any latency measured
+  without confirming `llm_on_gpu` first is untrustworthy.
+
+`docs/reality-check.md` remains the manifest of what Friday must do and must
+refuse. Its text-mode rows are verified; **every live-voice row is still
+unticked** — that is the next session's main work.
 
 ## Working agreement — how sessions run
 
@@ -260,7 +292,7 @@ just eval               # eval fixtures -> pass count (currently 28)
 just test               # full unit + adversarial + injection suite (pytest -q)
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-no-fstring-sql# assert store/ SQL is strictly parameterized
-just selftest           # health: gpu arch, servers, db perms, audio, binds (7 checks)
+just selftest           # health: servers, gpu arch, LLM-actually-on-GPU, db perms, audio, binds (8 checks)
 just wake-bench         # G10 live wake-word / VAD benchmark
 just enroll-voice       # G13 interactive 10-utterance voiceprint enrollment
 just ptt press|release  # send a PTT command to the running daemon
@@ -279,5 +311,8 @@ just prefs list|forget  # manage stored preferences
 | "Add streaming TTS now, it's an easy win" | ADR-020. Measure at G6 first. |
 | "Speaker verify is on, so impostors are blocked" | Only if a voiceprint is enrolled — it fails OPEN otherwise, and it is OFF by default (`FRIDAY_SPEAKER_VERIFY_ENABLE`). Enroll with `just enroll-voice` first. |
 | "Make the timer recurring by default / it fired twice so it loops" | Timers are strictly one-shot (marked `fired`). A repeated toast in tests means `notify-send` wasn't stubbed, not a reminder bug. |
-| "A green test suite proves the feature works" | Twice now, tests passed while the real path was broken (G13 enroll, `clipboard_set`). Exercise the actual path; see `docs/reality-check.md`. |
+| "A green test suite proves the feature works" | Four times now, tests passed while the real path was broken (G13 enroll, `clipboard_set`, `file_open`, the CPU-only LLM). Exercise the actual path; see `docs/reality-check.md`. |
+| "The health check is green, so the system is healthy" | `gpu_arch` passed through an entire GPU outage — it asked "does a GPU exist", not "is the LLM using it". A check that cannot fail is worthless; write the FAIL-path test. |
+| "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
+| "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |
 | "Put the search results in the planning turn, one round-trip" | T1. This is the exact attack the design prevents. |
