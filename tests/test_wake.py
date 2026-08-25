@@ -94,7 +94,8 @@ def test_no_wake_when_below_threshold():
     assert fired == []
 
 
-def test_speech_during_speaking_fires_barge():
+def _speak_over(monkeypatch, enabled: bool):
+    monkeypatch.setattr(config, "BARGE_VAD_ENABLED", enabled)
     fired = []
     calls = WakeCallbacks(
         on_wake=lambda: None,
@@ -104,7 +105,20 @@ def test_speech_during_speaking_fires_barge():
     wl = make(score=0.0, voiced=True, idle=False, speaking=True, calls=calls)
     for _ in range(20):  # exceed min_speech_s (15 frames = 300ms)
         wl._on_frame(_frame())
-    assert "barge" in fired
+    return fired
+
+
+def test_speech_during_speaking_fires_barge(monkeypatch):
+    assert "barge" in _speak_over(monkeypatch, True)
+
+
+def test_voice_barge_is_off_by_default(monkeypatch):
+    """ADR-064: the AEC yields only ~-5 to -15 dB on this machine's real
+    acoustic path, so speech detected during playback is usually Friday's own
+    voice. Until a better canceller is chosen, voice barge-in stays off and PTT
+    is the interrupt."""
+    assert config.BARGE_VAD_ENABLED is False, "voice barge-in must default off"
+    assert _speak_over(monkeypatch, False) == []
 
 
 def test_refractory_suppresses_second_wake():

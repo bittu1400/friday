@@ -53,7 +53,7 @@ Read this block, then `docs/reality-check.md`. Everything below it is history.
 
 ### The one-paragraph state of the world
 Friday is G0–G13 complete and, as of the end of this session, genuinely healthy:
-`just selftest` **8/8**, `uv run pytest` **322**, `just eval` **28/28 reg 0**,
+`just selftest` **8/8**, `uv run pytest` **326**, `just eval` **28/28 reg 0**,
 injection 20/20, egress loopback-only, all three services active with
 0 restarts, LLM confirmed on GPU (4710 MiB VRAM). Text-mode routing is verified
 end to end, and the OQ-29 capture loop is root-caused and fixed (live
@@ -65,7 +65,7 @@ next session's job.
 ```bash
 just selftest                       # MUST be 8/8. llm_on_gpu is the new one.
 systemctl --user status friday friday-llm friday-searxng --no-pager | grep -E 'Active|NRestarts'
-uv run pytest -q && just eval       # expect 322 passed, 28/28 reg 0
+uv run pytest -q && just eval       # expect 326 passed, 28/28 reg 0
 journalctl --user -u friday -n 60 --no-pager | grep -E 'duration|removed|E_BUSY'
 ```
 If `llm_on_gpu` FAILS: `systemctl --user restart friday-llm`, wait ~20 s, re-run.
@@ -140,30 +140,93 @@ $ just wake-bench --duration 90     # quiet room
 Wake Hits: 0 | Peak input level: 0.1250 | Max wake score: 0.002
 ```
 
-### LIVE RUN NOTES 2026-08-25 15:18–15:22 (read before trusting that log)
+### LIVE RUN NOTES 2026-08-25 (read before trusting those logs)
 - **The 15:18–15:20 block is contaminated.** `just voice` was started while
   `friday.service` was still up — two daemons fighting over the mic and the PTT
   socket, exactly what CLAUDE.md forbids. `just voice` then died with
-  `exit code 139` (SIGSEGV). Only the run from 15:20:27 on is usable.
-- In the clean run Friday **worked**: `heard='Hey Jarvis'` -> `action=open_app
-  dispatched=True spoken='Opened VS Code.'` That is the first live
-  wake-word-to-action ever recorded here.
-- Captures containing speech still ran the full 15 s (v3, v4) — that is defect
-  #2 above, now fixed but **not yet re-confirmed live**.
-- `TTFA 5355 ms` (v2, `action=chat`) and `3452 ms` (v11) are far above the
-  recorded p50 2.16 s / p95 2.73 s. Measured while two daemons shared the CPU
-  and the mic, so the numbers are not trustworthy. **Re-measure on a clean run
-  before treating this as a regression.**
+  `exit code 139` (SIGSEGV). Only runs with a single daemon are usable.
+- **The 15 s loop is GONE.** The 15:45 run shows captures of 2.033 s, 3.379 s
+  and 1.738 s ending on VAD, and `capture start source=wake` naming every
+  trigger. Both OQ-29 fixes hold live.
+- `TTFA 5355 ms` / `3452 ms` were measured while two daemons shared the CPU and
+  mic. The clean 15:45 run shows **2518 ms** and **1827 ms**. Not a regression.
 
-### STILL OWED — live confirmation of both fixes
-Service stopped, one daemon only:
-```bash
-systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
+### THREE DEFECTS THE 15:45 RUN EXPOSED — all fixed 2026-08-25
+
+**#1 — `open_app` never launched anything. Every "Opened X." was a lie.**
+`_build_app_env()` (FR-32's minimal explicit env) omitted `DISPLAY`. Chromium
+and Electron default to the X11 Ozone backend here, so Brave printed
+`Missing X server or $DISPLAY / The platform failed to initialize. Exiting.`
+and died — while the detached spawn (ADR-043 fire-and-forget) still reported ok:
 ```
-Say "hey jarvis, open my browser", then stay silent. Expect:
-- exactly ONE `capture start source=wake`, no second capture after the turn
-- the capture ending on VAD, not at 15.000 s, once you stop talking
-- barge in mid-reply -> `capture start source=barge`, and that one ends on VAD too
+Friday reported: ok | Brave | duration 165 ms
+ACTUAL: brave is NOT running
+```
+Fixed by adding `DISPLAY` to the copied session vars. All five registry apps
+verified actually running after dispatch (browser, terminal, editor, video,
+vlc). The env allowlist test is updated, so the addition stays explicit.
+**This is the fifth time a green path was a lie.** The launcher still cannot
+fail: it reports the spawn, not the app. See "still open" below.
+
+**#2 — Friday interrupted herself on every reply (ADR-064).**
+Reproduced without a human by driving the real speaker and mic:
+| condition | suppression | barges in one reply |
+| :-- | --: | --: |
+| synthetic echo, aligned reference | −52 dB | — |
+| real room, reference absent (40% of frames) | 0 dB | — |
+| real room, reference present, before fix | −15.6 dB | 1 short / 8 long |
+| real room, reference from playback callback | −9.7 dB | 9 |
+
+Two things were wrong and one remains. The reference was written to `FarEndRef`
+in one lump before playback and drained free-running, so it was absent for 40%
+of frames and — past the 5 s ring cap — held the WRONG audio for any longer
+reply. Now fed from the `OutputStream` callback, tied to the device's playback
+position (coverage 250/446 → 349/446). `sd.play()` is gone, so `stop()` aborts
+that stream and the wait is bounded rather than trusting the driver.
+**That was not enough.** The canceller still yields −9.7 dB on the real path and
+`stream_delay_ms` changes nothing (−5.1/−4.9/−5.1/−4.9/−3.9 dB at 0/30/60/90/
+120 ms; measured lag 58 ms, correlation 0.53, so the content is right). So
+**voice barge-in is OFF by default** (`BARGE_VAD_ENABLED`, ADR-064); PTT is the
+interrupt. Finding a canceller that works here is **OQ-32**.
+
+**#3 — Friday's own suggestion became her own instruction (ADR-065).**
+After two turns proposing VS Code ending "Ready to start coding?", a bare
+"hey jarvis" planned and dispatched `open_app{editor}` **4 times out of 4**.
+ADR-052 anaphora working as built, with Friday as the antecedent.
+The planner is now asked **without history first**; `chat` there means chat and
+is never re-planned; only `none` re-plans with history, and an action that
+appears only then is spoken as a question and held as a `PendingAction`.
+Verified live against the model:
+```
+bare wake + question-history -> chat    'Ready for some coding or a break?'
+bare wake, no history        -> chat    'Hello! How can I assist you today?'
+'hey jarvis, open my browser'-> open_app dispatched=True
+'open it' (after Brave)      -> pending  'Did you want me to open Brave?'
+'hey jarvis, what can you do'-> chat
+```
+
+```
+$ uv run pytest -q          # was 319 at session start
+326 passed, 1 warning in 3.71s
+$ just eval
+passed 28/28 (100%) | known-failing: 0 | regressions vs baseline: 0
+$ just test-injection
+1 passed          # 20/20 fixtures blocked
+$ just selftest
+8/8
+```
+
+### STILL OPEN after this session
+- **OQ-32 — the echo-canceller drill.** Blocks hands-free barge-in.
+- **The launcher still cannot report a failed launch.** ADR-043 made it
+  fire-and-forget on purpose (Brave's DBus handoff exits non-zero on success),
+  so defect #1 hid for the entire project. `DISPLAY` is fixed but the *check*
+  is still one that cannot fail. Needs a design decision, not a patch.
+- **A clean live voice pass.** Every mic-driven row of `docs/reality-check.md`
+  is still unticked. One daemon only:
+  ```bash
+  systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
+  ```
 
 ### What the next session must actually DO, in order
 1. `just selftest` → 8/8 (above). Fix before anything else.

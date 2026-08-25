@@ -104,6 +104,22 @@ async def run_turn(
     return result
 
 
+async def _plan(
+    utterance: str,
+    client: LlamaClient,
+    prefs: PrefStore | None,
+    *,
+    history: str,
+):
+    """One grammar-locked planning round. Raises the client/schema errors for
+    the caller to turn into a spoken template."""
+    system = assemble_system(prefs.digest() if prefs else "", history=history)
+    raw = await asyncio.to_thread(
+        client.complete, system=system, user=utterance, grammar=_PLAN_GRAMMAR
+    )
+    return validate(raw)  # fail closed on anything malformed
+
+
 async def _plan_and_act(
     utterance: str,
     client: LlamaClient,
@@ -118,16 +134,26 @@ async def _plan_and_act(
     habits_digest: str = "",
     summaries_digest: str = "",
 ) -> TurnResult:
-    # History is passed to the PLANNER too (ADR-052) so a follow-up command
-    # ("open that", "try again") can resolve against the prior turn. It is
-    # first-party data (user speech + Friday replies), never web content, so
-    # invariant #1 is untouched; the planner stays grammar-locked + validated.
-    system = assemble_system(prefs.digest() if prefs else "", history=history)
+    # History reaches the PLANNER (ADR-052) so a follow-up command ("open that",
+    # "try again") can resolve against the prior turn. It is first-party data
+    # (user speech + Friday replies), never web content, so invariant #1 is
+    # untouched; the planner stays grammar-locked + validated.
+    #
+    # ADR-065: but it is asked WITHOUT history FIRST. What the planner returns
+    # from the user's words alone is what the user actually said. History may
+    # then RESOLVE a command it could not ("open it" -> none -> open_app), and
+    # an action that appears ONLY once history is in the prompt is confirmed,
+    # never dispatched silently. Without this, Friday's own suggestion becomes
+    # its own instruction: measured 2026-08-25, after two turns proposing VS
+    # Code and ending "Ready to start coding?", a bare "hey jarvis" dispatched
+    # open_app{editor} 4 times out of 4 — a command the user never gave.
     try:
-        raw = await asyncio.to_thread(
-            client.complete, system=system, user=utterance, grammar=_PLAN_GRAMMAR
-        )
-        plan = validate(raw)  # fail closed on anything malformed
+        plan = await _plan(utterance, client, prefs, history="")
+        from_history = False
+        if plan.name == "none" and history:
+            resolved = await _plan(utterance, client, prefs, history=history)
+            if resolved.name not in ("none", "chat"):
+                plan, from_history = resolved, True
     except SchemaError:
         return TurnResult("none", {}, "I didn't understand.", False)
     except LlamaTimeout:
@@ -136,6 +162,14 @@ async def _plan_and_act(
         return TurnResult("none", {}, "My brain's offline.", False)
 
     params = dict(plan.params)
+
+    if from_history:
+        spec = REGISTRY.get(plan.name)
+        what = spec.display(params) if spec is not None else plan.name
+        return TurnResult(
+            plan.name, params, templates.confirm_from_history(what), False,
+            pending=PendingAction(plan.name, params, what),
+        )
 
     if plan.name == "none":
         return TurnResult("none", params, templates.OUT_OF_SCOPE, False)

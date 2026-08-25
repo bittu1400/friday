@@ -1971,3 +1971,77 @@ two-pass confirmation without consuming any GPU VRAM.
 
 
 
+
+## ADR-064 — Voice barge-in is OFF by default; PTT is the interrupt
+
+**Status:** Accepted (2026-08-25). Amends ADR-062. Opens OQ-32.
+
+**Context.** ADR-060/062 assumed the AEC would suppress Friday's own voice
+enough that a VAD over the cleaned mic stream could safely mean "the user is
+interrupting". The first live voice session disproved that: every reply was cut
+off roughly 0.7–1.2 s in by `capture start source=barge`, and the resulting
+capture was pure silence.
+
+**Measured, 2026-08-25**, reproducing the acoustic loop on this laptop with the
+real speaker and mic (RAM only, invariant #7):
+
+| condition | echo suppression | barge events in one reply |
+| :-- | --: | --: |
+| synthetic echo, aligned reference | −52 dB | — |
+| real room, reference absent (40% of frames) | 0 dB | — |
+| real room, reference present, before fix | −15.6 dB | 1 (short) / 8 (long) |
+| real room, reference fed from playback callback | −9.7 dB | 9 |
+
+`stream_delay_ms` is not the miss: 0/30/60/90/120 ms give −5.1/−4.9/−5.1/−4.9/
+−3.9 dB. The measured speaker→mic lag is 58 ms with envelope correlation 0.53,
+so the reference content is correct — the canceller simply does not converge on
+this acoustic path. The barge VAD called 238 of 349 playback frames speech.
+
+**Decision.** `config.BARGE_VAD_ENABLED` defaults to **False**. Speech detected
+during playback no longer interrupts. PTT barge-in (`daemon._on_press` while
+SPEAKING) is untouched — it arrives over the socket, not from the VAD, and
+remains the way to cut Friday off. Set `FRIDAY_BARGE_VAD_ENABLE=1` to restore
+the old behaviour.
+
+**Rejected for now.** Gating barge on the wake word (robust — the detector
+scored 0 false fires in 90 s and Friday never says her own wake word) and a
+double-talk energy gate (needs a tuned threshold that drifts with volume, mic
+position and room). Both remain open if the canceller search fails.
+
+**Consequences.** Hands-free interruption is gone until a better echo canceller
+is chosen (OQ-32, the ADR-039/041 dependency drill). Voice replies are no longer
+cut off, which unblocks live-voice testing. The cost is honest: a long wrong
+answer must be waited out or stopped with PTT.
+
+## ADR-065 — The planner is asked WITHOUT history first; a history-resolved action is confirmed
+
+**Status:** Accepted (2026-08-25). Amends ADR-052.
+
+**Context.** ADR-052 put recent conversation into the planning prompt so
+follow-ups ("open that", "try again") resolve. That also let Friday's OWN
+suggestion become an instruction. Measured 2026-08-25 against the live model:
+after two turns in which Friday proposed VS Code and ended "Ready to start
+coding?", a bare "hey jarvis" planned `open_app{app: editor}` and dispatched it
+**4 times out of 4**. The user said only the wake word; an application opened.
+
+**Decision.** Plan twice, and let CODE — not a model-supplied trust flag —
+decide what the user actually asked for:
+
+1. Plan with `history=""`. What the planner returns from the user's own words
+   is what the user said.
+2. A concrete action there → execute as before. `chat` → chat, and never
+   re-plan with history: a greeting or a question can no longer become a
+   dispatch.
+3. Only `none` (a command the words alone could not resolve) re-plans WITH
+   history. If that yields an action, it is returned as a `PendingAction` and
+   **spoken as a question**, never dispatched.
+
+The signal is clean and was measured before building: "open it"/"open that"
+plan to `none` without history, while "hey jarvis"/"yes" plan to `chat`.
+
+**Consequences.** One extra planning round-trip in the anaphoric case only; the
+common command path is unchanged at one call. Anaphora still works — it just
+asks first. Invariants #1 and #5 are untouched: both passes are the same
+grammar-locked, validated planner over first-party data. Verified live: the
+reproduced bug now answers "Ready for some coding or a break?" instead of
+opening an editor, and "open it" asks "Did you want me to open Brave?".

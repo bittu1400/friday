@@ -639,3 +639,56 @@ def test_ptt_capture_does_not_arm_vad_end_of_speech():
         assert wl.armed == 0
 
     asyncio.run(go())
+
+
+def test_history_resolved_action_dispatches_only_after_yes(monkeypatch):
+    """ADR-065 end to end: an action that only history could supply is spoken
+    as a question, and runs on 'yes' — not before."""
+    from friday.turn import PendingAction
+
+    d = _daemon(transcriber=FakeTranscriber(text="open it"))
+    _plan(monkeypatch, TurnResult(
+        "open_app", {"app": "browser"}, "Did you want me to open Brave?", False,
+        pending=PendingAction("open_app", {"app": "browser"}, "Brave"),
+    ))
+    ran = []
+
+    async def fake_execute(spec, params, request_id, dry_run=False):
+        ran.append(params)
+        from friday.errors import Outcome
+        from friday.tools.executor import ToolResult
+        return ToolResult(Outcome.OK, "Brave")
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await asyncio.sleep(0.05)
+        assert d._pending is not None, "the action must be held for confirmation"
+        assert ran == [], "nothing may run before the user says yes"
+
+        from friday.tools import executor as ex
+        monkeypatch.setattr(ex, "execute", fake_execute)
+
+        # anything but yes cancels, and nothing runs
+        d._transcriber = FakeTranscriber(text="no")
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await asyncio.sleep(0.05)
+        assert ran == [], "a declined confirm must not dispatch"
+
+        # ask again, then say yes
+        _plan(monkeypatch, TurnResult(
+            "open_app", {"app": "browser"}, "Did you want me to open Brave?", False,
+            pending=PendingAction("open_app", {"app": "browser"}, "Brave"),
+        ))
+        d._transcriber = FakeTranscriber(text="open it")
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await asyncio.sleep(0.05)
+        d._transcriber = FakeTranscriber(text="yes")
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await asyncio.sleep(0.05)
+        assert ran == [{"app": "browser"}], "yes must dispatch the held action"
+
+    asyncio.run(go())

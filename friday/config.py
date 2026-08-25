@@ -116,6 +116,14 @@ VAD_END_SILENCE_S: float = 0.8     # trailing silence that ends a capture
 VAD_MIN_SPEECH_S: float = 0.3      # ignore sub-this blips (barge-in + end-of-speech)
 VAD_AGGRESSIVENESS: int = 2        # webrtcvad 0-3
 
+# Voice barge-in (FR-7). OFF by default since 2026-08-25 (ADR-064): the AEC
+# delivers only about -5 to -15 dB on this machine's real acoustic path
+# (measured; -52 dB on a clean synthetic echo), so the barge VAD cannot tell
+# Friday's own voice from the user's and cut every reply off mid-sentence.
+# PTT remains the interrupt. A better echo canceller is being researched;
+# this flag is how voice barge-in comes back once one is chosen.
+BARGE_VAD_ENABLED: bool = os.environ.get("FRIDAY_BARGE_VAD_ENABLE") is not None
+
 # AEC (ADR-060). Far-end reference = TTS playback.
 AEC_ENABLED: bool = os.environ.get("FRIDAY_AEC_DISABLE") is None
 AEC_FRAME_MS: int = 10             # per ADR-060's chosen library

@@ -64,3 +64,9 @@ SEARCH_NO_RESULTS = "I didn't find anything on that."
 # which has its own distinct line). Destructive/out-of-ability requests land
 # here. Fixed string, never the LLM.
 OUT_OF_SCOPE = "That isn't something I'm able to do."
+
+
+def confirm_from_history(what: str) -> str:
+    """ADR-065: the action was not in the user's words — history supplied it,
+    so it is confirmed before anything runs."""
+    return f"Did you want me to open {what}?"

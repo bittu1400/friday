@@ -181,6 +181,27 @@ alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
+### OQ-32 — Which echo canceller actually works on this laptop? (BLOCKS hands-free barge-in)
+**Status:** OPEN — a full ADR-039/041 dependency drill. Raised 2026-08-25.
+
+`pywebrtc_audio`'s EchoCanceller delivers **−52 dB** on a clean synthetic echo
+and only **−5 to −10 dB** on this machine's real speaker→mic path, with the
+reference correct and callback-synced (measured lag 58 ms, envelope correlation
+0.53; `stream_delay_ms` at 0/30/60/90/120 ms changes nothing). The barge VAD
+therefore called 238 of 349 playback frames speech, and Friday cut herself off
+on every reply. Voice barge-in is off by default as a result (ADR-064).
+
+Run the drill from CLAUDE.md rule 7: enumerate the real options (speexdsp,
+WebRTC APM builds with the full AGC/NS chain rather than the bare
+EchoCanceller, adaptive-filter implementations), check the footprint with
+`uv pip install --dry-run` BEFORE installing (anything dragging in torch/CUDA
+is disqualified by invariant #6), benchmark the survivors **on this laptop**
+with the probe already written for it, and record the numbers plus the rejected
+alternatives in an ADR before wiring anything in.
+
+**What blocks it:** nothing but the work. The measurement harness exists.
+**What it unblocks:** hands-free interruption. Until then PTT is the interrupt.
+
 ### OQ-30 — Should "play a video" open mpv or search YouTube?
 **Status:** OPEN — one-line prompt change either way. Raised 2026-08-25.
 

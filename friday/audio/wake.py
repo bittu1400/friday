@@ -239,7 +239,10 @@ class WakeListener:
         if self.is_speaking():
             self._awaiting_end = False
             self._capture_gate.reset()
-            if self.vad is not None:
+            # ADR-064: voice barge-in is off until an echo canceller that works
+            # on this hardware is chosen. PTT barge-in (daemon._on_press) is
+            # unaffected — it comes from the socket, not from this VAD.
+            if self.vad is not None and config.BARGE_VAD_ENABLED:
                 voiced = self.vad.is_speech(cleaned)
                 ev = self._barge_gate.push(voiced)
                 if ev == "start":
