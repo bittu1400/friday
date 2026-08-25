@@ -31,6 +31,7 @@ from .audio.state import State, TurnState
 from .audio.stt import Transcriber
 from .dialogue import Dialogue
 from .llm.client import LlamaClient
+from .proactive import notifier
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore
 from .tools.search import SearchClient
@@ -132,13 +133,32 @@ class Daemon:
 
     # --- Hands-free Wake & Barge events (G10) -----------------------------
 
+    def _reject_busy(self, source: str) -> None:
+        """One turn in flight (FR-5): the trigger is rejected, never queued.
+
+        FR-5 says reject; it does not say do it silently. With tap-toggle PTT
+        (ADR-044) a silent rejection desyncs the user from the state machine —
+        they tap to START, the tap is dropped, and their next tap (meant to
+        STOP) starts a capture of an empty room instead. That is exactly what
+        the 2026-08-25 14:28 logs show: two dropped presses, then 11-15 s
+        captures that STT reported as 100% silence. So say so.
+        """
+        self.rejected += 1
+        log.info("E_BUSY: %s ignored in %s", source, self.state.state.value)
+        # Module-qualified so tests can stub notifier.notify (a real notify-send
+        # in the suite is how the phantom "pasta" toasts happened).
+        notifier.notify(
+            "Friday is busy",
+            "Still finishing the last request — that one didn't register.",
+            urgency="low",
+        )
+
     async def on_wake(self) -> None:
         """Wake word detected from idle: begin capturing."""
         if self.state.begin_capture():
             self._start_capture()
         else:
-            self.rejected += 1
-            log.info("E_BUSY: wake ignored in %s", self.state.state.value)
+            self._reject_busy("wake")
 
     async def on_speech_end(self) -> None:
         """VAD detected trailing silence during capture: finish capture."""
@@ -191,8 +211,7 @@ class Daemon:
         if self.state.begin_capture():
             self._start_capture()
         else:
-            self.rejected += 1  # FR-5: busy, rejected not queued
-            log.info("E_BUSY: press ignored in %s", self.state.state.value)
+            self._reject_busy("press")  # FR-5: busy, rejected not queued
 
     def _start_capture(self) -> None:
         if hasattr(self._recorder, "ensure_open"):

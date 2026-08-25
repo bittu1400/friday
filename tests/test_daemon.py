@@ -552,3 +552,44 @@ def test_planner_dictation_mode_toggles_manager(monkeypatch):
 
 
 
+
+
+def test_rejected_trigger_tells_the_user(monkeypatch):
+    """FR-5 rejects a busy trigger; it must not do so silently.
+
+    With tap-toggle PTT (ADR-044) a dropped press desyncs the user from the
+    state machine: the tap meant to START is swallowed, so their next tap —
+    meant to STOP — starts a capture of an empty room. That produced the 11-15 s
+    all-silence captures seen live on 2026-08-25.
+    """
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        daemon_mod.notifier, "notify",
+        lambda title, message, **k: sent.append((title, message)) or True,
+    )
+    _plan(monkeypatch, TurnResult("none", {}, "(no action)", False))
+    d = _daemon()
+
+    async def go():
+        await d.on_ptt("press")   # accepted: starts the capture
+        await d.on_ptt("press")   # rejected: busy
+        await d.on_wake()         # rejected: busy
+
+    asyncio.run(go())
+    assert d.rejected == 2
+    assert len(sent) == 2, "every rejected trigger gets user-visible feedback"
+    assert all("busy" in title.lower() for title, _ in sent)
+
+
+def test_accepted_trigger_does_not_notify(monkeypatch):
+    """No toast when the trigger actually worked — feedback only on rejection."""
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        daemon_mod.notifier, "notify",
+        lambda title, message, **k: sent.append((title, message)) or True,
+    )
+    _plan(monkeypatch, TurnResult("none", {}, "(no action)", False))
+    d = _daemon()
+
+    asyncio.run(d.on_ptt("press"))
+    assert sent == []

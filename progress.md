@@ -131,21 +131,36 @@ rows (A8/A15/A16 + real state changes + store-backed) are being walked by the us
    the transcript. Fixed: `NoDiskFilter` on the file handler + both sites marked
    `extra={"no_disk": True}` — debug reaches the console and stops there.
    `tests/test_log_no_disk.py` asserts a fake secret never reaches the file.
-6. **(BLOCKER, not fixed — needs your call) There is no PTT keybinding.**
-   `grep -rniE 'friday|ptt' ~/.config/hypr/` returns **nothing**, and
-   `friday-ptt` is not on PATH. ADR-044 and `docs/reality-check.md` both say
-   "tap the bound key (XF86Presentation)" — on this machine there has never been
-   a key to press. This is why the live voice test appeared dead. Manifest
-   corrected; the bind itself is a change to the user's compositor config, so it
-   is not made unilaterally. Workaround: `just ptt press|release|toggle`.
-7. **(not fixed) A rejected press silently desyncs the toggle.** FR-5 correctly
-   refuses a press while a turn is in flight, but `on_press` only logs
-   `E_BUSY`. With tap-toggle semantics the user's next tap then *starts* a
-   capture they think they are *ending*. The 2026-08-25 14:28 logs show exactly
-   this: two `E_BUSY: press ignored in planning`, then captures of 13.3s / 15.0s
-   / 11.3s that whisper reported as **100% VAD-removed** (pure silence) — the
-   "it's not working" symptom. Rejection is correct; the silence is not. Needs a
-   decision on the feedback channel (toast vs. earcon) before coding.
+6. **WITHDRAWN — false positive. The PTT key IS bound.** I reported "no PTT
+   keybinding" on the strength of `grep -rniE 'friday|ptt' ~/.config/hypr/`
+   returning nothing. That grep was the wrong instrument: the bind is routed
+   through a Lua dispatcher, so no literal "friday"/"ptt" string appears in the
+   config at all. Asking the running compositor is authoritative and settles it:
+   `hyprctl binds | grep -A7 'key: XF86Presentation'` → exactly one `bind`
+   (press-only, no release flag), `dispatcher: __lua`, `arg: 249`. The key works
+   and always did — the daemon's own `E_BUSY: press ignored` lines were proof
+   that presses were arriving. **Lesson (same as the rest of this session):
+   grepping the config is not the same as asking the system.** The manifest edit
+   claiming the bind was missing has been reverted to a neutral verify-step.
+7. **FIXED — a rejected trigger no longer desyncs the toggle silently.** FR-5
+   correctly refuses a trigger while a turn is in flight, but `on_press` and
+   `on_wake` each only logged `E_BUSY`. With tap-toggle semantics (ADR-044) the
+   swallowed tap desyncs the user: the tap meant to START is dropped, so the
+   next tap — meant to STOP — starts a capture of an empty room. The 14:28 logs
+   show exactly that: two `E_BUSY: press ignored in planning`, then captures of
+   13.3 s / 15.0 s / 11.3 s that STT reported as **100% VAD-removed** (pure
+   silence). That is the whole "it's not working" symptom. FR-5 says reject; it
+   does not say do it silently. Both paths now route through one
+   `Daemon._reject_busy()` that keeps the counter and log AND sends a low-urgency
+   desktop toast ("Friday is busy — still finishing the last request"). Channel
+   chosen as toast over earcon: it needs no new asset, cannot collide with TTS
+   or the mic, and `notify-send` was already a dependency (G11). Verified live —
+   a real toast rendered on the desktop, not just a return code.
+   **Also fixed the class of bug that caused the phantom "pasta" toasts:** there
+   was no `tests/conftest.py`, so nothing stopped any test from shelling out to
+   a real `notify-send`. Added one with an autouse stub, so no test present or
+   future can spam the desktop; a test that wants to assert on notifications
+   patches its own recorder over it.
 
 Also verified clean: every module imports (the G13-enroll defect class is not
 repeated anywhere); no `shell=True` and every subprocess is an argv list with a

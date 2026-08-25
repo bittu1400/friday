@@ -29,12 +29,15 @@ just selftest                                         # expect: all 7 checks PAS
 Then either:
 - **Text mode** (fastest to verify logic): `just run` — type utterances, read outcomes.
 - **Voice mode** (full stack): `systemctl --user start friday` (or `just voice`).
-  Wake = say "hey jarvis". PTT = tap the bound key (XF86Presentation, ADR-044)
-  — **but verify the bind exists first**: as of 2026-08-25 there was NO friday
-  bind anywhere in `~/.config/hypr/`, and `friday-ptt` is not on PATH, so there
-  was no key to press and this row could never have passed. Until the bind is
-  installed, drive PTT from a terminal: `just ptt press` … speak …
-  `just ptt release` (or `just ptt toggle` for the one-tap ADR-044 semantic).
+  Wake = say "hey jarvis". PTT = tap the bound key (XF86Presentation, ADR-044).
+  To confirm the bind, ask the compositor — do NOT grep the config, which routes
+  the bind through a Lua dispatcher and contains no "friday"/"ptt" string:
+  `hyprctl binds | grep -A7 'key: XF86Presentation'` (verified 2026-08-25: one
+  press-only `bind`, `dispatcher: __lua`). A terminal equivalent also exists:
+  `just ptt press` … speak … `just ptt release`, or `just ptt toggle`.
+- A trigger arriving while a turn is still running is **rejected, never queued**
+  (FR-5) and now raises a desktop toast saying so — if you tap and get "Friday
+  is busy", the tap did not register and the toggle did not flip.
 - **To watch a live session**, run the daemon in the foreground instead of as a
   service (stop the service first — two daemons fight over the mic and socket):
   `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`. `FRIDAY_DEBUG`
