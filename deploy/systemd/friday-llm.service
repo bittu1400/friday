@@ -10,6 +10,15 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 Environment=PATH=/opt/cuda/bin:/usr/local/bin:/usr/bin:/bin
+# Do not start until the GPU actually answers. On 2026-08-25 this unit came up
+# at boot before the NVIDIA stack was ready, hit "ggml_cuda_init: failed to
+# initialize CUDA: no CUDA-capable device is detected", and llama.cpp then does
+# something worse than crashing: it drops --n-gpu-layers and serves happily from
+# CPU. /health still says "ok", so nothing downstream noticed for hours while
+# completions ran ~22x slower. Fail instead of starting blind; Restart=always +
+# StartLimitIntervalSec=0 keeps retrying until the driver is up. `just selftest`
+# (llm_on_gpu) is the second layer that catches a fallback if one still happens.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do nvidia-smi -L >/dev/null 2>&1 && exit 0; sleep 2; done; echo "GPU not ready after 60s" >&2; exit 1'
 ExecStart=/opt/llama.cpp/build/bin/llama-server \
   --model %h/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
   --host 127.0.0.1 --port 8080 \

@@ -331,12 +331,66 @@ def check_socket_binds() -> CheckResult:
     return CheckResult("socket_binds", Status.PASS, "Loopback binding verified")
 
 
+def check_llm_on_gpu() -> CheckResult:
+    """Verify llama-server is actually RUNNING ON the GPU, not just that a GPU
+    exists (ADR-018, invariant #6).
+
+    `check_gpu_arch` asks nvidia-smi whether a Blackwell card is present. It
+    reported PASS for hours on 2026-08-25 while llama-server was silently
+    CPU-only: it had lost the CUDA race at boot with
+    `ggml_cuda_init: failed to initialize CUDA: no CUDA-capable device is
+    detected` / `no usable GPU found, --gpu-layers option will be ignored`,
+    loaded zero layers to VRAM, and still answered /health with "ok". A
+    completion took 3.18 s instead of 0.14 s — a 22x regression that every
+    existing check called green. The only honest signal is VRAM actually held
+    by the llama-server process, so that is what this asserts.
+    """
+    if shutil.which("nvidia-smi") is None:
+        return CheckResult("llm_on_gpu", Status.WARN, "nvidia-smi not found in PATH")
+    try:
+        pids = subprocess.run(
+            ["pgrep", "-x", "llama-server"], capture_output=True, text=True, timeout=5.0
+        ).stdout.split()
+        if not pids:
+            return CheckResult(
+                "llm_on_gpu", Status.WARN, "llama-server is not running (start friday-llm)"
+            )
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5.0, check=True,
+        )
+        on_gpu = {
+            parts[0].strip(): parts[1].strip()
+            for line in proc.stdout.splitlines()
+            if len(parts := line.split(",")) == 2
+        }
+        for pid in pids:
+            if pid in on_gpu and int(on_gpu[pid]) > 500:  # a loaded 7B Q4 is GBs
+                return CheckResult(
+                    "llm_on_gpu", Status.PASS,
+                    f"llama-server pid {pid} holds {on_gpu[pid]} MiB VRAM (GPU offload live)",
+                )
+        return CheckResult(
+            "llm_on_gpu", Status.FAIL,
+            "llama-server is running but holds NO VRAM — it fell back to CPU",
+            details=(
+                "Inference is ~22x slower and every latency budget is void. Usually a "
+                "boot race or a kernel/driver upgrade without a reboot. Fix: "
+                "`systemctl --user restart friday-llm`, then re-run this check. Confirm "
+                "with: journalctl --user -u friday-llm | grep ggml_cuda"
+            ),
+        )
+    except Exception as exc:
+        return CheckResult("llm_on_gpu", Status.WARN, f"could not verify GPU offload: {exc}")
+
+
 def run_all_checks() -> list[CheckResult]:
     """Execute all self-test checks and return results."""
     return [
         check_llama_server(),
         check_searxng(),
         check_gpu_arch(),
+        check_llm_on_gpu(),
         check_database(),
         check_audio_devices(),
         check_panic_switch(),
