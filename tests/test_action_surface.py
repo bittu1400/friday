@@ -85,3 +85,54 @@ def test_file_open_unregistered_alias_fails_closed():
     for bad in ("/etc/passwd", "", "my secrets"):
         with pytest.raises(PolicyRejected):
             spec.build_argv({"alias": bad})
+
+
+# --- audit 2026-08-25: off-vocabulary control params must never guess --------
+# These builders used to fall back to a default, so an unrecognized value did
+# the WRONG thing (volume UP, brightness DOWN, media play-pause) while the
+# spoken outcome named what the user actually asked for.
+
+def test_control_params_fail_closed_on_unknown_value():
+    cases = [
+        ("system_volume", "direction", ["louder", "lower", "", "MUTE!"]),
+        ("system_brightness", "direction", ["brighten", "increase", "dim", ""]),
+        ("system_media", "action", ["halt", "skip", ""]),
+    ]
+    for tool_id, key, bad_values in cases:
+        spec = REGISTRY[tool_id]
+        for bad in bad_values:
+            with pytest.raises(PolicyRejected):
+                spec.build_argv({key: bad})
+
+
+def test_control_params_still_build_known_values():
+    assert REGISTRY["system_volume"].build_argv({"direction": "down"})[-1] == "5%-"
+    assert REGISTRY["system_volume"].build_argv({"direction": "up"})[-1] == "5%+"
+    assert REGISTRY["system_brightness"].build_argv({"direction": "down"})[-1] == "5%-"
+    assert REGISTRY["system_brightness"].build_argv({"direction": "up"})[-1] == "+5%"
+    assert REGISTRY["system_media"].build_argv({"action": "stop"})[-1] == "stop"
+
+
+def test_schema_enforces_control_enums():
+    """The validator, not the prompt, is the control (ADR-008). An
+    off-vocabulary value must fail closed to action=none before it ever
+    reaches a builder."""
+    from friday.llm.validate import SchemaError, validate
+
+    for bad in (
+        '{"action":{"name":"system_volume","params":{"direction":"louder"}}}',
+        '{"action":{"name":"system_brightness","params":{"direction":"brighten"}}}',
+        '{"action":{"name":"system_wifi","params":{"state":"maybe"}}}',
+        '{"action":{"name":"hypr_window","params":{"action":"minimize"}}}',
+        '{"action":{"name":"dictation_mode","params":{"action":"resume"}}}',
+    ):
+        with pytest.raises(SchemaError):
+            validate(bad)
+
+    # and the real vocabulary still validates
+    for good in (
+        '{"action":{"name":"system_volume","params":{"direction":"mute"}}}',
+        '{"action":{"name":"hypr_window","params":{"action":"close"}}}',
+        '{"action":{"name":"hypr_workspace","params":{"workspace":"3"}}}',
+    ):
+        validate(good)

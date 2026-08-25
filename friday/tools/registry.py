@@ -98,8 +98,15 @@ def _build_app_env() -> Mapping[str, str]:
 _APP_ENV = _build_app_env()
 
 
+# These three used to fall back to a default on an unrecognized value, which
+# meant an off-vocabulary param did the WRONG thing instead of nothing: volume
+# went UP for any direction that wasn't "down"/"mute"/"unmute", brightness went
+# DOWN for anything that wasn't exactly "up", and media fell back to play-pause.
+# The spoken outcome still named what the user asked for, so it reported an
+# action that never happened (ADR-009). The schema enum is the first gate; these
+# raise instead of guessing, because invariant #5 requires BOTH layers.
 def _build_volume_argv(p: Mapping[str, str]) -> list[str]:
-    d = p.get("direction", "up").lower()
+    d = p.get("direction", "").lower()
     if d == "up":
         return ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"]
     elif d == "down":
@@ -108,16 +115,20 @@ def _build_volume_argv(p: Mapping[str, str]) -> list[str]:
         return ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]
     elif d == "unmute":
         return ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "0"]
-    return ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"]
+    raise PolicyRejected(f"Unknown volume direction: {d!r}")
 
 
 def _build_brightness_argv(p: Mapping[str, str]) -> list[str]:
-    d = p.get("direction", "up").lower()
-    return ["brightnessctl", "set", "+5%"] if d == "up" else ["brightnessctl", "set", "5%-"]
+    d = p.get("direction", "").lower()
+    if d == "up":
+        return ["brightnessctl", "set", "+5%"]
+    elif d == "down":
+        return ["brightnessctl", "set", "5%-"]
+    raise PolicyRejected(f"Unknown brightness direction: {d!r}")
 
 
 def _build_media_argv(p: Mapping[str, str]) -> list[str]:
-    ctrl = p.get("action", "play_pause").lower()
+    ctrl = p.get("action", "").lower()
     mapping = {
         "play_pause": "play-pause",
         "play": "play",
@@ -126,7 +137,9 @@ def _build_media_argv(p: Mapping[str, str]) -> list[str]:
         "previous": "previous",
         "stop": "stop",
     }
-    return ["playerctl", mapping.get(ctrl, "play-pause")]
+    if ctrl not in mapping:
+        raise PolicyRejected(f"Unknown media action: {ctrl!r}")
+    return ["playerctl", mapping[ctrl]]
 
 
 def _build_wifi_argv(p: Mapping[str, str]) -> list[str]:

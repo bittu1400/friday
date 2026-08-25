@@ -238,7 +238,9 @@ class Daemon:
                 return
             self.state.got_transcript(nonempty=bool(text))
             if config.DEBUG:
-                log.info("[debug] %s heard=%r", rid, text)
+                # no_disk: the transcript may reach the console, never the log
+                # file (invariant #7 — the redactor rewrites paths, not bodies).
+                log.info("[debug] %s heard=%r", rid, text, extra={"no_disk": True})
             if not text:  # FR-12 empty / FR-13 over-limit -> IDLE, silent
                 return
 
@@ -351,6 +353,7 @@ class Daemon:
                 log.info(
                     "[debug] %s action=%s dispatched=%s spoken=%r",
                     rid, result.plan_name, result.dispatched, result.spoken,
+                    extra={"no_disk": True},  # spoken can be raw model output
                 )
             will_speak = bool(result.spoken) and result.spoken != "(no action)"
             self.state.got_plan(will_speak=will_speak)

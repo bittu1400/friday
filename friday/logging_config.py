@@ -35,6 +35,20 @@ _STRUCTURED_FIELDS = (
 )
 
 
+class NoDiskFilter(logging.Filter):
+    """Drops records marked `extra={"no_disk": True}`.
+
+    Invariant #7 / FR-26/57: raw transcripts, model output and search payloads
+    are NEVER written to disk. FRIDAY_DEBUG echoes the transcript so a live
+    session can be watched, and the redaction filter only rewrites /home/ paths
+    — it does not know the message body IS the transcript. Attached to the file
+    handler only, so debug lines reach the console and stop there.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not getattr(record, "no_disk", False)
+
+
 class RedactingJsonFormatter(logging.Formatter):
     """Formats log records as single-line JSON objects with path redaction (FR-43)."""
 
@@ -104,6 +118,7 @@ def setup_logging(
     )
     file_handler.setFormatter(RedactingJsonFormatter())
     file_handler.setLevel(level)
+    file_handler.addFilter(NoDiskFilter())  # invariant #7: transcripts never hit disk
     root.addHandler(file_handler)
 
     # Secure file permissions (0600)
