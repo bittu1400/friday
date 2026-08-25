@@ -181,32 +181,6 @@ alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
-### OQ-29 — What re-triggers the 15-second empty-capture loop? (BLOCKS live voice)
-**Status:** OPEN — needs the user at the mic. Raised 2026-08-25.
-
-Live logs, 14:33–14:35 on 2026-08-25, show captures of exactly 15.000 s /
-14.995 s, back to back, roughly every 15 s, **every one of them 100 %
-VAD-removed** (pure silence). 15 s is `config.MAX_CAPTURE_S` (FR-4 hard cap),
-so each ran to the cap without VAD ending it — consistent with the design,
-since `VAD_END_SILENCE_S` can only arm after speech is first detected, so a
-capture with no speech at all can never end early.
-
-**What is unknown is what re-triggered a new capture immediately each time.**
-Leading hypothesis is wake-word false fires (`WAKE_THRESHOLD` 0.5,
-`WAKE_REFRACTORY_S` 1.5) on ambient sound; unproven, and this project does not
-fix on a guess. It is intermittent — it had stopped by the end of the session,
-and a real capture at 14:52:59 behaved correctly (6.272 s, 3.072 s trimmed,
-speech found), so mic, STT and VAD are all healthy.
-
-**What blocks the answer:** what was audible in the room during a loop —
-music, a TV, a conversation, or silence? That single fact separates "wake
-false-fire" from "something re-arms capture on its own".
-
-Investigate with `FRIDAY_DEBUG=1 just voice` (stop the service first) and
-`just wake-bench`. Two candidate fixes once the cause is known, not before:
-raise `FRIDAY_WAKE_THRESHOLD`, and/or bail out of a capture early when no
-speech is ever detected instead of burning the full 15 s.
-
 ### OQ-30 — Should "play a video" open mpv or search YouTube?
 **Status:** OPEN — one-line prompt change either way. Raised 2026-08-25.
 
@@ -261,6 +235,22 @@ grounding turn is grammar-locked exactly like search (ADR-008).
 _(Move entries here with the answer and the date. Do not delete them —
 the reasoning behind a closed question is the thing you will want in six
 months.)_
+
+- **OQ-29 — What re-triggers the 15-second empty-capture loop?** ANSWERED
+  2026-08-25. Not ambient noise and not a wake false fire: a 90 s
+  `just wake-bench` in the room scored **0 wake hits**. The cause is a stale
+  score in `OpenWakeWordDetector`. The detector is polled only while the daemon
+  is idle, so it receives no frames for the whole 15 s capture; it retains
+  `_last_score`, and one 320-sample frame is below the 1280-sample prediction
+  chunk, so the first frame after the capture returns the *same* score that
+  started it — above threshold, refractory long expired — firing the wake again
+  ~20 ms after each capture ends, forever. One real "hey jarvis" seeds an
+  endless loop; a daemon restart clears it, which is why it looked intermittent.
+  Fixed by flushing the detector when it resumes after a gap
+  (`friday/audio/wake.py`); regression test
+  `test_stale_score_cannot_refire_wake_after_capture` (proven to fail without
+  the flush). Neither candidate fix was needed: `WAKE_THRESHOLD` stays 0.5 and
+  no early-bail was added.
 
 - **OQ-00 — Should context stay at 2048?** ANSWERED 2026-08-22. No.
   8192 with q8_0 KV costs 224 MiB. See ADR-003.

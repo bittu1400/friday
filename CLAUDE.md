@@ -24,7 +24,7 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **319 passed**, `just eval` **28/28 reg 0** (9.9 s on GPU), `just test-injection`
+`uv run pytest` **321 passed**, `just eval` **28/28 reg 0** (9.9 s on GPU), `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**, `just test-egress` loopback-only.
 (Verified 2026-08-25 with the LLM confirmed on GPU — see `llm_on_gpu`.)
 

@@ -13,6 +13,11 @@ class FakeDetector:
     def score(self, frame: np.ndarray) -> float:
         return self._s
 
+    def reset(self) -> None:
+        # Mirrors OpenWakeWordDetector.reset(): buffered audio and the retained
+        # score are dropped, so the next score() cannot return the old value.
+        self._s = 0.0
+
 
 class FakeVad:
     def __init__(self, voiced: bool):
@@ -119,6 +124,59 @@ def test_detector_create_smoke():
     # Feed silent frame
     score = det.score(np.zeros(320, dtype=np.float32))
     assert 0.0 <= score <= 1.0
+
+
+def test_detector_reset_drops_retained_score():
+    """The wrapper returns _last_score for sub-chunk frames (320 < 1280), so a
+    retained high score survives any gap in input unless reset() clears it."""
+    det = create_detector(model_path=config.WAKE_MODEL, threshold=0.5)
+    assert det is not None
+    det._last_score = 0.9
+    assert det.score(np.zeros(320, dtype=np.float32)) == 0.9  # stale, no new predict
+    det.reset()
+    assert det.score(np.zeros(320, dtype=np.float32)) == 0.0
+
+
+def test_stale_score_cannot_refire_wake_after_capture():
+    """OQ-29 regression: one real wake must not become an endless loop of 15 s
+    empty captures. The detector is not polled while capturing, so on return to
+    idle its retained score must NOT be able to fire a second wake."""
+    fired = []
+    idle = {"v": True}
+    calls = WakeCallbacks(
+        on_wake=lambda: fired.append("wake"),
+        on_speech_end=lambda: None,
+        on_barge=lambda: None,
+    )
+    wl = WakeListener(
+        detector=FakeDetector(0.9),
+        vad=None,
+        aec=NullAec(),
+        callbacks=calls,
+        far_ref=FarEndRef(),
+        threshold=0.5,
+        frame_len=320,
+        refractory_s=0.0,  # refractory must not be what saves us here
+        is_idle=lambda: idle["v"],
+        is_speaking=lambda: False,
+        schedule=lambda cb: cb(),
+    )
+
+    wl._on_frame(_frame())
+    assert fired == ["wake"]
+
+    # 15 s of capture: the daemon is not idle, so the detector is never polled.
+    idle["v"] = False
+    for _ in range(750):
+        wl._on_frame(_frame())
+    assert fired == ["wake"]
+
+    # Turn finished (empty transcript short-circuits) -> back to idle.
+    idle["v"] = True
+    wl._awaiting_end = False
+    for _ in range(10):
+        wl._on_frame(_frame())
+    assert fired == ["wake"], f"stale score re-fired the wake: {fired}"
 
 
 def test_detector_on_cuda_is_rejected(monkeypatch):

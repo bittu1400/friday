@@ -53,52 +53,79 @@ Read this block, then `docs/reality-check.md`. Everything below it is history.
 
 ### The one-paragraph state of the world
 Friday is G0–G13 complete and, as of the end of this session, genuinely healthy:
-`just selftest` **8/8**, `uv run pytest` **319**, `just eval` **28/28 reg 0**
-(9.9 s), injection 20/20, egress loopback-only, all three services active with
-0 restarts, LLM confirmed on GPU (4696 MiB VRAM). Text-mode routing is verified
-end to end. **What is NOT verified is the live voice path** — every mic-driven
-row in the manifest is still unticked, and there is one open live bug (the 15 s
-capture loop, below). That is the next session's job.
+`just selftest` **8/8**, `uv run pytest` **321**, `just eval` **28/28 reg 0**,
+injection 20/20, egress loopback-only, all three services active with
+0 restarts, LLM confirmed on GPU (4710 MiB VRAM). Text-mode routing is verified
+end to end, and the OQ-29 capture loop is root-caused and fixed (live
+confirmation still owed — see below). **What is NOT verified is the live voice
+path** — every mic-driven row in the manifest is still unticked. That is the
+next session's job.
 
 ### FIRST FOUR COMMANDS, in order
 ```bash
 just selftest                       # MUST be 8/8. llm_on_gpu is the new one.
 systemctl --user status friday friday-llm friday-searxng --no-pager | grep -E 'Active|NRestarts'
-uv run pytest -q && just eval       # expect 319 passed, 28/28 reg 0
+uv run pytest -q && just eval       # expect 321 passed, 28/28 reg 0
 journalctl --user -u friday -n 60 --no-pager | grep -E 'duration|removed|E_BUSY'
 ```
 If `llm_on_gpu` FAILS: `systemctl --user restart friday-llm`, wait ~20 s, re-run.
 Do not start any other work until it passes — every latency number in these docs
 is void when the LLM is on CPU, and it fails **silently** (see defect #8).
 
-### THE ONE OPEN BUG — the 15-second capture loop (top priority)
-Live logs, 2026-08-25 14:33–14:35, show captures of **exactly 15.000 s /
-14.995 s, back to back, every ~15 s, every one of them 100 % VAD-removed**
-(pure silence). 15 s is `config.MAX_CAPTURE_S`, the FR-4 hard cap, so each of
-those captures ran to the cap without VAD ever ending it — which is consistent
-with the design (`VAD_END_SILENCE_S` can only arm *after* speech is detected, so
-a capture containing no speech at all can never end early). The open question is
-what kept **re-triggering** a new capture ~immediately after each one ended.
-Leading hypothesis: **wake-word false fires** (`WAKE_THRESHOLD` is 0.5,
-`WAKE_REFRACTORY_S` 1.5) on ambient sound. Not yet proven — do not fix on
-a guess.
-It is **intermittent**: it was not occurring in the final minutes of the session,
-and a genuine capture at 14:52:59 worked correctly (6.272 s, only 3.072 s
-trimmed, speech found). The mic, STT and VAD are all fine.
-How to investigate (needs the user + a mic, which is why it is not done):
-```bash
-systemctl --user stop friday          # never run two daemons: they fight over mic + socket
-FRIDAY_DEBUG=1 just voice             # console shows heard=… and action=… (never written to disk)
-just wake-bench                       # the G10 harness built exactly for this
+### THE 15-SECOND CAPTURE LOOP — ROOT-CAUSED AND FIXED 2026-08-25 (OQ-29)
+Fixed on the bench; **live confirmation with a mic is still owed** (below).
+
+**It was never ambient noise.** A 90 s `just wake-bench` in the room scored
+**0 wake hits**, so `WAKE_THRESHOLD` 0.5 is not too low and the leading
+hypothesis was wrong.
+
+**Real cause: a stale score in `OpenWakeWordDetector`.** `WakeListener._on_frame`
+polls the detector only inside `if self.is_idle()`, so for the whole 15 s
+capture the detector receives no frames at all. It retains `_last_score`, and
+one frame is 320 samples while a prediction chunk is 1280 — so the first frame
+after the capture cannot run a new prediction and returns *the same score that
+started the capture*. Above threshold, refractory (1.5 s) long expired: the wake
+fires again ~20 ms after each capture ends. One real "hey jarvis" seeds an
+endless loop of 15 s empty captures; a daemon restart clears it, which is why
+it read as intermittent.
+
+Every observed symptom follows: exactly 15.000 s captures (the FR-4 cap, never
+speech), a ~0.02–0.1 s gap to the next one (far too fast for a turn to have
+run), 100 % VAD-removed audio, and the loop stopping across a restart.
+
+**Fix:** `friday/audio/wake.py` flushes the detector when it resumes after a gap
+(`_detector_stale` + new `WakeDetector.reset()`; `OpenWakeWordDetector.reset()`
+clears its buffer, its retained score, and calls `Model.reset()`). No threshold
+change, no early-bail — neither was needed.
+
+**Proof the check can fail** (this session's own rule): with the flush removed,
+`test_stale_score_cannot_refire_wake_after_capture` fails
+`assert ['wake', 'wak...wake', 'wake'] == ['wake']` — 10 frames, 10 extra wakes.
+Restored: 11 passed. The pre-existing wake tests could never have caught it —
+their `FakeDetector` returns a constant score, so a stale score is invisible.
+
 ```
-Ask the user what was audible in the room during a loop (music, TV, speech), then
-decide between raising `FRIDAY_WAKE_THRESHOLD`, and bailing out of a capture
-early when no speech is ever detected. **Logged as OQ-29 in `open-questions.md`** — the blocking
-fact is what was audible in the room during a loop.
+$ just wake-bench --duration 90        # quiet room, nobody said the wake word
+Wake Hits: 0 | Speech End Triggers: 0 | Barge-In Triggers: 0
+
+$ uv run pytest -q                     # was 319
+321 passed, 2 warnings in 3.63s
+$ just eval
+passed 28/28  (100%) | known-failing: 0 | regressions vs baseline: 0
+```
+
+**STILL OWED — live confirmation.** Restart the daemon, say "hey jarvis", let
+the capture run to the 15 s cap, and watch that a second capture does NOT start:
+```bash
+systemctl --user start friday
+journalctl --user -u friday -f | grep -E 'duration|removed'
+```
+One 15 s capture is correct behaviour. Two back-to-back is the bug returning.
 
 ### What the next session must actually DO, in order
 1. `just selftest` → 8/8 (above). Fix before anything else.
-2. Reproduce and root-cause the 15 s loop with the user at the mic (OQ-29).
+2. ~~Reproduce and root-cause the 15 s loop~~ DONE 2026-08-25 (OQ-29 closed).
+   Only the live confirmation above remains.
 3. Walk the **live-voice rows of `docs/reality-check.md`** that no session has
    ever ticked — they are all still open: A8 sign-off, A15 (PTT toggle, wake,
    VAD end, barge-in, AEC, STT/TTS quality), A16 cross-session memory, plus

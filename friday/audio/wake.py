@@ -66,6 +66,10 @@ class WakeDetector(Protocol):
         """Score incoming audio frame. Returns probability in [0.0, 1.0]."""
         ...
 
+    def reset(self) -> None:
+        """Drop buffered audio and the retained score after a gap in input."""
+        ...
+
 
 class OpenWakeWordDetector:
     """Wake word detector wrapping openWakeWord."""
@@ -110,6 +114,11 @@ class OpenWakeWordDetector:
                 self._last_score = float(max(preds.values()))
 
         return self._last_score
+
+    def reset(self) -> None:
+        self._buffer = np.zeros(0, dtype=np.int16)
+        self._last_score = 0.0
+        self._model.reset()
 
 
 
@@ -206,11 +215,26 @@ class WakeListener:
             end_silence_s=0.5,
             min_speech_s=config.VAD_MIN_SPEECH_S,
         )
+        self._detector_stale = False  # set while the detector is not being polled
 
     def _on_frame(self, frame: np.ndarray) -> None:
         """Route one 16 kHz mono frame from audio thread."""
         far = self.far_ref.read(len(frame))
         cleaned = self.aec.process(frame, far)
+
+        # The detector is polled ONLY while idle (bottom of this method), so every
+        # non-idle frame is a hole in its input. It keeps a rolling feature buffer
+        # and this wrapper retains the last score, and one frame (320 samples) is
+        # smaller than a prediction chunk (1280) — so without this flush the first
+        # frame after a 15 s capture returns the very score that STARTED that
+        # capture, re-firing the wake instantly. That is the OQ-29 loop: one real
+        # "hey jarvis" then back-to-back 15 s captures of an empty room, forever.
+        if self.detector is not None:
+            if not self.is_idle():
+                self._detector_stale = True
+            elif self._detector_stale:
+                self.detector.reset()
+                self._detector_stale = False
 
         if self.is_speaking():
             self._awaiting_end = False
