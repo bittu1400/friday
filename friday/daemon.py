@@ -156,7 +156,7 @@ class Daemon:
     async def on_wake(self) -> None:
         """Wake word detected from idle: begin capturing."""
         if self.state.begin_capture():
-            self._start_capture()
+            self._start_capture("wake")
         else:
             self._reject_busy("wake")
 
@@ -170,7 +170,7 @@ class Daemon:
         if self.state.state is State.SPEAKING:
             if self.state.barge_in():
                 self._cancel_speak()
-                self._start_capture()
+                self._start_capture("barge")
 
     # --- PTT events (from the socket) -------------------------------------
 
@@ -206,14 +206,25 @@ class Daemon:
         if self.state.state is State.SPEAKING:
             if self.state.barge_in():
                 self._cancel_speak()
-                self._start_capture()
+                self._start_capture("ptt-barge")
             return
         if self.state.begin_capture():
-            self._start_capture()
+            self._start_capture("ptt")
         else:
             self._reject_busy("press")  # FR-5: busy, rejected not queued
 
-    def _start_capture(self) -> None:
+    def _start_capture(self, source: str = "unknown") -> None:
+        # Name the trigger. Three sources can open a capture (wake, barge-in,
+        # PTT) and the logs could not tell them apart, which is why the OQ-29
+        # loop took a whole session to pin down. No transcript content here —
+        # invariant #7.
+        log.info("capture start source=%s", source)
+        # Hands-free captures have no key release to end them (ADR-062). The
+        # listener arms itself on wake; barge-in was never armed, so it could
+        # only end at the 15 s cap. PTT stays unarmed on purpose (ADR-044:
+        # the second tap ends it).
+        if source in ("barge", "ptt-barge") and self._wake_listener is not None:
+            self._wake_listener.arm_end_of_speech()
         if hasattr(self._recorder, "ensure_open"):
             self._recorder.ensure_open()
         self._recorder.reset()

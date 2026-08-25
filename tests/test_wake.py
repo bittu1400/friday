@@ -13,10 +13,27 @@ class FakeDetector:
     def score(self, frame: np.ndarray) -> float:
         return self._s
 
-    def reset(self) -> None:
-        # Mirrors OpenWakeWordDetector.reset(): buffered audio and the retained
-        # score are dropped, so the next score() cannot return the old value.
-        self._s = 0.0
+
+class StreamingFakeDetector:
+    """Mirrors OpenWakeWordDetector's streaming contract: it needs `chunk`
+    samples before it can produce a NEW score, and returns the previous one
+    until then. `scores` supplies one value per completed chunk. This is the
+    behaviour the constant-score FakeDetector cannot express — and the reason
+    the OQ-29 loop was invisible to the original wake tests.
+    """
+
+    def __init__(self, scores: list[float], chunk: int = 1280):
+        self._scores = list(scores)
+        self._chunk = chunk
+        self._buffered = 0
+        self._last = 0.0
+
+    def score(self, frame: np.ndarray) -> float:
+        self._buffered += len(frame)
+        while self._buffered >= self._chunk:
+            self._buffered -= self._chunk
+            self._last = self._scores.pop(0) if self._scores else 0.0
+        return self._last
 
 
 class FakeVad:
@@ -126,21 +143,15 @@ def test_detector_create_smoke():
     assert 0.0 <= score <= 1.0
 
 
-def test_detector_reset_drops_retained_score():
-    """The wrapper returns _last_score for sub-chunk frames (320 < 1280), so a
-    retained high score survives any gap in input unless reset() clears it."""
-    det = create_detector(model_path=config.WAKE_MODEL, threshold=0.5)
-    assert det is not None
-    det._last_score = 0.9
-    assert det.score(np.zeros(320, dtype=np.float32)) == 0.9  # stale, no new predict
-    det.reset()
-    assert det.score(np.zeros(320, dtype=np.float32)) == 0.0
-
-
 def test_stale_score_cannot_refire_wake_after_capture():
     """OQ-29 regression: one real wake must not become an endless loop of 15 s
-    empty captures. The detector is not polled while capturing, so on return to
-    idle its retained score must NOT be able to fire a second wake."""
+    empty captures.
+
+    The detector is a streaming model. If it is polled only while idle it is
+    starved for the whole capture, and because one frame (320) is smaller than
+    a prediction chunk (1280) the first frame afterwards returns the very score
+    that started the capture — firing the wake again immediately, forever.
+    """
     fired = []
     idle = {"v": True}
     calls = WakeCallbacks(
@@ -148,8 +159,10 @@ def test_stale_score_cannot_refire_wake_after_capture():
         on_speech_end=lambda: None,
         on_barge=lambda: None,
     )
+    # One chunk of wake word, then nothing but silence for the rest of the run.
+    det = StreamingFakeDetector([0.9] + [0.0] * 5000)
     wl = WakeListener(
-        detector=FakeDetector(0.9),
+        detector=det,
         vad=None,
         aec=NullAec(),
         callbacks=calls,
@@ -162,10 +175,12 @@ def test_stale_score_cannot_refire_wake_after_capture():
         schedule=lambda cb: cb(),
     )
 
-    wl._on_frame(_frame())
+    for _ in range(4):  # 4 x 320 = one 1280-sample chunk
+        wl._on_frame(_frame())
     assert fired == ["wake"]
 
-    # 15 s of capture: the daemon is not idle, so the detector is never polled.
+    # 15 s of capture: the daemon is not idle. The detector must still be fed,
+    # or its last score stays 0.9 for the whole capture.
     idle["v"] = False
     for _ in range(750):
         wl._on_frame(_frame())

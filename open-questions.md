@@ -238,19 +238,30 @@ months.)_
 
 - **OQ-29 — What re-triggers the 15-second empty-capture loop?** ANSWERED
   2026-08-25. Not ambient noise and not a wake false fire: a 90 s
-  `just wake-bench` in the room scored **0 wake hits**. The cause is a stale
-  score in `OpenWakeWordDetector`. The detector is polled only while the daemon
-  is idle, so it receives no frames for the whole 15 s capture; it retains
-  `_last_score`, and one 320-sample frame is below the 1280-sample prediction
-  chunk, so the first frame after the capture returns the *same* score that
-  started it — above threshold, refractory long expired — firing the wake again
-  ~20 ms after each capture ends, forever. One real "hey jarvis" seeds an
-  endless loop; a daemon restart clears it, which is why it looked intermittent.
-  Fixed by flushing the detector when it resumes after a gap
-  (`friday/audio/wake.py`); regression test
-  `test_stale_score_cannot_refire_wake_after_capture` (proven to fail without
-  the flush). Neither candidate fix was needed: `WAKE_THRESHOLD` stays 0.5 and
-  no early-bail was added.
+  `just wake-bench` scored **0 wake hits** (peak input 0.1250, max score 0.002 —
+  the bench now prints both, because "0 hits" could not previously be told
+  apart from a dead microphone). The cause is **detector starvation**.
+  `WakeListener._on_frame` scored the detector only inside `if self.is_idle()`,
+  so openWakeWord — a streaming model with rolling melspectrogram and embedding
+  buffers — received nothing for the whole 15 s capture. One frame is 320
+  samples and a prediction chunk is 1280, so the first frame after the capture
+  could not run a new prediction and returned *the score that started the
+  capture*: above threshold, refractory long expired, wake re-fires. One real
+  "hey jarvis" seeds an endless loop; a daemon restart clears it, which is why
+  it read as intermittent.
+
+  **The first fix attempt was wrong and a live run disproved it.** Flushing the
+  detector on resume looked right but was cosmetic: openWakeWord's
+  `Model.reset()` only reassigns `prediction_buffer` (a deque of past scores)
+  and leaves `preprocessor.melspectrogram_buffer` / `feature_buffer` intact, so
+  the stale *features* survived and re-fired anyway. The correct fix is to stop
+  starving it: score **every** frame and ignore the result unless idle
+  (`friday/audio/wake.py`). Regression test
+  `test_stale_score_cannot_refire_wake_after_capture`, proven to fail without
+  it. The original wake tests could never have caught this — their
+  `FakeDetector` returns a constant score, so the streaming contract it violates
+  is invisible; the test now uses a `StreamingFakeDetector`.
+  `WAKE_THRESHOLD` stays 0.5; no early-bail was added.
 
 - **OQ-00 — Should context stay at 2048?** ANSWERED 2026-08-22. No.
   8192 with q8_0 KV costs 224 MiB. See ADR-003.

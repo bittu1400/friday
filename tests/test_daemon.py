@@ -593,3 +593,49 @@ def test_accepted_trigger_does_not_notify(monkeypatch):
 
     asyncio.run(d.on_ptt("press"))
     assert sent == []
+
+
+class FakeWakeListener:
+    """Records end-of-speech arming; that is all these tests need from it."""
+
+    def __init__(self):
+        self.armed = 0
+
+    def arm_end_of_speech(self):
+        self.armed += 1
+
+    def start(self):
+        return True
+
+    def stop(self):
+        pass
+
+
+def test_barge_in_capture_arms_vad_end_of_speech():
+    """ADR-062: a hands-free capture has no key release, so VAD must be able to
+    end it. Only the wake path armed itself, so a barge-in capture could not end
+    before the 15 s FR-4 cap however briefly the user spoke."""
+    wl = FakeWakeListener()
+    d = _daemon(wake_listener=wl)
+
+    async def go():
+        d.state._state = State.SPEAKING
+        await d.on_barge()
+        assert d.state.state is State.CAPTURING
+        assert wl.armed == 1, "barge-in capture was never armed for VAD end-of-speech"
+
+    asyncio.run(go())
+
+
+def test_ptt_capture_does_not_arm_vad_end_of_speech():
+    """ADR-044: a tap-toggle capture is ended by the user's second tap. VAD must
+    NOT cut it short, or the second tap would open a fresh capture instead."""
+    wl = FakeWakeListener()
+    d = _daemon(wake_listener=wl)
+
+    async def go():
+        await d.on_ptt("press")
+        assert d.state.state is State.CAPTURING
+        assert wl.armed == 0
+
+    asyncio.run(go())

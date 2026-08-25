@@ -53,7 +53,7 @@ Read this block, then `docs/reality-check.md`. Everything below it is history.
 
 ### The one-paragraph state of the world
 Friday is G0–G13 complete and, as of the end of this session, genuinely healthy:
-`just selftest` **8/8**, `uv run pytest` **321**, `just eval` **28/28 reg 0**,
+`just selftest` **8/8**, `uv run pytest` **322**, `just eval` **28/28 reg 0**,
 injection 20/20, egress loopback-only, all three services active with
 0 restarts, LLM confirmed on GPU (4710 MiB VRAM). Text-mode routing is verified
 end to end, and the OQ-29 capture loop is root-caused and fixed (live
@@ -65,67 +65,110 @@ next session's job.
 ```bash
 just selftest                       # MUST be 8/8. llm_on_gpu is the new one.
 systemctl --user status friday friday-llm friday-searxng --no-pager | grep -E 'Active|NRestarts'
-uv run pytest -q && just eval       # expect 321 passed, 28/28 reg 0
+uv run pytest -q && just eval       # expect 322 passed, 28/28 reg 0
 journalctl --user -u friday -n 60 --no-pager | grep -E 'duration|removed|E_BUSY'
 ```
 If `llm_on_gpu` FAILS: `systemctl --user restart friday-llm`, wait ~20 s, re-run.
 Do not start any other work until it passes — every latency number in these docs
 is void when the LLM is on CPU, and it fails **silently** (see defect #8).
 
-### THE 15-SECOND CAPTURE LOOP — ROOT-CAUSED AND FIXED 2026-08-25 (OQ-29)
-Fixed on the bench; **live confirmation with a mic is still owed** (below).
+### THE 15-SECOND CAPTURE LOOP — FIXED 2026-08-25, second attempt (OQ-29)
+Two defects, one live session. **The first fix was wrong and the live run said so.**
 
-**It was never ambient noise.** A 90 s `just wake-bench` in the room scored
-**0 wake hits**, so `WAKE_THRESHOLD` 0.5 is not too low and the leading
-hypothesis was wrong.
+**It was never ambient noise.** A 90 s `just wake-bench` scored **0 wake hits**
+(peak input 0.1250, max score 0.002). The bench now prints those two numbers,
+because "Wake Hits: 0" was previously indistinguishable from a dead microphone.
 
-**Real cause: a stale score in `OpenWakeWordDetector`.** `WakeListener._on_frame`
-polls the detector only inside `if self.is_idle()`, so for the whole 15 s
-capture the detector receives no frames at all. It retains `_last_score`, and
-one frame is 320 samples while a prediction chunk is 1280 — so the first frame
-after the capture cannot run a new prediction and returns *the same score that
-started the capture*. Above threshold, refractory (1.5 s) long expired: the wake
-fires again ~20 ms after each capture ends. One real "hey jarvis" seeds an
-endless loop of 15 s empty captures; a daemon restart clears it, which is why
-it read as intermittent.
+**Cause: detector starvation.** `WakeListener._on_frame` scored the detector
+only inside `if self.is_idle()`. openWakeWord is a *streaming* model with
+rolling melspectrogram and embedding buffers, and it got nothing for the whole
+15 s capture. One frame is 320 samples, a prediction chunk is 1280 — so the
+first frame after the capture could not run a new prediction and returned *the
+score that started the capture*. Above threshold, refractory (1.5 s) long
+expired: the wake re-fires ~20 ms later. One real "hey jarvis" seeds an endless
+loop; a restart clears it, hence "intermittent".
 
-Every observed symptom follows: exactly 15.000 s captures (the FR-4 cap, never
-speech), a ~0.02–0.1 s gap to the next one (far too fast for a turn to have
-run), 100 % VAD-removed audio, and the loop stopping across a restart.
+**Attempt 1 (commit fef20de) was cosmetic — the live run disproved it.**
+Flushing the detector on resume reads correctly but does nothing, because:
+```python
+def reset(self):
+    """Reset the prediction buffer"""
+    self.prediction_buffer = defaultdict(partial(deque, maxlen=30))
+```
+`Model.reset()` reassigns a deque of past *scores* and leaves
+`preprocessor.melspectrogram_buffer` and `feature_buffer` untouched, so the
+stale *features* survived and re-fired anyway. Live, the loop continued with
+gaps of ~0.3–0.6 s instead of ~0.02–0.1 s. **A fix is not verified until the
+real path runs.**
 
-**Fix:** `friday/audio/wake.py` flushes the detector when it resumes after a gap
-(`_detector_stale` + new `WakeDetector.reset()`; `OpenWakeWordDetector.reset()`
-clears its buffer, its retained score, and calls `Model.reset()`). No threshold
-change, no early-bail — neither was needed.
+**Attempt 2 (correct):** stop starving it. Score every frame; ignore the result
+unless idle. No reaching into openWakeWord internals, nothing to keep in sync
+with the library.
 
-**Proof the check can fail** (this session's own rule): with the flush removed,
-`test_stale_score_cannot_refire_wake_after_capture` fails
-`assert ['wake', 'wak...wake', 'wake'] == ['wake']` — 10 frames, 10 extra wakes.
-Restored: 11 passed. The pre-existing wake tests could never have caught it —
-their `FakeDetector` returns a constant score, so a stale score is invisible.
+**Defect #2, found in the same logs: barge-in captures could never end early.**
+`_awaiting_end` was set only on the wake path, so a capture opened by barge-in
+was never armed for VAD end-of-utterance and ran to the 15 s FR-4 cap however
+briefly the user spoke. ADR-062 exists precisely because a capture with no key
+release needs VAD to end it, and a barge-in capture has no key release. Fixed:
+`WakeListener.arm_end_of_speech()`, called from `_start_capture` for the two
+barge sources. **PTT stays unarmed on purpose** (ADR-044: the second tap ends
+it; a VAD cut would make that tap open a fresh capture instead).
+
+**Defect #3, an instrumentation gap:** three sources open a capture (wake,
+barge, PTT) and the logs could not tell them apart — which is most of why this
+took a whole session. `_start_capture` now logs `capture start source=...`.
+No transcript content (invariant #7).
+
+**Proof each check can fail** (this session's standing rule):
+```
+starving behaviour restored -> AssertionError: stale score re-fired the wake:
+                               ['wake', 'wake', 'wake', 'wake']
+barge arming disabled       -> AssertionError: barge-in capture was never armed
+                               for VAD end-of-speech
+```
+The original wake tests could not have caught defect #1: their `FakeDetector`
+returns a constant score, so the streaming contract it violates is invisible.
+Tests now use a `StreamingFakeDetector` that needs 1280 samples before it can
+produce a new value.
 
 ```
-$ just wake-bench --duration 90        # quiet room, nobody said the wake word
-Wake Hits: 0 | Speech End Triggers: 0 | Barge-In Triggers: 0
-
-$ uv run pytest -q                     # was 319
-321 passed, 2 warnings in 3.63s
+$ uv run pytest -q          # was 319
+322 passed, 1 warning in 3.63s
 $ just eval
 passed 28/28  (100%) | known-failing: 0 | regressions vs baseline: 0
+$ just wake-bench --duration 90     # quiet room
+Wake Hits: 0 | Peak input level: 0.1250 | Max wake score: 0.002
 ```
 
-**STILL OWED — live confirmation.** Restart the daemon, say "hey jarvis", let
-the capture run to the 15 s cap, and watch that a second capture does NOT start:
+### LIVE RUN NOTES 2026-08-25 15:18–15:22 (read before trusting that log)
+- **The 15:18–15:20 block is contaminated.** `just voice` was started while
+  `friday.service` was still up — two daemons fighting over the mic and the PTT
+  socket, exactly what CLAUDE.md forbids. `just voice` then died with
+  `exit code 139` (SIGSEGV). Only the run from 15:20:27 on is usable.
+- In the clean run Friday **worked**: `heard='Hey Jarvis'` -> `action=open_app
+  dispatched=True spoken='Opened VS Code.'` That is the first live
+  wake-word-to-action ever recorded here.
+- Captures containing speech still ran the full 15 s (v3, v4) — that is defect
+  #2 above, now fixed but **not yet re-confirmed live**.
+- `TTFA 5355 ms` (v2, `action=chat`) and `3452 ms` (v11) are far above the
+  recorded p50 2.16 s / p95 2.73 s. Measured while two daemons shared the CPU
+  and the mic, so the numbers are not trustworthy. **Re-measure on a clean run
+  before treating this as a regression.**
+
+### STILL OWED — live confirmation of both fixes
+Service stopped, one daemon only:
 ```bash
-systemctl --user start friday
-journalctl --user -u friday -f | grep -E 'duration|removed'
+systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
 ```
-One 15 s capture is correct behaviour. Two back-to-back is the bug returning.
+Say "hey jarvis, open my browser", then stay silent. Expect:
+- exactly ONE `capture start source=wake`, no second capture after the turn
+- the capture ending on VAD, not at 15.000 s, once you stop talking
+- barge in mid-reply -> `capture start source=barge`, and that one ends on VAD too
 
 ### What the next session must actually DO, in order
 1. `just selftest` → 8/8 (above). Fix before anything else.
-2. ~~Reproduce and root-cause the 15 s loop~~ DONE 2026-08-25 (OQ-29 closed).
-   Only the live confirmation above remains.
+2. ~~Reproduce and root-cause the 15 s loop~~ DONE 2026-08-25 (OQ-29 closed,
+   two fixes + an instrumentation gap). Only the live confirmation above remains.
 3. Walk the **live-voice rows of `docs/reality-check.md`** that no session has
    ever ticked — they are all still open: A8 sign-off, A15 (PTT toggle, wake,
    VAD end, barge-in, AEC, STT/TTS quality), A16 cross-session memory, plus

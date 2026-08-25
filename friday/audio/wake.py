@@ -66,10 +66,6 @@ class WakeDetector(Protocol):
         """Score incoming audio frame. Returns probability in [0.0, 1.0]."""
         ...
 
-    def reset(self) -> None:
-        """Drop buffered audio and the retained score after a gap in input."""
-        ...
-
 
 class OpenWakeWordDetector:
     """Wake word detector wrapping openWakeWord."""
@@ -114,11 +110,6 @@ class OpenWakeWordDetector:
                 self._last_score = float(max(preds.values()))
 
         return self._last_score
-
-    def reset(self) -> None:
-        self._buffer = np.zeros(0, dtype=np.int16)
-        self._last_score = 0.0
-        self._model.reset()
 
 
 
@@ -215,26 +206,35 @@ class WakeListener:
             end_silence_s=0.5,
             min_speech_s=config.VAD_MIN_SPEECH_S,
         )
-        self._detector_stale = False  # set while the detector is not being polled
+
+    def arm_end_of_speech(self) -> None:
+        """Arm VAD end-of-utterance for a capture this listener did not start.
+
+        ADR-062: a capture with no physical key release needs VAD to end it.
+        The wake path arms itself below, but a barge-in capture is just as
+        hands-free and was never armed — so it could only ever end at the 15 s
+        FR-4 cap, however briefly the user spoke. PTT is deliberately excluded:
+        a tap-toggle capture ends on the user's second tap (ADR-044).
+        """
+        self._awaiting_end = True
+        self._capture_gate.reset()
 
     def _on_frame(self, frame: np.ndarray) -> None:
         """Route one 16 kHz mono frame from audio thread."""
         far = self.far_ref.read(len(frame))
         cleaned = self.aec.process(frame, far)
 
-        # The detector is polled ONLY while idle (bottom of this method), so every
-        # non-idle frame is a hole in its input. It keeps a rolling feature buffer
-        # and this wrapper retains the last score, and one frame (320 samples) is
-        # smaller than a prediction chunk (1280) — so without this flush the first
-        # frame after a 15 s capture returns the very score that STARTED that
-        # capture, re-firing the wake instantly. That is the OQ-29 loop: one real
-        # "hey jarvis" then back-to-back 15 s captures of an empty room, forever.
-        if self.detector is not None:
-            if not self.is_idle():
-                self._detector_stale = True
-            elif self._detector_stale:
-                self.detector.reset()
-                self._detector_stale = False
+        # openWakeWord is a STREAMING model: it holds rolling melspectrogram and
+        # embedding buffers and expects an unbroken feed. Scoring it only while
+        # idle starved it for the whole 15 s of a capture, and since one frame
+        # (320 samples) is smaller than a prediction chunk (1280), the first
+        # frame after the capture could not run a new prediction and returned
+        # the very score that STARTED that capture — re-firing the wake at once,
+        # forever (OQ-29). Flushing is not an option: openWakeWord's reset()
+        # clears only its score deque, not the feature buffers. So score every
+        # frame to keep the stream continuous, and merely ignore the result
+        # unless we are idle.
+        score = self.detector.score(cleaned) if self.detector is not None else 0.0
 
         if self.is_speaking():
             self._awaiting_end = False
@@ -264,16 +264,13 @@ class WakeListener:
                 self._capture_gate.reset()
             return
 
-        if self.is_idle():
-            if self.detector is not None:
-                s = self.detector.score(cleaned)
-                if s >= self.threshold:
-                    now = time.monotonic()
-                    if now - self._last_wake_time >= self.refractory_s:
-                        self._last_wake_time = now
-                        self._awaiting_end = True
-                        self._capture_gate.reset()
-                        self.schedule(self.callbacks.on_wake)
+        if self.is_idle() and score >= self.threshold:
+            now = time.monotonic()
+            if now - self._last_wake_time >= self.refractory_s:
+                self._last_wake_time = now
+                self._awaiting_end = True
+                self._capture_gate.reset()
+                self.schedule(self.callbacks.on_wake)
 
     def _sd_callback(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         if status:
