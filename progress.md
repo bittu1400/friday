@@ -80,6 +80,23 @@ else `raise PolicyRejected` — fail closed, never default to notes.md. New test
 `test_file_open_unregistered_alias_fails_closed` guard the previously-untested
 planner-phrasing path (same "green suite, broken path" pattern as G13/clipboard).
 
+### DEFECT #2 found + fixed — voice daemon crash-looped, never ran via systemd
+Bringing up the voice pass (`systemctl --user start friday`) exposed a second
+real defect the desk suite never caught: `friday.service` exited
+`226/NAMESPACE` on every start — `Failed to set up mount namespacing:
+/run/user/1000/friday: No such file or directory` — **before Python ran**. The
+unit's `ReadWritePaths` lists `%t/friday` (the PTT-socket dir, `config.RUNTIME_DIR`)
+but never declared `RuntimeDirectory=friday` to create it. `/run` is tmpfs, wiped
+on reboot, so after any reboot the dir was gone and `ProtectSystem=strict`
+namespacing failed. The restart counter was at **1283** — the daemon had not
+actually run via systemd for a long time (the manifest's own precondition
+"`systemctl --user start friday`" was broken). Fix (`deploy/systemd/friday.service`,
+which the live `~/.config/...` unit symlinks to): add `RuntimeDirectory=friday` +
+`RuntimeDirectoryMode=0700`. Verified: `is-active=active`, `NRestarts=0`, runtime
+dir created 0700, llama ready, whisper STT + openWakeWord (CPU) loaded, PTT socket
+listening on `/run/user/1000/friday/ptt.sock`. Commit `d6be8ca`. Live voice/mic
+rows (A8/A15/A16 + real state changes + store-backed) are being walked by the user.
+
 ### Reality-check results by section (text-mode driver, dry-run)
 - **A1 apps:** browser→brave, terminal→foot, editor→code, vlc→vlc — PASS.
   `"play a video"` routed to **youtube_search**, not mpv (`open_app video`).
