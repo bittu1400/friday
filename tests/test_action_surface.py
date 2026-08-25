@@ -70,3 +70,18 @@ def test_file_open_argv():
     spec = REGISTRY["file_open"]
     argv = spec.build_argv({"alias": "notes"})
     assert argv[1] == FILE_REGISTRY["notes"]
+
+
+def test_file_open_planner_phrasing_resolves_right_file():
+    # The planner emits "my config"/"my todo", not bare keys. Each must open its
+    # OWN file, never silently fall back to notes.md (reality-check finding, 2026-08-25).
+    spec = REGISTRY["file_open"]
+    assert spec.build_argv({"alias": "my config"})[1] == FILE_REGISTRY["config"]
+    assert spec.build_argv({"alias": "my todo"})[1] == FILE_REGISTRY["todo"]
+
+
+def test_file_open_unregistered_alias_fails_closed():
+    spec = REGISTRY["file_open"]
+    for bad in ("/etc/passwd", "", "my secrets"):
+        with pytest.raises(PolicyRejected):
+            spec.build_argv({"alias": bad})

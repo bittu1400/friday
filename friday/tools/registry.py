@@ -172,10 +172,15 @@ FILE_REGISTRY: dict[str, str] = {
 
 
 def _build_file_argv(p: Mapping[str, str]) -> list[str]:
-    alias = p.get("alias", "notes").lower()
-    path = FILE_REGISTRY.get(alias, FILE_REGISTRY["notes"])
-    editor = APPS["editor"].argv[0]
-    return [editor, path]
+    # The planner passes phrasings ("my config", "my todo"), not bare keys, so
+    # match the one closed-registry key the phrase names. Fail CLOSED on a miss
+    # (invariant #2, manifest A11): an unregistered alias is not openable — it
+    # must never silently fall back to notes.md and open the wrong file.
+    raw = p.get("alias", "").lower()
+    key = next((k for k in FILE_REGISTRY if k in raw), None)
+    if key is None:
+        raise PolicyRejected(f"Unknown file alias: {raw!r}")
+    return [APPS["editor"].argv[0], FILE_REGISTRY[key]]
 
 
 REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
