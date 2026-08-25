@@ -67,6 +67,13 @@ def youtube_url(query: str) -> str:
 # somewhere sane, plus the session/compositor addressing a GUI client needs:
 #   WAYLAND_DISPLAY           the compositor socket name
 #   XDG_RUNTIME_DIR           its directory
+#   DISPLAY                   the X11 / XWayland display. Chromium and
+#                             Electron apps default to the X11 Ozone backend
+#                             here, and WITHOUT it Brave prints "Missing X
+#                             server or $DISPLAY" and exits before a window
+#                             ever appears — while the detached spawn still
+#                             reports ok. Measured 2026-08-25: every
+#                             "Opened Brave." Friday has ever spoken was a lie.
 #   DBUS_SESSION_BUS_ADDRESS  the session bus — a single-instance app (Brave/
 #                             Chromium) reaches its already-running instance
 #                             over it, hands off, and exits 0. WITHOUT it the
@@ -88,7 +95,7 @@ def youtube_url(query: str) -> str:
 # params, so the env stays explicit and minimal.
 def _build_app_env() -> Mapping[str, str]:
     env = {"PATH": os.environ.get("PATH") or "/usr/bin:/bin", "HOME": _HOME}
-    for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS"):
+    for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY"):
         val = os.environ.get(key)
         if val:
             env[key] = val

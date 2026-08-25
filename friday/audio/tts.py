@@ -26,6 +26,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 
+def _resample_16k(samples, sr: int):
+    """Resample mono float32 audio to 16 kHz for the AEC reference."""
+    import numpy as np
+    import scipy.signal
+
+    if sr == 16000:
+        return np.asarray(samples, dtype=np.float32)
+    if sr == 24000:
+        return scipy.signal.resample_poly(samples, 2, 3).astype(np.float32)
+    return scipy.signal.resample(samples, int(len(samples) * 16000 / sr)).astype(np.float32)
+
+
 class Speaker:
     """Loads Kokoro once, then voices strings on demand. `say()` blocks;
     `stop()` cancels an in-flight `say()` from another thread (barge-in)."""
@@ -35,6 +47,7 @@ class Speaker:
         self._voice = voice
         self._far_ref = far_ref
         self._cancel = threading.Event()
+        self._stream: object | None = None  # the in-flight OutputStream, for stop()
 
     @property
     def voice(self) -> str:
@@ -109,28 +122,59 @@ class Speaker:
             # Barge-in may have arrived during synthesis; don't start audio.
             if self._cancel.is_set():
                 return False
+            import numpy as np
             import sounddevice as sd
 
-            if self._far_ref is not None:
-                try:
-                    import numpy as np
-                    import scipy.signal
-
-                    if sr == 24000:
-                        samples_16k = scipy.signal.resample_poly(samples, 2, 3).astype(np.float32)
-                    elif sr != 16000:
-                        num_samples = int(len(samples) * 16000 / sr)
-                        samples_16k = scipy.signal.resample(samples, num_samples).astype(np.float32)
-                    else:
-                        samples_16k = samples.astype(np.float32)
-                    self._far_ref.write(samples_16k)
-                except Exception:
-                    pass
+            # The AEC reference must be what the SPEAKER is playing right now.
+            # Writing the whole utterance in one lump before playback and
+            # letting the listener drain it free-running does not achieve that:
+            # measured 2026-08-25, the reference was absent for 40% of playback
+            # frames (AEC a pure passthrough, 0 dB) and worth only -15.6 dB on
+            # the rest — so Friday heard herself, the barge VAD called it
+            # speech, and every reply was cut off mid-sentence. A 5 s ring cap
+            # made it worse: any reply longer than 5 s lost its beginning, so
+            # the reference held the WRONG audio for the whole utterance.
+            #
+            # Feeding it from the output callback ties the reference to the
+            # device's own playback position, sample for sample.
+            samples_16k = _resample_16k(samples, sr) if self._far_ref is not None else None
 
             if on_play is not None:
                 on_play()
-            sd.play(samples, sr)
-            sd.wait()  # returns early if stop() -> sd.stop() runs elsewhere
+
+            pos = 0
+
+            def _callback(outdata, frames, time_info, status):  # noqa: ANN001
+                nonlocal pos
+                if self._cancel.is_set():
+                    raise sd.CallbackAbort
+                chunk = samples[pos : pos + frames]
+                n = len(chunk)
+                outdata[:n, 0] = chunk
+                if self._far_ref is not None and samples_16k is not None:
+                    i0 = (pos * 16000) // sr
+                    i1 = ((pos + n) * 16000) // sr
+                    self._far_ref.write(samples_16k[i0:i1])
+                pos += n
+                if n < frames:
+                    outdata[n:, 0] = 0
+                    raise sd.CallbackStop
+
+            done = threading.Event()
+            stream = sd.OutputStream(
+                samplerate=sr, channels=1, dtype="float32",
+                callback=_callback, finished_callback=done.set,
+            )
+            self._stream = stream
+            try:
+                with stream:
+                    # Never wait unbounded on a device callback: if the driver
+                    # never fires finished_callback, an un-timed wait would
+                    # wedge the daemon's speak task forever — worse than the
+                    # echo it is here to fix.
+                    done.wait(timeout=len(samples) / sr + 5.0)
+            finally:
+                self._stream = None
         except Exception:
             return False
         return not self._cancel.is_set()
@@ -144,6 +188,15 @@ class Speaker:
         self._cancel.set()
         if self._far_ref is not None:
             self._far_ref.clear()
+        # say() now owns an OutputStream, which sd.stop() does not touch — it
+        # only stops the module-level stream sd.play() uses. Abort ours too, or
+        # a barge-in would set the flag and then wait out the whole utterance.
+        stream = self._stream
+        if stream is not None:
+            try:
+                stream.abort(ignore_errors=True)
+            except Exception:
+                pass
         try:
             import sounddevice as sd
 

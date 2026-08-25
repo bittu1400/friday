@@ -41,6 +41,7 @@ def test_env_is_minimal_and_explicit() -> None:
         "WAYLAND_DISPLAY",
         "XDG_RUNTIME_DIR",
         "DBUS_SESSION_BUS_ADDRESS",
+        "DISPLAY",
     }
     for spec in REGISTRY.values():
         assert {"PATH", "HOME"} <= set(spec.env)
@@ -56,18 +57,25 @@ def test_env_passes_session_vars_when_present(monkeypatch) -> None:
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
+    monkeypatch.setenv("DISPLAY", ":0")
     from friday.tools.registry import _build_app_env
 
     env = _build_app_env()
     assert env["WAYLAND_DISPLAY"] == "wayland-1"
     assert env["XDG_RUNTIME_DIR"] == "/run/user/1000"
     assert env["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/1000/bus"
+    # Measured 2026-08-25: without DISPLAY, Brave prints "Missing X server or
+    # $DISPLAY" and exits before showing a window, while the detached spawn
+    # still reports ok. Chromium and Electron default to the X11 Ozone backend
+    # on this machine, so every GUI launch needs it.
+    assert env["DISPLAY"] == ":0"
 
 
 def test_env_omits_session_vars_when_absent(monkeypatch) -> None:
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
     from friday.tools.registry import _build_app_env
 
     assert set(_build_app_env()) == {"PATH", "HOME"}

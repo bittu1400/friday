@@ -4,16 +4,31 @@
 import sys
 import types
 
+import numpy as np
 import pytest
 
 from friday.audio.tts import Speaker
 
 
+class _CallbackStop(Exception):
+    pass
+
+
+class _CallbackAbort(Exception):
+    pass
+
+
 class FakeSD:
+    """Drives the real playback callback the way PortAudio would, so the
+    OutputStream path (and the AEC reference it feeds) is actually exercised."""
+
+    BLOCK = 32
+
     def __init__(self):
         self.played = False
         self.stopped = False
         self.waited = False
+        self.aborted = False
 
     def play(self, samples, sr):
         self.played = True
@@ -23,6 +38,36 @@ class FakeSD:
 
     def stop(self):
         self.stopped = True
+
+    def OutputStream(self, *, samplerate, channels, dtype, callback, finished_callback):
+        outer = self
+
+        class _Stream:
+            def __init__(self):
+                self._done = False
+
+            def __enter__(self):
+                outer.played = True
+                buf = np.zeros((outer.BLOCK, channels), dtype=np.float32)
+                for _ in range(1000):  # bounded: a runaway callback fails loudly
+                    try:
+                        callback(buf, outer.BLOCK, None, None)
+                    except (_CallbackStop, _CallbackAbort):
+                        break
+                outer.waited = True
+                # Real PortAudio runs the callback on its own thread and fires
+                # finished_callback when the stream ends; say() waits on that
+                # INSIDE the with-block, so it must fire here, not on exit.
+                finished_callback()
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def abort(self, ignore_errors=True):
+                outer.aborted = True
+
+        return _Stream()
 
 
 class FakeKokoro:
@@ -39,7 +84,8 @@ class FakeKokoro:
 def fake_sd(monkeypatch):
     sd = FakeSD()
     monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(
-        play=sd.play, wait=sd.wait, stop=sd.stop))
+        play=sd.play, wait=sd.wait, stop=sd.stop, OutputStream=sd.OutputStream,
+        CallbackStop=_CallbackStop, CallbackAbort=_CallbackAbort))
     return sd
 
 
