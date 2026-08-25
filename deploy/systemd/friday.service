@@ -21,6 +21,12 @@ WorkingDirectory=%h/Projects/Personal/Intern/friday
 ExecStart=%h/Projects/Personal/Intern/friday/.venv/bin/python -m friday.voice_main
 Restart=always
 RestartSec=3s
+# %t/friday (XDG_RUNTIME_DIR/friday) holds the PTT socket (config.RUNTIME_DIR).
+# /run is tmpfs and wiped on reboot, so systemd must recreate the dir on every
+# start — without this, ReadWritePaths=%t/friday below fails NAMESPACE setup
+# ("No such file or directory") before Python ever runs. 0700: local IPC only.
+RuntimeDirectory=friday
+RuntimeDirectoryMode=0700
 PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE DBUS_SESSION_BUS_ADDRESS PATH
 ReadWritePaths=%h/.local/state/friday %t/friday %h/.local/share/friday
 
