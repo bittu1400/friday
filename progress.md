@@ -19,8 +19,8 @@ All tasks for G0 through G13 (scaffolding, toolchain, eval, registry, persistenc
 voice in, search, conversation/memory, service resilience, wake word + AEC + VAD + barge-in,
 proactive turn arbiter + reminders/DND/briefings, action surface + dictation, and CPU speaker verification)
 implemented and verified.
-`uv run pytest` **306 passed**, `just eval` **28/28 (regressions 0)**,
-`just test-injection` **20/20 blocked**, `just selftest` **all 7 checks passed**,
+`uv run pytest` **328 passed**, `just eval` **28/28 (regressions 0)**,
+`just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
 **NEXT SESSION starts with the 2026-08-26 fix-execution plan** — see the
@@ -28,6 +28,9 @@ implemented and verified.
 audit (read-only) found 1 CRITICAL + 8 HIGH defects on paths no test drives;
 the ordered fix list lives in that START HERE block. `docs/reality-check.md`
 remains the manifest for live-voice verification after the fixes land.
+**Docs were re-verified against the tree on 2026-08-26 evening** (session
+block below): every citation checked, drift corrected, no code touched. The
+plan is executable as written.
 
 ```
    G0 REPO         [x]
@@ -45,6 +48,64 @@ remains the manifest for live-voice verification after the fixes land.
    G12 ACTION SURF [x]   <-- System (vol/bright/media/wifi) + Hyprland (ws/win) + notes + dictation + ban.
    G13 SPEAKER VER [x]   <-- 3D-Speaker/CAM++ (sherpa-onnx, CPU) 512-dim voiceprint + 10-utterance enroll.
 ```
+
+---
+
+## SESSION 2026-08-26 (evening) — doc-readiness pass for the fix phase (NO code changed)
+
+**What happened.** Before the fix-execution session starts, every document was
+verified against the exact shape of the tree, and every drift found was fixed
+in the doc of record. No Python was touched; suites were NOT re-run because
+nothing they cover changed.
+
+1. **61-point citation audit.** Every file:line reference in
+   `Alpha-ox-analysis.md` and the START HERE block was mechanically re-checked
+   against source. Result: 55 exact matches; 3 findings were **materially
+   wrong as first written** and are corrected inline in the analysis file
+   (full list in its new "Citation re-verification pass" appendix):
+   - H1: DND/dictation are `dispatched=False` paths — only confirmed dispatches
+     + `cancel_reminder` dispatch unaudited. Fix plan unchanged.
+   - M-A1: capture.py's callback does not touch ONNX/VAD (gate-check+copy only);
+     it is still unguarded, so Step 7 wraps both callbacks.
+   - M-T5: habits digest already strips control chars + caps length; the real
+     gap is only `<`/`>` fence neutralization.
+   Minor line drift fixed: clipboard slice :540→:549, ban.py raise :53→:54,
+   awrite/aquery :104-108. LOC corrected to 6,928 src lines / 57 modules /
+   57 test files / 308 tests.
+2. **Cross-doc consistency sweep.** Fixed:
+   - threat-model T6: new control 4 records the bind-check holes (M-L4:
+     LAN-IP binds and tcp6 wildcards pass today) with a NOT-yet-enforced
+     marker, matching how T7 marks its gaps.
+   - threat-model T8 control 3 ("process groups killed on tool timeout") now
+     carries an explicit **NOT yet enforced** note pointing at M-T1/ADR-067d.
+   - diagram 02: removed `run_script` from the plan-grammar enum (pre-ban
+     relic; the committed plan.gbnf has no such token) and replaced it with
+     the verbatim action list from `friday/llm/grammars/plan.gbnf`; annotated
+     the `timeout` speech template as currently unreachable from tools until
+     Step 8 lands.
+   - adr.md ADR-067: added the citation convention note ("ADR-067a…i" = the
+     lettered paragraphs, not standalone ADRs).
+   - progress.md: stale summary numbers corrected (306→328 tests,
+     7→8 selftest checks).
+3. **Confirmed already-correct (no change needed):** architecture §3.3 honestly
+   describes current executor behavior; spec FR-58 amendment + §5.4 four
+   composition suites match ADR-067(c); OQ-32..35 all present, OQ-34/OQ-35 open
+   with clear user questions; reality-check §F lists the unticked live-voice
+   rows and flags typed confirms broken (C1); CLAUDE.md NEXT SESSION pointer
+   agrees with the START HERE block (12 steps, same order).
+
+**Decisions this session** (recorded here; none architectural enough for a new
+ADR — they refine ADR-067's execution, not its direction):
+- D1: The analysis file is amended in place rather than superseded — it stays
+  the single source of truth, with corrections visible in its appendix.
+- D2: Step 7 of the fix plan covers BOTH PortAudio callbacks (wake + capture),
+  per the M-A1 correction.
+- D3: Diagram 02 keeps the `timeout` template row but marked unreachable-until-
+  Step-8, so the diagram shows the target contract without lying about today.
+
+**Evidence:** the two verification passes (citation check; cross-doc check)
+were run as read-only subagent audits over the tree at commit 0865343; their
+outputs are summarized above. `git diff` on this commit touches only docs.
 
 ---
 

@@ -53,7 +53,10 @@ daemons fight over the mic and the PTT socket. Stop the service first.
 **NEXT SESSION: execute the fix phase.** Read the `>>> START HERE <<<` block at
 the top of `progress.md` first, then `Alpha-ox-analysis.md` in full — every
 task cites finding IDs from it. It has the exact first commands and the
-ordered 12-step task list. Short version:
+ordered 12-step task list. On 2026-08-26 evening every doc was re-verified
+against the tree (61-point citation check + cross-doc sweep; corrections are
+inlined in the analysis file's appendix and the progress.md session block) —
+the plan is executable as written, do not re-audit. Short version:
 
 ```bash
 just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
@@ -230,7 +233,8 @@ evidence, not defaults. A dependency added without this drill is not done.
    adr.md             decisions + why + what they cost
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks
-   diagrams/          ASCII.  02 (trust boundary) is the important one.
+   diagrams/          ASCII.  02 (injection trust boundary) and 04 (zones +
+                      privilege ladder) are the important ones.
    docs/archive/      friday-v4.md and the AI reviews.  HISTORICAL ONLY.
 
    laptop-specifications.md   local only, GITIGNORED (ADR-024 — it

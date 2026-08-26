@@ -198,6 +198,13 @@ unauthenticated endpoint to a model wired to a local action executor.
 2. Startup self-test runs `ss -ltnp` and refuses to start if any Friday
    port is bound beyond loopback. — `friday --selftest`
 3. No reverse proxy, ever, without a new ADR.
+4. **Known holes found by the 2026-08-26 audit** (`Alpha-ox-analysis.md`
+   M-L4; fix is Step 10 of the plan in progress.md): control 2's check flags
+   only wildcard literals — a bind to a specific LAN IP passes it — and its
+   fallback reads `/proc/net/tcp` only, so an IPv6 wildcard (`tcp6`) bind
+   also passes. Invariant #8 itself holds in the code today; this is a check
+   that cannot catch every violation of it. Treat control 2 as incomplete
+   until Step 10 lands (tcp6 fallback + non-loopback local-address detection).
 
 ---
 
@@ -241,6 +248,11 @@ slow search exhausts RAM, pins all 24 cores, or leaves the FSM stuck.
 1. 15 s capture cap, preallocated ring buffer. — FR-4
 2. Turn queue depth 0; second request rejected audibly. — FR-5
 3. Every stage has a timeout; process groups killed on tool timeout.
+   **NOT yet enforced** — found by the 2026-08-26 audit (M-T1): the executor
+   waits only `_LAUNCH_GRACE_S = 0.4` for every tool and kills nothing;
+   `ToolSpec.timeout_s` is dead config. ADR-067d decides to honor it
+   (`wait_for(timeout_s)` + process-group kill for non-GUI tools; GUI
+   launches keep ADR-043's grace semantics). Step 8 of the fix plan.
 4. Thread counts pinned so whisper cannot take all 24 cores. — diagram 03
 5. `E_BUSY` and the panic file give the user a way out. — FR-36
 

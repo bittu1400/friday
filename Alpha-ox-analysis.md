@@ -1,10 +1,14 @@
 # Alpha-ox Analysis — Full Codebase Audit
 
-**Date:** 2026-08-26 · **Scope:** all Python under `friday/` (~5.4k LOC src) + `scripts/`,
-cross-checked against `tests/`, `justfile`, `deploy/systemd/`.
+**Date:** 2026-08-26 · **Scope:** all Python under `friday/` (6,928 src lines,
+57 modules) + `scripts/`, cross-checked against `tests/` (57 files, 308 tests),
+`justfile`, `deploy/systemd/`.
 **Method:** static analysis (ruff, vulture), four independent line-by-line subsystem audits,
 then manual verification of every CRITICAL/HIGH finding against source before inclusion.
 **No code was changed.** Line numbers refer to the tree as of this date.
+Every file:line citation below was re-verified mechanically against the tree
+later the same day (61-point check); corrections found by that pass are applied
+inline and listed at the bottom of this file.
 
 Findings that were **[verified]** were re-read and confirmed by hand, not just reported.
 
@@ -53,7 +57,11 @@ nothing" defect family from 2026-08-24, alive in the other UI.
 ### H1. Confirmed-action dispatches and ALL web searches write no audit row [verified]
 - `daemon.py:455-476`: when a user *confirms* `system_wifi off`, `hypr_window close`,
   `clipboard_set`, the executor runs but no `audit.arecord` follows. Same for
-  `cancel_reminder`, DND, dictation paths (`turn.py:208-244,472-489`).
+  `cancel_reminder` (`turn.py:472-489`, dispatched). DND and dictation
+  (`turn.py:208-212,241-244`) also write no audit row, but note they return
+  `dispatched=False` — the daemon applies their side effect later
+  (daemon.py:359-370), so under FR-58-as-amended they need a row at the point
+  the side effect lands, not a dispatch row.
 - `turn.py:276-309` (`_do_web_search`): no audit row on any path — which also makes
   `habits.describe_action`'s `web_search` branch (`habits.py:77-81`) unreachable dead logic.
 
@@ -133,10 +141,13 @@ Nothing enforces foreground execution.
 
 ### Audio pipeline
 - **M-A1. Unhandled exception in a PortAudio callback permanently kills the stream, silently.**
-  `wake.py:310-314` / `capture.py:90-92` call into ONNX + WebRTC VAD unguarded;
-  `vad.is_speech` raises `ValueError` for non-10/20/30 ms frames. python-sounddevice
+  `wake.py:310-314` calls into ONNX scoring + WebRTC VAD unguarded;
+  `vad.is_speech` raises `ValueError` for non-10/20/30 ms frames. (The
+  capture.py callback (:90-92) only gate-checks and copies — it does not touch
+  ONNX/VAD — but it is equally unguarded, and a raise there kills the stream
+  the same way.) python-sounddevice
   prints to stderr and stops calling back — wake/VAD/barge die while the service looks
-  healthy. The next "green suite, broken feature." Wrap `_on_frame`, count failures, degrade loudly.
+  healthy. The next "green suite, broken feature." Wrap both callbacks, count failures, degrade loudly.
 - **M-A2. Capture-cap timer leak on re-arm.** `daemon.py:248-252` overwrites `_cap_timer`
   without cancelling the old handle (the confirm timer got exactly this discipline with a
   comment explaining the hazard; the cap timer didn't). Fires mid-next-capture.
@@ -188,15 +199,17 @@ Nothing enforces foreground execution.
   starting with `-` is parsed by wtype as an option (needs `--`); `dictation` return value
   discarded at `daemon.py:307` (typed-nothing-but-said-success family); inherits full env
   (also `clipboard.py`, `notifier.py` — deviates from invariant #3's minimal env).
-- **M-T5. Habits digest lacks the neutralization every other prompt-bound renderer has.**
-  `habits.py:149-158` caps length but doesn't strip control chars/fence tokens, unlike
-  `prefs.render_value` built exactly for this (FR-55 durable-injection vector). Currently
-  hard-to-reach payloads — but "currently unreachable" is not a control (ADR-008 lesson).
+- **M-T5. Habits digest lacks the fence neutralization every other prompt-bound renderer has.**
+  `habits.py:149-158` strips control chars and caps at 150 chars, but performs no
+  `<`/`>` neutralization, so habit text containing `</user_habits>` could break out of
+  the prompt frame — unlike `prefs.render_value`, built exactly for this (FR-55
+  durable-injection vector). Currently hard-to-reach payloads — but "currently
+  unreachable" is not a control (ADR-008 lesson).
 - **M-T6. `search.py` AttributeError on malformed SearXNG payload.** `search.py:103-109`
   assumes dict elements; `{"results": ["str"]}` escapes the except net with the wrong
   error contract (generic "Something went wrong" instead of E_NET_DOWN).
-- **M-T7. `PolicyRejected` human messages stored as error codes.** `errors.py:39-40`,
-  `ban.py:49,53` — raw param values ride in `.code`; harmless until someone logs it.
+- **M-T7. `PolicyRejected` human messages stored as error codes.** `errors.py:39-41`,
+  `ban.py:49,54` — raw param values ride in `.code`; harmless until someone logs it.
 - **M-T8. Import-time env snapshot.** `registry.py:105` freezes PATH/session vars at
   module import — the boot-race family from 2026-08-25 makes launches silently broken
   until restart. Build lazily per dispatch.
@@ -227,7 +240,9 @@ Nothing enforces foreground execution.
 - **M-L8. Free-text params: no central length cap or control-char rejection**
   (`validate.py:126-128` checks non-empty only); ad hoc truncation downstream.
 - **M-L9. Selftest `audio_devices` cannot fail** (every failure mode → WARN, exit 0) and
-  `check_database` creates the DB it claims to verify existing.
+  `check_database` creates the DB it claims to verify existing. (`llm_on_gpu` does
+  have one real FAIL path — running-without-VRAM at :373-381 — but every *surprise*
+  outcome still downgrades to WARN; Step 10 closes the downgrade, not that FAIL.)
 - **M-L10. Silent blanket-excepts in grounding/chat** (`grounding.py:69`, `chat.py:66`)
   log nothing — systematic bugs invisible, violating the taxonomy's "log the code".
 
@@ -243,7 +258,6 @@ string would be TTS'd if NOT_YET_WIRED ever routed (`turn.py:251-254`). L6 `db.c
 exception-safe in `__main__.py:72-77`. L7 reminder text logged raw (`daemon.py:550`). L8 cap-timer
 callback spawns unreferenced task (`daemon.py:250-252`); sched task cancelled but never awaited (:593-594).
 L9 repeated function-local imports per turn (`daemon.py:289,340,445,461,562`).
-
 **Config/LLM/UI:** L10 `FRIDAY_DEBUG=0` enables debug (presence-check vs truthiness, `config.py:78`).
 L11 `RUNTIME_DIR` falls back to STATE_DIR → PTT socket on real disk (`config.py:93-95`).
 L12 malformed env ints crash at import before logging exists (`config.py:30,44-48,...`).
@@ -260,7 +274,7 @@ wrapped binary. L21 `file_open` substring alias match can open the wrong registe
 (`registry.py:200`) — token-boundary matching needed. L22 `_humanize_duration` rounds 90 min
 to "2 hours" (`turn.py:390-398`). L23 reminder listing mixes kinds, truncates to 3 silently
 (`turn.py:467-468`, briefing repeats). L24 `clipboard_read` speaks up to 100 chars aloud —
-copied passwords get vocalized (`turn.py:540`). L25 selftest docstring lists 7 checks, 8 run.
+copied passwords get vocalized (`turn.py:549`). L25 selftest docstring lists 7 checks, 8 run.
 
 ---
 
@@ -279,7 +293,7 @@ copied passwords get vocalized (`turn.py:540`). L25 selftest docstring lists 7 c
 | scheduler `dnd` param | `scheduler.py:29` | stored, never used |
 | `PendingAction.description` | `turn.py:57` | constructed everywhere, never read |
 | `create_detector(threshold=…)` param | `wake.py:119` | accepted, ignored |
-| `awrite`/`aquery` | `store/db.py:104-107` | no callers |
+| `awrite`/`aquery` | `store/db.py:104-108` | no callers in src (one test uses awrite) |
 | registry docstring "web_search not-yet-wired" | `registry.py:10-11` | stale — it is wired in turn.py |
 | preferences.source `'user_typed'` | migration 001 | no writer passes it |
 | vestigial `sd.stop()` in `Speaker.stop()` | `tts.py:200-205` | targets unused `sd.play()` API |
@@ -327,8 +341,35 @@ rewriting with explicit escapes like the neighboring `_CONTROL` to silence it).
 9. **M-L1/L2** HTTP client edge shapes; **M-L3/L4/M-L9** make selftest checks able to fail.
 10. Everything else at leisure; delete the dead-code table in one sweep.
 
-**Meta-lesson (same one, fifth time):** every CRITICAL/HIGH above lives on a path no
+**Meta-lesson (same one, fifth time):** every CRITICAL/HIGH above lives on a
+path no
 fixture drives — degraded modes (no-STT, no-VAD, TTS-failure), two racing triggers,
 or the other UI. Before Phase 3 work, add the missing *composition* tests:
 degraded-capability matrix, dual-trigger race test, "every dispatch audits a row",
 and a TUI-parity test mirroring the daemon's confirm semantics.
+
+---
+
+## Citation re-verification pass (2026-08-26, same day)
+
+A 61-point mechanical check of every file:line citation against the tree found
+the original report materially wrong in three places; all are corrected inline
+above and summarized here so no reader trusts the earlier wording:
+
+1. **H1 overcounted unaudited dispatched paths.** DND and dictation return
+   `dispatched=False` — the daemon applies their side effect post-turn, so they
+   were never "dispatched without audit"; only confirmed dispatches
+   (`clipboard_set`, wifi-off, window-close, history-resolved) and
+   `cancel_reminder` dispatch unaudited. The fix plan is unaffected.
+2. **M-A1 wrongly implicated capture.py in ONNX/VAD work.** The capture
+   callback only gate-checks and copies; it never touches the detector or VAD.
+   It remains unguarded (same stream-death consequence), so the fix wraps both
+   callbacks.
+3. **M-T5 overstated the habits gap.** The digest already strips control chars
+   and caps length; what is missing is only `<`/`>` fence neutralization.
+
+Minor line drift corrected: clipboard_read slice :540→:549; second
+PolicyRejected raise ban.py:53→:54; awrite/aquery span :104-108. Also noted:
+`llm_on_gpu` has one genuine FAIL path (running-without-VRAM); Step 10 targets
+its surprise-downgrade-to-WARN behavior, not that FAIL. No severity changed;
+no fix step reordered.

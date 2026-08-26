@@ -17,13 +17,26 @@ internet steering a local action.**
   |   TURN 1         |            ||
   |   plan.gbnf      |            ||
   |                  |            ||
-  |  action enum:    |            ||
-  |   none           |            ||
-  |   open_app       |            ||
-  |   run_script     |            ||
-  |   web_search     |            ||
-  |   remember_pref  |            ||
-  |   forget_pref    |            ||
+   |  action enum:    |            ||
+   |  (plan.gbnf,     |            ||
+   |  verbatim)       |            ||
+   |   none           |            ||
+   |   chat           |            ||
+   |   open_app       |            ||
+   |   web_search     |            ||
+   |   open_youtube   |            ||
+   |   youtube_search |            ||
+   |   remember_pref  |            ||
+   |   forget_pref    |            ||
+   |   set/list/cancel_reminder    ||
+   |   set_dnd / resume_dnd        ||
+   |   system_volume/brightness/   ||
+   |     media/wifi   |            ||
+   |   hypr_workspace/window       ||
+   |   file_open      |            ||
+   |   create/read_notes           ||
+   |   clipboard_read/set          ||
+   |   dictation_mode |            ||
   +--------+---------+            ||
            |                      ||
            v                      ||
@@ -115,5 +128,10 @@ Templates for Phase 1:
    denied        -> "I'm not allowed to do that."
    error         -> "That didn't work."
 ```
+
+NOTE (2026-08-26): the `timeout` outcome is currently UNREACHABLE from tools —
+the executor abandons at `_LAUNCH_GRACE_S = 0.4` and kills nothing
+(architecture §3.3, audit M-T1). ADR-067d makes `spec.timeout_s` real; until
+Step 8 lands, this row describes the target contract, not today's behavior.
 
 No LLM round-trip. No hallucinated success. ~0 ms.

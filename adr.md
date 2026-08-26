@@ -2097,6 +2097,10 @@ design — this session changed no code.
 
 **Decisions.**
 
+(Citation convention: sub-items are referenced elsewhere in the repo as
+"ADR-067a" … "ADR-067i"; they are the lettered paragraphs below, not
+standalone ADRs.)
+
 (a) *Confirm lifecycle is one coherent subsystem, fixed in one commit.* H2
 (orphaned `_pending` on TTS failure), H3 (barge-in during confirm question),
 and M-P1 (`_expire_confirm` killing a live capture) are three failure windows
