@@ -23,10 +23,11 @@ implemented and verified.
 `just test-injection` **20/20 blocked**, `just selftest` **all 7 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
-**NEXT SESSION starts with a reality check.** Before any new work, walk
-`docs/reality-check.md` — the full manifest of what Friday MUST do and MUST
-refuse — and verify each item live. That file is the systematic checklist;
-this file is where its results get pasted.
+**NEXT SESSION starts with the 2026-08-26 fix-execution plan** — see the
+`>>> START HERE <<<` block below and `Alpha-ox-analysis.md`. The 2026-08-26
+audit (read-only) found 1 CRITICAL + 8 HIGH defects on paths no test drives;
+the ordered fix list lives in that START HERE block. `docs/reality-check.md`
+remains the manifest for live-voice verification after the fixes land.
 
 ```
    G0 REPO         [x]
@@ -47,9 +48,180 @@ this file is where its results get pasted.
 
 ---
 
-## >>> START HERE: NEXT SESSION (rewritten 2026-08-25, evening) <<<
+## SESSION 2026-08-26 — full-codebase deep audit (READ-ONLY, no code changed)
 
-Read this whole block before touching anything. Everything below it is history.
+**What happened.** A whole-repo audit was run at the user's request: static
+analysis (`ruff`: 127 findings; `vulture`), four independent line-by-line
+subsystem audits (audio+voice entry / daemon+turn+proactive / tools+store /
+llm+ui+selftest+scripts), then every CRITICAL and HIGH finding re-verified by
+hand against source before acceptance. **No code was edited.** All findings,
+with file:line, evidence excerpts, severities, and a recommended fix order, are
+in **`Alpha-ox-analysis.md`** — that file is the single source of truth for
+this phase. Docs updated to match: ADR-067 (decisions), OQ-34/OQ-35 (new user
+questions), spec FR-58 amendment + new test suite §5.4 (composition /
+degraded-path), architecture §3.3 (executor contract corrected to describe
+actual behavior), threat-model T7 controls (journald leak, WAL perms — marked
+NOT yet enforced until the fix lands), reality-check note on typed confirm rows.
+
+**Headline result:** 1 CRITICAL, 8 HIGH, ~21 MEDIUM, ~25 LOW, 15 dead-code items.
+The security spine held (grammar/validator/SQL/subprocess discipline verified
+solid — see the "Verified solid" section of the analysis file). What keeps
+producing new defects is confirmed once more: **every serious finding lives on
+a path no test drives** — degraded modes (no-STT, no-VAD, TTS failure), two
+racing trigger sources, or the text UI that never got the Phase-2 confirm
+migration.
+
+### Top findings (full detail in Alpha-ox-analysis.md)
+| ID | Sev | One line |
+|---|---|---|
+| C1 | CRIT | TUI confirm of any `PendingAction` (clipboard_set, wifi off, window close) raises AttributeError — `confirm_preference` reads `.key/.value`; voice path is correct |
+| H1 | HIGH | Confirmed-action dispatches and ALL web searches write no audit row (FR-58 unenforced on the most dangerous paths) |
+| H2 | HIGH | Confirm-question TTS failure orphans `_pending` — next utterance confirms an action the user never heard |
+| H3 | HIGH | Barge-in during confirm question leaves pending + 30 s timer shadowing the new conversation; interrupted replies still enter dialogue history |
+| H4 | HIGH | No-STT mode double FSM transition → `IllegalTransition` on every capture |
+| H5 | HIGH | Wake arms end-of-speech on the audio thread BEFORE the FSM accepts → PTT/VAD desync on rejected wake |
+| H6 | HIGH | Speaker verify, sign-off LLM call, notify-send, habit mining all block the event loop |
+| H7 | HIGH | "Cancel my reminder" cancels the one firing FARTHEST in the future (`active[-1]` over `fire_at ASC`) |
+| H8 | HIGH | `FRIDAY_DEBUG=1` under systemd writes raw transcripts to journald's persistent disk (NoDiskFilter guards only the file handler) |
+
+Suites were NOT re-run after the audit because nothing changed:
+last known state 2026-08-25 evening — pytest 328, eval 28/28 reg 0,
+injection 20/20, selftest 8/8 (re-verified live at this session's start).
+
+---
+
+## >>> START HERE: NEXT SESSION (rewritten 2026-08-26 — FIX EXECUTION PHASE) <<<
+
+Read this whole block, then read `Alpha-ox-analysis.md` in full before touching
+anything. Every task below cites finding IDs from that file. Do not re-audit;
+do not reorder; fix in this sequence and paste evidence for each into this file.
+**No feature work and no Phase 3 until this list is done.**
+
+### First commands, in order
+```bash
+just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: restart friday-llm first.
+uv run pytest -q && just eval       # expect 328 passed, 28/28 reg 0 — the baseline you must not drop
+```
+Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
+Never two daemons. Never trust "Friday said it worked" — ask the system.
+
+### THE ORDERED FIX LIST (execute top to bottom; each step = code + tests + evidence here)
+
+**Step 1 — C1 + H4: the two user-visible breaks.**
+- C1: mirror the daemon's `isinstance(pending, PendingPreference|PendingAction)`
+  branch in `friday/ui/tui.py:_resolve_pending` (:171-189); fix the
+  `PendingPreference | None` annotation at tui.py:68. Add a TUI-parity test
+  asserting a confirmed PendingAction executes (spy on executor) and a declined
+  one does not.
+- H4: delete the `state.got_transcript(nonempty=False)` call from
+  `_transcribe`'s transcriber-None path (daemon.py:403-406); the caller at :269
+  owns the transition. Test: drive a full capture with `transcriber=None` —
+  no `IllegalTransition`, silent return to IDLE (FR-12).
+
+**Step 2 — confirm-lifecycle commit: H2 + H3 + M-P1 together (one coherent fix).**
+Redesign the pending-confirm handshake so that ALL of these hold:
+- `_pending` is set only after the question speak succeeds (H2);
+- barge-in during the question drops `_pending`, disarms the window, and the
+  barged utterance is treated as a fresh command, not an answer (H3);
+- `_speak` reports completed-vs-cancelled; interrupted speech is NOT added to
+  dialogue history (H3 second half); the superseded turn task is joined or
+  neutralized so only one turn task mutates shared state;
+- `_expire_confirm` never resets a CAPTURING state — let the answer finish
+  (M-P1); resolve then finds no pending and treats it as fresh.
+Tests for each of the four behaviors, including the TTS-raises case.
+
+**Step 3 — audit coverage: H1 (+ enables deleting dead habits branch).**
+- One `audit.arecord` per confirmed dispatch in `daemon.py:_resolve_confirm`,
+  mirroring the `_plan_and_act` tail (turn.py:264-272).
+- Audit web_search attempts (query redacted/capped) in `turn.py:_do_web_search`.
+- NEW contract test: walk REGISTRY + confirm paths; assert EVERY executed
+  dispatch produces exactly one audit row (FR-58, amended in spec.md today).
+  This makes the `habits.describe_action` web_search branch reachable again —
+  keep it.
+
+**Step 4 — H6: get blocking work off the event loop (four mechanical sites).**
+`asyncio.to_thread` around: speaker verify (daemon.py:277-279),
+generate_signoff_summary (daemon.py:328-333), notifier.notify
+(daemon.py:150 / scheduler.py:73 — or create_subprocess_exec),
+mine_habits/get_recent_session_summaries (daemon.py:339-345).
+
+**Step 5 — trigger-arm discipline: H5 + M-A2 + M-A3 (one seam, one commit).**
+- H5: rejected wake/PTT must disarm the listener's `_awaiting_end` (pass the
+  accept/reject outcome back, or disarm from the reject path).
+- M-A2: `_arm_capture_cap` disarms any existing handle first (mirror
+  `_disarm_confirm` discipline).
+- M-A3: if VAD is None, refuse to arm end-of-speech captures — log once,
+  captures stay PTT-only; never silently resurrect the 15 s cap.
+Race test: fire wake+PTT callbacks interleaved both orders; no stuck armed
+state, no orphaned cap timer.
+
+**Step 6 — DB integrity: M-T2 + M-T3.**
+- M-T2: chmod(0o600) immediately after connect, BEFORE the WAL pragma;
+  selftest additionally checks `-wal`/`-shm` perms when present.
+- M-T3: wrap each migration + version bump in one explicit transaction;
+  add IF NOT EXISTS to migration DDL; test the partial-migration recovery path.
+
+**Step 7 — M-A1: guard the PortAudio callback.**
+Wrap `_on_frame` bodies (wake.py, capture.py): count consecutive failures,
+degrade loudly past N (disable detector + ERROR log with taxonomy code), never
+let an exception escape into sounddevice. Test proves the FAIL path (feed a
+non-10/20/30 ms frame → detector disabled loudly, stream alive).
+
+**Step 8 — M-T1 decision execution (ADR-067d).**
+Honor `spec.timeout_s`: non-GUI tools get `wait_for(timeout_s)` + process-group
+kill on expiry; GUI-launch tools keep the 0.4 s grace semantics (ADR-043).
+Fix executor docstring. Delete-or-honor decision is MADE — do not reopen.
+
+**Step 9 — LLM client edges: M-L1 + M-L2.**
+Catch bare TimeoutError → LlamaTimeout; catch HTTPError before URLError, never
+retry code ≥ 400, report server errors distinctly from unreachable.
+
+**Step 10 — make the cannot-fail checks able to fail: M-L3, M-L4, M-L9.**
+gpu_arch WARN/FAIL on unparsable output; socket-bind check flags any
+non-loopback local address incl. IPv6 + tcp6 fallback; audio_devices FAILs
+when device enumeration raises; llm_on_gpu stops downgrading surprises to WARN.
+Each new FAIL path gets a test that proves it fails (session rule).
+
+**Step 11 — H8: close the journald debug-leak.**
+Suppress `no_disk` records on stderr when running under journald
+(`JOURNAL_STREAM` env detect); log one warning at startup when DEBUG+journald.
+Test: enabling DEBUG creates no file AND no_disk records are dropped from any
+persistent sink (extends the FR-57a test).
+
+**Step 12 — dead-code sweep (one commit, list in Alpha-ox-analysis.md table).**
+RiskTier, NOT_YET_WIRED branch (+ its test), scheduler dnd param,
+PendingAction.description, ToolResult.code, E_SCHEMA/E_TOOL_TIMEOUT/
+E_TOOL_FAILED (or adopt them — but stop the string-literal E_BUSY at
+daemon.py:147), awrite/aquery, vestigial sd.stop(), stale registry docstring,
+wake threshold param. Run full suite after; eval must stay 28/28.
+
+**Remaining MEDIUM/LOW items** (M-A4..A8, M-P2..P4, M-T4..T9, M-L5..L10, all
+LOWs) are triaged in Alpha-ox-analysis.md and may be batched AFTER steps 1-12,
+but M-P2/M-P3 (proactive speech vs FSM, scheduler stall) should be next in line
+— they are the G11-era debt most likely to bite live. OQ-34 and OQ-35 need USER
+answers before their fixes start.
+
+### Still queued from the previous session (unchanged priority)
+After the fix list: ADR-066 live confirmation, OQ-33 threshold-from-data,
+the live-voice rows of docs/reality-check.md, OQ-32 AEC drill, launcher
+failure detection (task 5 of the 2026-08-25 plan — related to M-T1/H1, fold in
+here rather than separately).
+
+### Definition of done for this phase (applies to EVERY step)
+```
+   [ ] the named finding's repro/test exists and fails before the fix
+   [ ] uv run pytest green; just eval 28/28 reg 0; injection 20/20; selftest 8/8
+   [ ] evidence pasted into progress.md under the step number
+   [ ] no doc/diagram left contradicting the code (architecture.md §3.3 was
+       pre-corrected today to describe CURRENT behavior until Step 8 lands)
+```
+
+---
+
+## SESSION 2026-08-25 (evening) — plan block (SUPERSEDED by the 2026-08-26 block above)
+
+Historical. Its tasks 1–6 were absorbed into the 2026-08-26 fix list or remain
+queued ("Still queued"). Kept for context.
 
 ### State of the world in one paragraph
 Friday is G0–G13 complete and, for the first time, **verified working by voice

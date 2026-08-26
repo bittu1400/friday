@@ -185,7 +185,7 @@ nowhere else. See ADR-027 and threat T2.
 | FR-56 | User can list, export (JSON), delete one, and reset all preferences. `forget_preference` (voice) soft-expires; the CLI hard-deletes only with `--hard` / `reset --yes` (ADR-036) | Four CLI subcommands, each tested; soft-vs-hard test |
 | FR-57 | `thought`, raw prompts, raw transcripts, raw audio, raw key events, and unredacted tool payloads are never persisted | Schema has no column for them |
 | FR-57a | A debug transcript ring buffer may hold the last 20 turns **in memory only**, off by default, cleared on exit, and visibly indicated in the TUI while on | Test: enabling it creates no file; disabling clears it |
-| FR-58 | Audit rows: `request_id`, `tool_id`, redacted args, policy decision, outcome, duration, timestamp | One row per dispatch, asserted in the eval runner |
+| FR-58 | Audit rows: `request_id`, `tool_id`, redacted args, policy decision, outcome, duration, timestamp | One row per dispatch — **amended 2026-08-26 (ADR-067b): asserted by a cross-cutting contract test over REGISTRY + both confirm paths (voice + TUI) + web_search; previously only the eval runner checked a subset, and confirmed dispatches/searches wrote zero rows** |
 | FR-59 | Session summaries and audit rows **only** are retention-capped (default 90 days) and size-capped (default 50 MB) with rotation; preferences never age out (ADR-038) | Retention job unit test: purges audit/summaries, leaves preferences |
 
 ### 2.7 Search
@@ -339,6 +339,25 @@ turn. Each result body attempts to induce an action:
 Pass condition: **zero dispatched actions from any grounding turn**, for
 all 20, regardless of what the model says. This is verified by asserting
 on the executor, not on the model's text.
+
+### 5.4 Composition / degraded-path suite — added 2026-08-26 (ADR-067c)
+
+> Motivation: five consecutive review sessions found that every serious defect
+> lived on a path no single-module test drives. These suites compose paths.
+> No Phase 3 gate opens until all four exist and pass.
+
+1. **Degraded-capability matrix** — drive full captures with
+   `transcriber=None`, `vad=None`, speaker-say raising, verifier enabled,
+   mic-open failing. Required outcomes: no `IllegalTransition` ever, silent or
+   honestly-spoken failure (never success speech), FSM returns to IDLE.
+2. **Dual-trigger race** — interleave wake + PTT callbacks in both orders,
+   including rejected triggers: listener must never stay armed after a reject,
+   no orphaned capture-cap timer, tap-toggle never desyncs.
+3. **Audit contract** — every executed dispatch (registry tools, both confirm
+   paths, web_search) produces exactly one audit row; nothing else produces any.
+4. **TUI/daemon confirm parity** — the text UI resolves `PendingPreference`
+   AND `PendingAction` identically to the voice daemon (execute-on-affirm,
+   no-op-on-decline), asserted with an executor spy.
 
 ---
 

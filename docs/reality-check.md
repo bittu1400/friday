@@ -14,6 +14,12 @@ Paste anything that fails — with the exact command/utterance and what happened
 into `progress.md` under a new dated session block. A row that cannot be
 verified (no mic, tool missing) is marked `SKIP (reason)`, never silently ticked.
 
+> **2026-08-26 audit note (Alpha-ox-analysis.md C1):** every *typed* path
+> through a confirm-first row (A5, wifi-off, window-close, clipboard_set) is
+> currently BROKEN in text mode — the TUI confirm raises on `PendingAction`,
+> so "yes" does nothing. Voice-path rows are unaffected. Re-verify typed rows
+> only AFTER the hardening phase lands (progress.md START HERE, Step 1).
+
 Derived from the action schema (`friday/llm/schema.py`), the turn router
 (`friday/turn.py`), the daemon intercepts (`friday/daemon.py`), and the tool
 registry (`friday/tools/registry.py`); re-verified against the code on

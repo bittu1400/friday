@@ -28,7 +28,7 @@ verification with a 10-utterance voiceprint (G13, ADR-059).
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**, `just test-egress` loopback-only.
 (Verified 2026-08-25 evening with the LLM confirmed on GPU — see `llm_on_gpu`.)
 
-**Three review sessions found defects the desk suite missed** — the pattern here
+**Four review passes found defects the desk suite missed** — the pattern here
 is that green tests do NOT prove a feature works, because the tests never
 exercised the broken path. (1) A post-G9 live review (2026-08-23) fixed 5:
 invariant-#1 `assert`→`raise` (survives `python -O`), systemd `Restart=always`,
@@ -36,18 +36,24 @@ the browser-launch false-failure (ADR-043 amendment), planner sees history for
 anaphora (ADR-052), chat persona states its real toolset (ADR-053). (2) A
 post-Phase-2 review (2026-08-24) fixed 8 more, including a **dead-on-import G13
 enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
-that spoke success while doing nothing**. The full, current truth is the two
-**"SESSION 2026-08-24 (part 2)"** and **"SESSION 2026-08-23"** blocks at the top
-of `progress.md`, plus the `>>> START HERE <<<` block written 2026-08-25.
-NOTE: `friday.service` is `Restart=always`, so `kill <pid>` does NOT stop the
-daemon — use `systemctl --user stop friday`. As of 2026-08-25 all three units
-(`friday`, `friday-llm`, `friday-searxng`) are **running**, 0 restarts. Never
-run `just voice` while the service is up: two daemons fight over the mic and the
-PTT socket. Stop the service first.
+that spoke success while doing nothing**. (3) The 2026-08-25 live sessions fixed
+13 more (see the session blocks in `progress.md`). (4) A full read-only codebase
+audit (**2026-08-26**, report: `Alpha-ox-analysis.md`) found **1 CRITICAL + 8
+HIGH + ~21 MEDIUM** on paths no test drives — headline: text-mode confirm of
+any action is broken (`PendingAction` AttributeError), confirmed dispatches and
+web searches write zero audit rows, and a failed confirm-question TTS can make
+the next "yeah" dispatch an unheard action. Decisions for the fix phase are in
+ADR-067; the ordered fix list is the `>>> START HERE <<<` block in
+`progress.md`. NOTE: `friday.service` is `Restart=always`, so `kill <pid>`
+does NOT stop the daemon — use `systemctl --user stop friday`. As of
+2026-08-25 all three units (`friday`, `friday-llm`, `friday-searxng`) are
+**running**, 0 restarts. Never run `just voice` while the service is up: two
+daemons fight over the mic and the PTT socket. Stop the service first.
 
-**NEXT SESSION: read the `>>> START HERE <<<` block at the top of
-`progress.md` first.** It has the exact first commands, what changed, and the
-ordered task list. Short version:
+**NEXT SESSION: execute the fix phase.** Read the `>>> START HERE <<<` block at
+the top of `progress.md` first, then `Alpha-ox-analysis.md` in full — every
+task cites finding IDs from it. It has the exact first commands and the
+ordered 12-step task list. Short version:
 
 ```bash
 just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm

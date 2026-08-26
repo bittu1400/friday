@@ -168,13 +168,18 @@ closed enum. This is the whole of ADR-007 in one type.
 async def execute(spec: ToolSpec, params: dict, request_id: str) -> ToolResult
 ```
 
-Guarantees:
+Guarantees (as actually implemented 2026-08-26; see ADR-067d):
 
 - `shell=False`, argv list, explicit minimal env
-- bounded by `spec.timeout_s`, process group killed on timeout
+- bounded by `_LAUNCH_GRACE_S = 0.4` for ALL tools; on expiry the await is
+  abandoned, nothing is killed. `spec.timeout_s` exists in `ToolSpec` but is
+  currently dead config — honoring it (wait + process-group kill for non-GUI
+  tools) is decided in ADR-067d and lands in the hardening phase
 - never retried for `reversible` or `irreversible` risk classes
 - returns a typed `Outcome`, never raises to the caller
-- writes exactly one audit row before returning
+- audit rows are written by the CALLERS (`turn.py` dispatch tail and confirm
+  paths), not by the executor itself — and until the 2026-08-26 hardening
+  phase (ADR-067b) the confirm paths and web_search wrote none
 
 ---
 

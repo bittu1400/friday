@@ -217,6 +217,15 @@ backup, or a synced folder.
 3. `0600` file / `0700` directory, checked by the self-test. — FR-50
 4. Retention 90 days, size cap 50 MB, rotation. — FR-59
 5. A test greps `friday.log` for `/home/` and fails on a hit. — FR-43
+6. **Gaps found by the 2026-08-26 audit** (`Alpha-ox-analysis.md` H8, M-T2),
+   fixes decided in ADR-067 (items g and i; Steps 6 and 11 of the fix plan):
+   the `no_disk` filter guards only the file handler, so `FRIDAY_DEBUG=1`
+   under systemd leaks raw transcripts to journald's persistent disk; and
+   SQLite `-wal`/`-shm` sidecars can be created before the `0600` chmod.
+   Controls being added: suppress `no_disk` records on any persistent sink
+   when running under journald; chmod before WAL pragma; selftest checks
+   sidecar perms. Treat these controls as NOT yet enforced until the
+   hardening phase lands.
 
 ---
 

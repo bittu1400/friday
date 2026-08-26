@@ -246,6 +246,30 @@ collision with TTS or the mic, and `notify-send` was already a G11 dependency.
 **Open:** whether a toast per rejection becomes noise in real use, or whether a
 short earcon reads better hands-free. Decide after the live-voice pass.
 
+### OQ-34 — Should `clipboard_read` ever speak clipboard contents aloud?
+**Decider:** USER · **Blocks:** Step-12+ triage of M-L24 · **Status:** OPEN
+(raised by audit 2026-08-26)
+
+`clipboard_read` (`turn.py:540`) speaks up to 100 clipboard characters through
+TTS. Copy a password once, ask Friday to read it back in a room with people in
+it. Options: (a) keep as-is — convenient, you accepted the exposure by copying;
+(b) cap much shorter (e.g. 30 chars) + refuse if content looks like a secret
+(heuristic: from a password manager window); (c) never speak clipboard contents,
+show them only in TUI; (d) require explicit confirm each time. If nobody
+decides, the fallback is (c) — silent-safe, less useful.
+
+### OQ-35 — Retention policy for `notes` (and terminal-state reminders)?
+**Decider:** USER · **Blocks:** M-T9 fix · **Status:** OPEN (raised by audit
+2026-08-26)
+
+Retention sweeps only `action_audit` + `session_summaries` (`audit.py:76-84`);
+notes and fired/cancelled reminders accumulate forever. Notes are user-authored
+content the user presumably wants kept — but "forever" on a long-lived install
+is a decision, not an accident. Options: keep notes indefinitely and only prune
+terminal-state reminders after N days; prune both at N days; keep everything.
+If nobody decides: notes kept indefinitely, reminders pruned at 90 days
+(matching FR-59's audit retention).
+
 ---
 
 ### OQ-13 — Multilingual re-enablement plan

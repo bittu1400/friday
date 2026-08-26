@@ -2080,3 +2080,76 @@ is one constant.
 **Rejected.** Aborting the capture without running STT. Reusing the existing
 end-of-speech path costs one ~30 ms transcription of silence and keeps a single
 code path for "capture over", which is worth more than the saving.
+
+---
+
+## ADR-067 — Audit-driven hardening phase: accepted findings and fix-phase decisions
+
+**Context.** A full-codebase audit (2026-08-26, read-only; report:
+`Alpha-ox-analysis.md`) found 1 CRITICAL + 8 HIGH + ~21 MEDIUM defects, every
+serious one on a path no test drives: degraded modes (no-STT, no-VAD, TTS
+failure), two racing trigger sources, or the text UI that never received the
+Phase-2 `PendingAction` confirm migration. This is the fifth consecutive
+session confirming the repo's meta-lesson that green suites do not prove
+features. The findings are accepted as the working truth; this ADR records the
+decisions the fix phase executes. Execution is deferred to the next session by
+design — this session changed no code.
+
+**Decisions.**
+
+(a) *Confirm lifecycle is one coherent subsystem, fixed in one commit.* H2
+(orphaned `_pending` on TTS failure), H3 (barge-in during confirm question),
+and M-P1 (`_expire_confirm` killing a live capture) are three failure windows
+of one handshake. Fixing them piecemeal invites a fourth. `_speak` gains a
+completed-vs-cancelled result; pending state transitions happen only after the
+question is actually heard or known-failed.
+
+(b) *Audit coverage becomes a contract test.* FR-58's "one row per dispatch"
+was asserted nowhere; confirmed dispatches and web searches wrote zero rows.
+A cross-cutting test now walks REGISTRY + confirm paths and asserts exactly one
+row per executed dispatch. spec §FR-58 acceptance amended accordingly.
+
+(c) *Composition tests before Phase 3.* Four suites are added (spec §5.4):
+degraded-capability matrix, dual-trigger race, audit contract, TUI/daemon
+confirm parity. No Phase 3 gate opens until they exist.
+
+(d) *`ToolSpec.timeout_s` is honored, not deleted.* Non-GUI tools get
+`wait_for(spec.timeout_s)` with process-group kill on expiry; GUI-launch tools
+keep ADR-043's fire-and-forget grace semantics. The executor docstring's
+process-group claim was false until now — the doc was corrected to describe
+current behavior the same day (architecture §3.3) so no doc lies even
+temporarily.
+
+(e) *Grounded answers stay out of planner history.* Spoken web-derived answers
+are tagged so the planner-history digest excludes them; the "first-party only"
+comment (turn.py:139-140) becomes true as written rather than weakened.
+
+(f) *Proactive speech enters the FSM.* Reminder/briefing speech routes through
+a SPEAKING-state elevation (or single TTS lock), eliminating concurrent unsynchronized
+`speaker.say` and the IDLE-state self-transcription hole (M-P2).
+
+(g) *Debug transcripts never reach persistent sinks, period.* `no_disk`
+records are dropped from stderr when running under journald (`JOURNAL_STREAM`
+detection). Invariant #7 stops depending on operator discipline.
+
+(h) *Cancel-latest means most-recently-created.* "Cancel my reminder/timer"
+picks by creation order and speaks WHICH reminder was cancelled (H7).
+
+(i) *Fail-soft degradation must be loud.* Any capability that fails to
+initialize (VAD None, mic open failure, detector callback death) refuses to arm
+the dependent feature and logs once at WARNING with a taxonomy code — it may
+never silently reinstate superseded behavior (M-A1/A3/A8, M-A6).
+
+**Consequences.** Twelve ordered steps in progress.md's START HERE block,
+each with its own test and evidence requirement; roughly two sessions of work.
+The eval gate (28/28) must not move. OQ-34/OQ-35 are raised for the two
+genuinely user-owned tradeoffs (clipboard_read speaking secrets; notes
+retention policy); everything else here is decided and not open for relitigation
+without new evidence.
+
+**Rejected.** Fixing findings opportunistically during other work (defeats the
+ordering rationale); weakening FR-57/FR-58 to match current code instead of
+fixing code to match the spec; deferring C1 because text mode is "rarely used"
+(it is the same defect class that made four prior sessions necessary).
+
+**Status:** Accepted 2026-08-26. Implementation pending (next session).
