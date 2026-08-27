@@ -188,12 +188,15 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 ### A13. Clipboard (`clipboard_read` / `clipboard_set`)
 | Say | Expect | C? |
 | :-- | :-- | :-- |
-| "what's in my clipboard" | reads current clipboard (wl-paste) | |
+| "what's in my clipboard" | asks to confirm, then reads current clipboard (wl-paste) | C |
 | "copy \<text\> to clipboard" | asks to confirm, then **actually copies it** (wl-copy) | C? |
 
 - [ ] After "yes", the text is really on the clipboard (regression: `clipboard_set`
       used to speak "Action completed." and do nothing)
 - [ ] Clipboard content with pipes/semicolons/backticks copies verbatim (STDIN, never argv)
+- [ ] `clipboard_read` speaks NOTHING before the confirm, and nothing at all on
+      "no" (ADR-068a — the gate is for disclosure: a copied password must not be
+      vocalized because someone asked what was on the clipboard)
 
 ### A14. Dictation (`dictation_mode`)
 | Say | Expect |

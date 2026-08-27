@@ -186,7 +186,7 @@ nowhere else. See ADR-027 and threat T2.
 | FR-57 | `thought`, raw prompts, raw transcripts, raw audio, raw key events, and unredacted tool payloads are never persisted | Schema has no column for them |
 | FR-57a | A debug transcript ring buffer may hold the last 20 turns **in memory only**, off by default, cleared on exit, and visibly indicated in the TUI while on | Test: enabling it creates no file; disabling clears it |
 | FR-58 | Audit rows: `request_id`, `tool_id`, redacted args, policy decision, outcome, duration, timestamp | One row per dispatch — **amended 2026-08-26 (ADR-067b): asserted by a cross-cutting contract test over REGISTRY + both confirm paths (voice + TUI) + web_search; previously only the eval runner checked a subset, and confirmed dispatches/searches wrote zero rows** |
-| FR-59 | Session summaries and audit rows **only** are retention-capped (default 90 days) and size-capped (default 50 MB) with rotation; preferences never age out (ADR-038) | Retention job unit test: purges audit/summaries, leaves preferences |
+| FR-59 | Session summaries and audit rows are retention-capped (default 90 days) and size-capped (default 50 MB) with rotation; preferences never age out (ADR-038). **Amended 2026-08-27 (ADR-068b):** reminders in a terminal state (`fired`/`cancelled`) share the same 90-day cap; **active** reminders and **notes** are never pruned at any age | Retention job unit test: purges audit/summaries/terminal reminders, leaves preferences, notes, and active reminders |
 
 ### 2.7 Search
 

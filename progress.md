@@ -151,6 +151,44 @@ injection 20/20, selftest 8/8 (re-verified live at this session's start).
 
 ---
 
+## SESSION 2026-08-27 — fix phase opened: baseline re-verified, OQ-34/OQ-35 answered
+
+**Baseline re-verified before any change** (the numbers the fix phase must not drop):
+
+```
+$ uv run pytest -q
+328 passed, 1 warning in 2.50s
+$ just eval
+fixture-set revision: a661efe50529
+passed 28/28  (100%)   known-failing: 0   regressions vs baseline: 0
+$ just selftest
+[PASS] llama-server / searxng / gpu_arch / llm_on_gpu (pid 2633, 4696 MiB VRAM)
+[PASS] database (0600, dir 0700, schema v3) / audio_devices / panic_switch / socket_binds
+[PASSED] All required system checks passed successfully.       (8/8)
+$ systemctl --user is-active friday friday-llm friday-searxng
+active active active
+```
+
+**Decisions (the two user-owned tradeoffs ADR-067 deliberately left open):**
+- **OQ-34 → ADR-068a: `clipboard_read` is confirm-gated, every time.** It spoke
+  up to 100 clipboard characters with no gate; copy a password once and ask
+  Friday to read it back in a room with people. The user rejected the
+  silent-safe fallback (TUI-only) because it removes the feature from voice
+  mode, and rejected the secret-detection heuristic because it fails both ways
+  — a space-separated passphrase reads as prose and gets spoken, a long URL
+  gets refused. Now a `PendingAction`, same handshake as `clipboard_set`.
+  First read-only tool behind a confirm: the gate is for **disclosure**, not
+  reversibility.
+- **OQ-35 → ADR-068b: notes kept forever; `fired`/`cancelled` reminders pruned
+  at 90 days**, reusing FR-59's window rather than a second constant. Active
+  reminders never pruned at any age. Closes M-T9.
+
+Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
+amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
+changed yet.**
+
+---
+
 ## >>> START HERE: NEXT SESSION (rewritten 2026-08-26 — FIX EXECUTION PHASE) <<<
 
 Read this whole block, then read `Alpha-ox-analysis.md` in full before touching
@@ -190,6 +228,12 @@ Redesign the pending-confirm handshake so that ALL of these hold:
 - `_expire_confirm` never resets a CAPTURING state — let the answer finish
   (M-P1); resolve then finds no pending and treats it as fresh.
 Tests for each of the four behaviors, including the TTS-raises case.
+- **ADR-068a (OQ-34, answered 2026-08-27):** `clipboard_read` joins the confirm
+  set — return a `PendingAction("clipboard_read", …)` from `turn.py` instead of
+  speaking the contents inline (`turn.py:549`), and speak them from
+  `_resolve_confirm` only on an affirmative. Test: declined confirm speaks no
+  clipboard characters at all. Doing this here (not Step 12) means the Step 1
+  TUI-parity and Step 3 audit-contract tests cover it for free.
 
 **Step 3 — audit coverage: H1 (+ enables deleting dead habits branch).**
 - One `audit.arecord` per confirmed dispatch in `daemon.py:_resolve_confirm`,
@@ -221,6 +265,11 @@ state, no orphaned cap timer.
   selftest additionally checks `-wal`/`-shm` perms when present.
 - M-T3: wrap each migration + version bump in one explicit transaction;
   add IF NOT EXISTS to migration DDL; test the partial-migration recovery path.
+- **ADR-068b (OQ-35, answered 2026-08-27), closes M-T9:** extend `audit.py`'s
+  retention sweep (:76-84) to reminders in state `fired`/`cancelled` older than
+  the same 90-day window. Notes and **active** reminders are never pruned at any
+  age. Test: a 100-day-old fired reminder is swept, a 100-day-old active one and
+  a 100-day-old note both survive.
 
 **Step 7 — M-A1: guard the PortAudio callback.**
 Wrap `_on_frame` bodies (wake.py, capture.py): count consecutive failures,
@@ -259,8 +308,9 @@ wake threshold param. Run full suite after; eval must stay 28/28.
 **Remaining MEDIUM/LOW items** (M-A4..A8, M-P2..P4, M-T4..T9, M-L5..L10, all
 LOWs) are triaged in Alpha-ox-analysis.md and may be batched AFTER steps 1-12,
 but M-P2/M-P3 (proactive speech vs FSM, scheduler stall) should be next in line
-— they are the G11-era debt most likely to bite live. OQ-34 and OQ-35 need USER
-answers before their fixes start.
+— they are the G11-era debt most likely to bite live. OQ-34 and OQ-35 were
+**answered 2026-08-27** (ADR-068); their fixes are folded into Steps 2 and 6
+above, so nothing in this list is blocked on a user decision any more.
 
 ### Still queued from the previous session (unchanged priority)
 After the fix list: ADR-066 live confirmation, OQ-33 threshold-from-data,

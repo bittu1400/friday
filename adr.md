@@ -2157,3 +2157,50 @@ fixing code to match the spec; deferring C1 because text mode is "rarely used"
 (it is the same defect class that made four prior sessions necessary).
 
 **Status:** Accepted 2026-08-26. Implementation pending (next session).
+
+---
+
+## ADR-068 — Clipboard read-back is confirm-gated; notes are kept forever, terminal reminders age out at 90 days
+
+**Context.** ADR-067 raised the audit's two genuinely user-owned tradeoffs as
+OQ-34 and OQ-35 rather than deciding them. Both were answered by the user on
+2026-08-27, before any fix-phase code was written.
+
+**Decisions.**
+
+(a) *`clipboard_read` requires an explicit confirm every time (OQ-34, M-L24).*
+The clipboard is the one surface where the user's own recent secret — a
+password pasted from a manager, a token, a recovery code — is sitting in a
+tool's output path, and `turn.py` spoke up to 100 characters of it through the
+speaker with no gate. It now returns a `PendingAction("clipboard_read", …)`
+and speaks the contents only after an affirmative answer, using the same
+handshake that already guards `clipboard_set`, `system_wifi{off}` and
+`hypr_window{close}`. Rejected: the doc fallback (c) "never speak, TUI only",
+which is safe but removes the feature from the mode Friday is actually used in;
+and (b) a secret-shaped heuristic, which fails in both directions — a
+space-separated passphrase reads as prose and gets spoken, while an ordinary
+long URL gets refused. A confirm is honest about what it is asking and never
+guesses. Note this makes `clipboard_read` the first **read-only** tool behind a
+confirm: the tier ladder (FR-33) classifies by side effect on the system, and
+this gate exists for disclosure, not for reversibility.
+
+(b) *Notes are kept indefinitely; fired and cancelled reminders are pruned at
+90 days (OQ-35, M-T9).* Notes are user-authored content — the user wrote them
+expecting them to still be there, and a retention sweep that silently eats them
+is the "spoke success while doing nothing" family pointed at the user's own
+data. Terminal-state reminders are machine exhaust: once a timer has fired it is
+of no further interest, so it follows FR-59's existing 90-day audit window
+rather than inventing a second constant. Active reminders are never pruned
+regardless of age. Rejected: pruning both at 90 days (loses notes), and keeping
+everything (leaves the unbounded-growth finding open with no owner).
+
+**Consequences.** OQ-34 and OQ-35 close. `clipboard_read` gains a confirm
+branch in `turn.py` plus a dispatch path through `_resolve_confirm`, which
+means it is covered by the Step 3 audit contract test and the Step 1 TUI-parity
+test rather than needing its own machinery. `audit.py`'s sweep extends to
+terminal-state reminders only. `docs/reality-check.md` A13's first row changes
+from "reads current clipboard" to "asks to confirm, then reads it". Both land
+in the fix phase — (a) with Step 2's confirm-lifecycle commit, (b) with Step 6's
+DB work — not as separate steps.
+
+**Status:** Accepted 2026-08-27. Implementation pending (fix phase).
