@@ -2339,3 +2339,56 @@ a schema feature to keep a field nothing can fill. Putting reminder ids into the
 prompt so the planner can cite one — that hands the model an identifier to
 fabricate and expands what a single turn can name; the deterministic pick is
 smaller and cannot be talked into cancelling the wrong thing.
+
+---
+
+## ADR-071 — VAD end-of-speech is armed by the FSM's acceptance, never by wake detection
+
+**Status:** Accepted (2026-08-29). Implements fix-phase Step 5 of ADR-067.
+Amends ADR-062.
+
+**Context.** ADR-062 gave hands-free captures a VAD end-of-speech, and the
+wake path armed itself inside `WakeListener._on_frame` — on the **audio
+thread**, at the moment of detection. The loop had not yet decided anything.
+`Daemon.on_wake` can reject the trigger (`begin_capture()` false, FR-5), and on
+rejection the listener stayed armed: VAD end-of-speech would then terminate
+whatever capture *was* running, including a PTT one, which ADR-044 says only
+the user's second tap may end. Barge-in captures, by contrast, were armed by
+the daemon after acceptance — the two paths disagreed, and the wrong one was
+the default (audit H5).
+
+Two smaller faults on the same seam: `_arm_capture_cap` overwrote `_cap_timer`
+without cancelling the old handle, so an orphan fired mid-next-capture (M-A2 —
+the confirm timer had exactly this discipline, with a comment explaining the
+hazard; the cap timer did not); and with `vad=None` an "armed" capture had
+neither end-of-speech nor the ADR-066 no-speech bail-out, so every hands-free
+capture silently ran the full 15 s cap — the pre-ADR-066 behaviour, back
+without a word in the logs (M-A3).
+
+**Decision.**
+
+1. *Detection fires; acceptance arms.* `_on_frame` only schedules `on_wake`.
+   The daemon arms from `_start_capture` for `wake`, `barge` and `ptt-barge`
+   alike — one rule, applied where the FSM has already said yes. PTT stays
+   unarmed (ADR-044).
+2. *Re-arming the cap cancels the old handle first.*
+3. *`arm_end_of_speech` refuses when there is no VAD*, and warns once naming
+   the consequence and the workaround ("captures will run to the 15 s cap; use
+   PTT"). Refusing does not make the capture end sooner — nothing can, without
+   a VAD — but it stops the daemon believing an end-of-speech is coming, and it
+   puts the degradation in the log where the next session can see it.
+
+**Consequences.** The arm decision now lives in one place instead of two, and
+it is impossible to arm for a capture that was rejected. The audio thread does
+strictly less: it scores, it fires, it does not mutate capture state on
+speculation. Chosen over passing the accept/reject outcome back to the listener
+(the audit's other suggestion): the daemon's `on_wake` is a coroutine scheduled
+onto the loop, so its answer is not available to the audio thread that would
+have to act on it — the callback would have to become a future, which is more
+machinery than moving one line.
+
+**Rejected.** Refusing the wake trigger outright when `vad is None`. It is
+defensible, but it silently removes hands-free operation on a degraded install
+rather than degrading it loudly, and no measurement says how often webrtcvad
+actually fails to load here. The warning is the honest first move; if it ever
+fires in practice, that is the evidence for going further.

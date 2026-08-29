@@ -193,6 +193,7 @@ class WakeListener:
 
         self._last_wake_time: float = 0.0
         self._awaiting_end: bool = False
+        self._warned_no_vad = False  # M-A3: warn once, not once per capture
         self._heard_speech = False   # any speech at all in the current capture
         self._silent_frames = 0      # frames since the capture began
         self._stream: Any = None
@@ -220,14 +221,32 @@ class WakeListener:
         self._silent_frames = 0
 
     def arm_end_of_speech(self) -> None:
-        """Arm VAD end-of-utterance for a capture this listener did not start.
+        """Arm VAD end-of-utterance for a hands-free capture the FSM ACCEPTED.
 
         ADR-062: a capture with no physical key release needs VAD to end it.
-        The wake path arms itself below, but a barge-in capture is just as
-        hands-free and was never armed — so it could only ever end at the 15 s
-        FR-4 cap, however briefly the user spoke. PTT is deliberately excluded:
-        a tap-toggle capture ends on the user's second tap (ADR-044).
+        PTT is deliberately excluded: a tap-toggle capture ends on the user's
+        second tap (ADR-044).
+
+        Called by the daemon from `_start_capture`, i.e. only after
+        `begin_capture()`/`barge_in()` returned True. Arming inside `_on_frame`
+        at wake-detection time was a TOCTOU (audit H5): the audio thread armed
+        first and the loop could then REJECT the trigger as busy, leaving the
+        listener armed so VAD end-of-speech terminated whatever capture was
+        actually running — including a PTT one, contradicting ADR-044.
         """
+        if self.vad is None:
+            # Without a VAD there is no end-of-speech and no ADR-066 bail-out,
+            # so an "armed" hands-free capture would just run the full 15 s cap
+            # with Friday deaf throughout — the pre-ADR-066 behaviour, silently
+            # back (M-A3). Refuse, and say so rather than pretend.
+            if not self._warned_no_vad:
+                self._warned_no_vad = True
+                log.warning(
+                    "no VAD: hands-free captures cannot end on silence and will "
+                    "run to the %.0fs cap. Use PTT until webrtcvad loads.",
+                    config.MAX_CAPTURE_S,
+                )
+            return
         self._arm()
 
     def _on_frame(self, frame: np.ndarray) -> None:
@@ -301,10 +320,9 @@ class WakeListener:
                 # Score is logged so a threshold can be chosen from data rather
                 # than guessed: a false wake is invisible in the logs otherwise.
                 log.info("wake fired score=%.3f threshold=%.2f", score, self.threshold)
-                self._awaiting_end = True
-                self._capture_gate.reset()
-                self._heard_speech = False
-                self._silent_frames = 0
+                # NOT armed here (H5). The FSM may reject this trigger as busy,
+                # and an armed listener would then end somebody else's capture.
+                # The daemon arms from `_start_capture`, after acceptance.
                 self.schedule(self.callbacks.on_wake)
 
     def _sd_callback(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:

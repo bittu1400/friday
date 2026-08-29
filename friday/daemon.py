@@ -227,11 +227,13 @@ class Daemon:
         # loop took a whole session to pin down. No transcript content here —
         # invariant #7.
         log.info("capture start source=%s", source)
-        # Hands-free captures have no key release to end them (ADR-062). The
-        # listener arms itself on wake; barge-in was never armed, so it could
-        # only end at the 15 s cap. PTT stays unarmed on purpose (ADR-044:
-        # the second tap ends it).
-        if source in ("barge", "ptt-barge"):
+        # Hands-free captures have no key release to end them (ADR-062), so VAD
+        # end-of-speech is armed HERE — after the FSM accepted the trigger. The
+        # wake path used to arm itself on the audio thread before the loop had
+        # decided, so a rejected wake left the listener armed and VAD then ended
+        # whatever capture was really running (audit H5). PTT stays unarmed on
+        # purpose (ADR-044: the second tap ends it).
+        if source in ("wake", "barge", "ptt-barge"):
             # A barge-in is the user starting something NEW over whatever
             # Friday is saying. If a confirm was somehow still armed, the next
             # utterance is a command, never the yes/no answer to a question
@@ -264,6 +266,11 @@ class Daemon:
     # --- 15 s hard cap (FR-4) ---------------------------------------------
 
     def _arm_capture_cap(self) -> None:
+        # Cancel any handle we still hold before overwriting it (M-A2). The
+        # confirm timer got exactly this discipline, with a comment explaining
+        # the hazard; the cap timer did not, so a re-arm orphaned the old handle
+        # and it fired in the middle of the NEXT capture.
+        self._disarm_capture_cap()
         loop = asyncio.get_running_loop()
         self._cap_timer = loop.call_later(
             config.MAX_CAPTURE_S, lambda: asyncio.ensure_future(self._on_release())
