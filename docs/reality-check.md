@@ -129,8 +129,12 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "call me \<X\>" | same | C? |
 | "forget my name" | soft-expires immediately, spoken confirmation | |
 
-- [ ] "yes" writes; anything else cancels the write (fail-safe)
-- [ ] `just prefs list` shows the stored value; value never logged raw
+- [x] **"yes" writes; anything else cancels the write** — verified 2026-08-29
+      through the real Textual app, real LLM, real SQLite. "remember my name is
+      Bittu" + "yes" -> `preferences` row `name="Bittu"`, `source=user_confirmed`.
+      "remember my favourite colour is blue" + "no" -> **no row**.
+- [x] The value is never in the audit row: `{"key": "name"}` and
+      `{"key": "favourite_colour"}`, key only.
 
 ### A6. Reminders & timers (`set_reminder` / `list_reminders` / `cancel_reminder`)
 | Say | Expect |
@@ -144,7 +148,15 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 - [ ] When it fires: one desktop notification **and** one spoken "Reminder: …"
 - [ ] It fires **exactly once** — timers are one-shot, NOT recurring
 - [ ] A garbled duration never becomes a silent default timer (it asks)
-- [ ] **Set a short timer AND a long reminder, then say "cancel my timer".** The
+- [x] **Set a short timer AND a long reminder, then say "cancel my timer"** —
+      verified 2026-08-29, and this is `cancel_reminder`'s **first ever
+      successful run** (ADR-070: it had never worked at any point). Typed:
+      "set a timer for 5 minutes", "remind me in 10 minutes to check the pasta",
+      "what timers do I have" -> *"You have 2 active timers: timer, check the
+      pasta."*, "cancel that timer" -> *"Cancelled: check the pasta."*
+      The `reminders` table then read: `rem_2c60a62c` (timer, **active**),
+      `rem_2300a69f` (check the pasta, **cancelled**) — the one created LAST
+      died and the survivor is still armed. Original wording follows. The
       one you set LAST must die and be named aloud. Before 2026-08-29 this
       cancelled the one firing farthest in the future (audit H7) — and in fact
       could not cancel anything at all, because the schema required an `id` the
@@ -173,6 +185,7 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "pause" · "next track" · "previous" · "play" | media control | playerctl | |
 | "turn on wifi" | Wi-Fi on | nmcli | |
 | "turn off wifi" | asks to confirm, then off | nmcli | C? |
+| ↑ **decline verified 2026-08-29:** "turn off wifi" + "no" -> "Okay, cancelled.", `nmcli radio wifi` still `enabled`, audit row `declined`. The **affirm** path is deliberately untested — it would drop the network mid-session | | | |
 
 - [ ] Each spoken outcome matches the real system state change
 - [x] **2026-08-29, measured through the real executor:** `system_volume`
@@ -230,11 +243,16 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "what's in my clipboard" | asks to confirm, then reads current clipboard (wl-paste) | C |
 | "copy \<text\> to clipboard" | asks to confirm, then **actually copies it** (wl-copy) | C? |
 
-- [ ] After "yes", the text is really on the clipboard (regression: `clipboard_set`
-      used to speak "Action completed." and do nothing)
+- [x] **After "yes", the text is really on the clipboard** — verified
+      2026-08-29: "copy hello world to my clipboard" + "yes" -> *"Copied to your
+      clipboard."*, and `wl-paste` then returned `hello world`. (The user's own
+      clipboard was saved before the pass and restored after it.)
 - [ ] Clipboard content with pipes/semicolons/backticks copies verbatim (STDIN, never argv)
-- [ ] `clipboard_read` speaks NOTHING before the confirm, and nothing at all on
-      "no" (ADR-068a — the gate is for disclosure: a copied password must not be
+- [x] **`clipboard_read` speaks NOTHING before the confirm, and nothing at all
+      on "no"** — verified 2026-08-29 against a known probe value
+      (`friday-probe-42`, never the user's real clipboard): "no" -> *"Okay,
+      cancelled."* and no content; "yes" -> *"Clipboard contains:
+      friday-probe-42"*. Audit rows: one `declined`, one `ok`. (ADR-068a — the gate is for disclosure: a copied password must not be
       vocalized because someone asked what was on the clipboard)
 
 ### A14. Dictation (`dictation_mode`)
@@ -339,6 +357,29 @@ changed — a row here that disagrees with the code is itself a defect.
 ---
 
 ## F. Status of this manifest as of 2026-08-29
+
+**TYPED PASS RUN 2026-08-29** — the real Textual app driven headless with the
+real LlamaClient on GPU, a real SQLite DB (in a scratch `XDG_STATE_HOME`, so the
+user's own store was untouched), and real `wl-copy`/`wl-paste`/`nmcli`. Nothing
+below was accepted on Friday's word; each was read back from the system.
+
+- **C1's blast radius is closed.** Five different confirms resolved correctly in
+  text mode — the mode where every one of them crashed for the whole of Phase 2.
+- **A5** preferences: affirm writes, decline writes nothing (rows read back).
+- **A6** `cancel_reminder`: first ever successful run (ADR-070); the
+  most-recently-created reminder died and was named, the other survived.
+- **A13** clipboard: read is confirm-gated and silent before the answer
+  (ADR-068a); set really copies.
+- **A9** `system_wifi{off}`: the confirm arms and a decline changes nothing.
+- **The audit contract holds on real rows** (FR-58 + ADR-072): exactly one row
+  per resolved action, `declined` recorded for refusals, and the redaction rule
+  visible in the data — `clipboard_set` stored as `{"chars": "11"}`, never the
+  text; preferences by key, never the value.
+
+**Still NOT verified by a human:**
+- **`system_wifi{off}`'s affirm path** — it would drop the network mid-session.
+- **`hypr_window`** (§A10) — `close`/`fullscreen` act on the focused window.
+- **Everything voice.** The whole of the live-voice manifest.
 
 **Changed by the fix phase (Steps 1–6) and NOT yet verified by a human:**
 - **Every typed confirm row.** They were broken in text mode for the whole of

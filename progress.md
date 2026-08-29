@@ -34,7 +34,8 @@ wrong-reminder cancel (H7, which turned out to be an unreachable code path —
 `/var/log/journal`). Plus M-A1, M-T1, M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION is the LIVE PASS, not more fixing** — see the `>>> START HERE <<<` block
+**NEXT SESSION is the LIVE-VOICE PASS** (the typed half is done — see the
+session block below) — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
 is now the fastest map of what is fixed and what is not. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
@@ -205,6 +206,96 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (night) — THE TYPED LIVE PASS: the fix phase's claims, checked against the system
+
+The fix phase closed 1 CRITICAL + 8 HIGH on paths no test drove. That is exactly
+the kind of work that needs verifying by something other than more tests, so the
+typed half of `docs/reality-check.md` was run **for real**: the actual Textual
+app driven headless, the actual `LlamaClient` against the GPU, an actual SQLite
+database (in a scratch `XDG_STATE_HOME`, so the user's own preferences and
+reminders were untouched), and actual `wl-copy` / `wl-paste` / `nmcli`. No fake
+anywhere in the path. Nothing was accepted on Friday's word — every row was read
+back out of the system afterwards.
+
+### What ran, and what the system said back
+
+**A5 preferences (C1's blast radius — typed confirms crashed for all of Phase 2)**
+```
+> remember my name is Bittu   -> "Remember that your name is Bittu? (yes/no)"
+> yes                         -> "Okay, I'll remember that your name is Bittu."
+DB: preferences{key=name, value_json="Bittu", source=user_confirmed}
+
+> remember my favourite colour is blue -> asks
+> no                          -> "Okay, I won't remember that."
+DB: no row.
+```
+
+**A6 `cancel_reminder` — its first ever successful run.** ADR-070 established it
+had never worked at any point: the schema demanded an `id` the planner cannot
+know, so every route ended in "No active timer to cancel."
+```
+> set a timer for 5 minutes            -> "Timer set for 5 minutes."
+> remind me in 10 minutes to check the pasta
+                                       -> "Okay, I'll remind you to check the pasta in 10 minutes."
+> what timers do I have                -> "You have 2 active timers: timer, check the pasta."
+> cancel that timer                    -> "Cancelled: check the pasta."
+
+DB: rem_2c60a62c  message='timer'           state=active     created 1787996217.7
+    rem_2300a69f  message='check the pasta' state=cancelled  created 1787996218.3
+```
+The one created **last** died and was named aloud; the survivor is still armed.
+That is ADR-070's rule, observed rather than asserted.
+
+**A13 clipboard (ADR-068a).** Probed with a known value, never the user's real
+clipboard — which was saved before the pass and restored after it.
+```
+> what's in my clipboard  -> "Do you want me to read your clipboard aloud?"
+> no                      -> "Okay, cancelled."          (nothing read, nothing spoken)
+> what's in my clipboard  -> asks
+> yes                     -> "Clipboard contains: friday-probe-42"
+> copy hello world to my clipboard -> "Are you sure you want to overwrite your clipboard?"
+> yes                     -> "Copied to your clipboard."
+$ wl-paste --no-newline   -> hello world
+```
+`clipboard_set` is the tool that used to speak success and do nothing.
+
+**A9 `system_wifi{off}` — decline only, deliberately.**
+```
+> turn off wifi -> "Are you sure you want to turn off Wi-Fi?"
+> no            -> "Okay, cancelled."
+$ nmcli radio wifi -> enabled
+```
+The affirm path is **not** verified and was not attempted: it drops the network
+mid-session. Recorded as an outstanding row rather than quietly skipped.
+
+### The audit contract, on real rows
+This is FR-58 + ADR-072 observed in production data rather than in a schema-walking
+test — exactly one row per **resolved** action, declines included:
+```
+remember_preference  {"key": "name"}                allowed   ok
+remember_preference  {"key": "favourite_colour"}    declined  declined
+set_reminder         {"message": "timer", ...}      allowed   ok
+set_reminder         {"message": "check the pasta"} allowed   ok
+cancel_reminder      {}                             allowed   ok
+clipboard_read       {}                             declined  declined
+clipboard_read       {}                             allowed   ok
+clipboard_set        {"chars": "11"}                allowed   ok
+system_wifi          {"state": "off"}               declined  declined
+```
+The redaction rule is visible in the data: `clipboard_set` is stored as a
+**length**, never the text; a preference by **key**, never the value.
+
+### What this leaves
+- `system_wifi{off}` affirm — would drop the network.
+- `hypr_window` — `close`/`fullscreen` act on the focused window (ADR-074).
+- **All of the voice manifest.** That is the next session's work and it needs a
+  human at the keyboard with a microphone.
+
+Docs: `docs/reality-check.md` §A5/A6/A9/A13 ticked with the evidence, §F
+rewritten to say what is verified and what is explicitly not.
 
 ---
 
