@@ -66,7 +66,10 @@ Then either:
   service (stop the service first — two daemons fight over the mic and socket):
   `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`. `FRIDAY_DEBUG`
   echoes `heard=…` and `action=… spoken=…` to the console only; those lines are
-  filtered out of the on-disk log (invariant #7).
+  filtered out of the on-disk log (invariant #7). **Foreground is the only place
+  they appear:** since 2026-08-29 (H8) they are also dropped from stderr when
+  `JOURNAL_STREAM` says stderr is journald, so `FRIDAY_DEBUG=1` under systemd is
+  safe but shows you nothing — it logs one warning telling you so.
 
 - [x] `just selftest` → all 8 PASS (llama, searxng, sm_120 GPU, **LLM actually
       on GPU**, DB 0600/0700, audio in/out, panic disarmed, loopback-only)

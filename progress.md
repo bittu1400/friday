@@ -13,31 +13,34 @@ Rules:
    this is a single-machine project. Paste it.
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
-**2026-08-26 audit fix phase is HALF DONE — Steps 1–6 of 12 executed
+**2026-08-26 audit fix phase is PAST HALF — Steps 1–7 of 12 executed
 2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
 registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **395 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **398 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
-**Fixed 2026-08-29 (Steps 1–6):** the CRITICAL text-mode confirm break (C1) and
-six of the eight HIGHs — unaudited dispatches and searches (H1), the orphaned
+**Fixed 2026-08-29 (Steps 1–7):** the CRITICAL text-mode confirm break (C1) and
+**all eight HIGHs** — unaudited dispatches and searches (H1), the orphaned
 pending on a failed question (H2), barge-in eating the user's command and
 interrupted speech entering history (H3), the no-STT double transition (H4),
-the trigger-arm TOCTOU (H5), blocking work on the event loop (H6), and the
+the trigger-arm TOCTOU (H5), blocking work on the event loop (H6), the
 wrong-reminder cancel (H7, which turned out to be an unreachable code path —
-`cancel_reminder` had **never** worked; ADR-070). Plus M-P1, M-A2, M-A3, M-T2,
+`cancel_reminder` had **never** worked; ADR-070), and the journald debug leak
+(H8 — the documented debug workflow wrote every transcript to
+`/var/log/journal`). Plus M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION continues with Steps 7–12** — see the `>>> START HERE <<<` block
+**NEXT SESSION continues with Steps 8–12** — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
-is now the fastest map of what is fixed and what is not. **H8 (the journald
-debug leak) is the one invariant-#7 violation still live** — it is now **Step 7**,
-pulled to the front of the remaining list on 2026-08-29. Until it lands, run
-`FRIDAY_DEBUG=1` in the foreground only, never under systemd.
+is now the fastest map of what is fixed and what is not. **No disclosure defect
+remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
+too when `JOURNAL_STREAM` says stderr is journald, so `FRIDAY_DEBUG=1` is safe
+under systemd (it shows nothing there; foreground is where transcripts appear).
+Everything left in the list is robustness.
 `docs/reality-check.md` remains the manifest for live-voice verification; its
 header lists the rows that changed on 2026-08-29 and have never been checked by
 a human at a keyboard.
@@ -196,6 +199,79 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (later) — FIX PHASE, Step 7 of 12: H8, the journald leak
+
+**One step, one defect, and it is the last disclosure defect in the audit.**
+`FRIDAY_DEBUG=1` is the documented way to watch a live session. Under systemd
+it wrote every transcript to `/var/log/journal` — invariant #7 broken by the
+tool built to observe the system. `NoDiskFilter` was attached to the file
+handler only; nobody had asked what stderr *is* when the process is a unit.
+
+### The fix
+`friday/logging_config.py`: a `_under_journald()` helper (systemd sets
+`JOURNAL_STREAM` on units it wires to the journal) and the same `NoDiskFilter`
+on the console handler when it returns true. `FRIDAY_DEBUG` + journald logs one
+warning saying transcripts are suppressed and to run the daemon in the
+foreground instead. Foreground behaviour is unchanged: that is where debug is
+meant to be watched, and it still works.
+
+Detection is env-only on purpose, not laziness — comparing `JOURNAL_STREAM`'s
+`device:inode` against `fstat(stderr)` is the pedantically exact test, but the
+two failure directions are not symmetric: a false positive costs debug output,
+a false negative leaks a transcript. Err toward suppression.
+
+### Proved on the real path, not just in pytest
+The rule this project keeps re-learning is that a green test is not a working
+feature, so the leak was reproduced and its closure verified **through actual
+journald**, with `systemd-run --user` (which is what gives the child a real
+`JOURNAL_STREAM=10:2726404`), logging a fake transcript both pre- and post-fix:
+
+```
+# PRE-FIX (fix stashed), journalctl --user -u friday-h8-probe-pre:
+2026-08-29 14:20:28 INFO [friday.probe] [debug] v1 heard='my bank password is hunter2'
+
+# POST-FIX, journalctl --user -u friday-h8-probe:
+2026-08-29 14:20:18 WARNING [root] FRIDAY_DEBUG is on under systemd: journald
+  persists stderr, so transcript lines are dropped (invariant #7). Run the
+  daemon in the foreground to see them.
+2026-08-29 14:20:18 INFO [friday.probe] h8 probe ordinary line JOURNAL_STREAM=10:2726404
+$ journalctl --user -u friday-h8-probe -o cat | grep -c hunter2
+0
+```
+
+Ordinary operational logging is untouched — only `no_disk` records are dropped.
+
+### Tests (all three verified failing before the fix, `git stash` the source)
+```
+tests/test_log_no_disk.py::test_no_disk_records_are_dropped_from_stderr_under_journald   FAIL -> PASS
+tests/test_log_no_disk.py::test_debug_under_journald_warns_that_transcripts_are_suppressed FAIL -> PASS
+tests/test_log_no_disk.py::test_no_disk_records_still_reach_a_plain_terminal             PASS -> PASS  (regression guard: the leak is journald, not stderr)
+```
+
+### Gate
+```
+uv run pytest -q          -> 398 passed  (395 -> 398, +3)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
+just selftest             -> [PASSED] all 8 checks (llm_on_gpu PASS, pid 2633, 4710 MiB VRAM)
+```
+
+### Docs changed in the same commit
+`spec.md` (**new FR-57b**, naming the three tests), `threat-model.md` (T7
+control 7 goes from "NOT yet enforced" to landed, with the journald evidence),
+`CLAUDE.md` (status 1–6 -> 1–7, the mitigation paragraph deleted, one new
+temptations row), `docs/reality-check.md` (the debug-workflow note now says
+foreground is the only place transcripts appear),
+`Alpha-ox-analysis.md` (fix-status table), and this file.
+
+**No new ADR.** This executes ADR-067(g) as written; nothing was decided that
+the ADR had not already decided. **The "run debug in the foreground only"
+mitigation is deleted everywhere** — a mitigation left in the docs after its
+fix lands is drift, and drift is what the last five review passes were for.
 
 ---
 
@@ -519,21 +595,21 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (rewritten 2026-08-29 — FIX PHASE, Steps 7–12) <<<
+## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 8–12) <<<
 
-**Steps 1–6 are DONE** (see the 2026-08-29 session block just above for what
-changed and why). Steps 7–12 are unchanged from the 2026-08-26 plan except
+**Steps 1–7 are DONE** (see the two 2026-08-29 session blocks just above for
+what changed and why). Steps 8–12 are unchanged from the 2026-08-26 plan except
 where this block says otherwise. Read the fix-status table at the bottom of
 `Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
 what is not. Do **not** re-audit; the findings are still accurate apart from
 the three corrections recorded there.
 
-**No feature work and no Phase 3 until Steps 7–12 are done.**
+**No feature work and no Phase 3 until Steps 8–12 are done.**
 
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 395 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 398 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
@@ -543,27 +619,22 @@ Never two daemons. Never trust "Friday said it worked" — ask the system.
 pre-fix tree, then restore and fix. Two tests this session passed vacuously and
 were only caught that way.
 
-### THE REMAINING FIX LIST — reordered 2026-08-29 (H8 pulled to the front)
+### THE REMAINING FIX LIST — Steps 8–12 (audit order, H8 already taken)
 
-> **Ordering decision, 2026-08-29.** The audit's plan had H8 at Step 11. Put to
-> the user; answer: **pull it forward to Step 7.** Reason: it is the only
-> remaining *disclosure* defect — a privacy invariant (#7) breaking on the
-> documented debug workflow — and everything else in this list is robustness.
-> It is also the workflow the live-voice pass will need, so leaving it last
-> means running the whole next session under a mitigation. The rest keep the
-> audit's order.
+> **Ordering decision, 2026-08-29 — now spent.** The audit's plan had H8 at
+> Step 11. Put to the user; answer: pull it forward to Step 7, because it was
+> the only remaining *disclosure* defect and the live-voice pass would
+> otherwise have run under a mitigation. **Done — see the Step 7 session block
+> above.** The rest keep the audit's order.
 
-**Step 7 (was 11) — H8: close the journald debug leak.** *Do this first.*
-`logging_config.py:121-138`: `NoDiskFilter` guards only the file handler, so
-`no_disk` records — raw transcripts — go to stderr freely, and under systemd
-stderr is journald, which persists to `/var/log/journal`. The documented debug
-workflow therefore violates invariant #7 every time it is used.
-Suppress `no_disk` records on stderr when running under journald
-(`JOURNAL_STREAM` env detect); log one warning at startup when DEBUG+journald.
-Test: enabling DEBUG creates no file AND `no_disk` records are dropped from any
-persistent sink (extends the FR-57a test). Then delete the "run debug in the
-foreground only" mitigation from `CLAUDE.md`, `threat-model.md` T7 control 7,
-and this block — a mitigation left in the docs after its fix is drift.
+**Step 7 (was 11) — H8: close the journald debug leak. DONE 2026-08-29.**
+`logging_config.py`'s `NoDiskFilter` now also guards the console handler when
+`_under_journald()` (env `JOURNAL_STREAM`) is true, and DEBUG+journald warns
+once. Verified through real journald with `systemd-run --user`, not only in
+pytest: a transcript line appeared in `journalctl` pre-fix and zero occurrences
+post-fix. Spec FR-57b added; threat-model T7 control 7 no longer says "NOT yet
+enforced"; the "run debug in the foreground only" mitigation is deleted from
+`CLAUDE.md`, `threat-model.md` and this block.
 
 **Step 8 (was 7) — M-A1: guard the PortAudio callbacks.**
 Wrap `_on_frame` bodies (`wake.py`, `capture.py`): count consecutive failures,

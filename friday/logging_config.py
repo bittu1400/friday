@@ -41,12 +41,25 @@ class NoDiskFilter(logging.Filter):
     Invariant #7 / FR-26/57: raw transcripts, model output and search payloads
     are NEVER written to disk. FRIDAY_DEBUG echoes the transcript so a live
     session can be watched, and the redaction filter only rewrites /home/ paths
-    — it does not know the message body IS the transcript. Attached to the file
-    handler only, so debug lines reach the console and stop there.
+    — it does not know the message body IS the transcript. Attached to every
+    handler whose sink survives the process: the log file always, and stderr
+    when stderr is journald (H8).
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         return not getattr(record, "no_disk", False)
+
+
+def _under_journald() -> bool:
+    """True when this process's stdout/stderr is the systemd journal.
+
+    systemd sets JOURNAL_STREAM for units it wires to journald, which persists
+    to /var/log/journal — so a `no_disk` record printed to stderr there is a
+    disk write in every sense invariant #7 means. Env-only detection errs
+    toward suppression: a false positive costs debug output, a false negative
+    leaks a transcript.
+    """
+    return bool(os.environ.get("JOURNAL_STREAM"))
 
 
 class RedactingJsonFormatter(logging.Formatter):
@@ -135,6 +148,15 @@ def setup_logging(
             logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
         )
         console_handler.setLevel(level)
+        if _under_journald():
+            console_handler.addFilter(NoDiskFilter())  # invariant #7 (H8)
         root.addHandler(console_handler)
+
+        if config.DEBUG and _under_journald():
+            root.warning(
+                "FRIDAY_DEBUG is on under systemd: journald persists stderr, so "
+                "transcript lines are dropped (invariant #7). Run the daemon in "
+                "the foreground to see them."
+            )
 
     return root

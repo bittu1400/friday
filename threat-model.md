@@ -243,13 +243,18 @@ backup, or a synced folder.
    chmod. The reachable exposure is a WAL left behind by an **unclean**
    shutdown, which `Restart=always` makes routine; measured pre-fix, a `-wal`
    chmod-ed to `0644` after `kill -9` stayed `0644` across restarts forever.
-7. **Gap still open** (`Alpha-ox-analysis.md` H8; ADR-067 item i, **Step 7** of
-   the fix plan — pulled to the front 2026-08-29 as the last disclosure defect): the `no_disk` filter guards only the file handler, so
-   `FRIDAY_DEBUG=1` under systemd leaks raw transcripts to journald's
-   persistent disk — a direct violation of invariant #7 on the documented
-   debug workflow. Control being added: suppress `no_disk` records on any
-   persistent sink when running under journald. Treat this as **NOT yet
-   enforced**; until Step 7 lands, run debug in the foreground only.
+7. **`no_disk` records are dropped from every persistent sink, not just the
+   log file** (`Alpha-ox-analysis.md` H8; ADR-067 item i). *Landed 2026-08-29
+   (Step 7).* Under systemd stderr **is** journald, which persists to
+   `/var/log/journal`, so the file-handler-only filter meant the documented
+   debug workflow violated invariant #7 every time it ran. The console handler
+   now carries the same `NoDiskFilter` whenever `JOURNAL_STREAM` is set, and
+   `FRIDAY_DEBUG` + systemd logs one warning saying transcripts are suppressed.
+   Verified on the real path, not only in a test: a `systemd-run --user` probe
+   logged a transcript line to journald pre-fix (`heard='my bank password is
+   hunter2'` in `journalctl`) and zero occurrences post-fix.
+   Detection is env-only on purpose — a false positive costs debug output, a
+   false negative leaks a transcript. Foreground runs are unaffected.
 
 ---
 

@@ -376,7 +376,7 @@ no fix step reordered.
 
 ---
 
-## Fix status — updated 2026-08-29 (Steps 1–6 executed)
+## Fix status — updated 2026-08-29 (Steps 1–7 executed)
 
 This report is a snapshot of 2026-08-26 and is **not** rewritten as fixes land.
 Use this table for what is done; use `progress.md`'s START HERE block for what
@@ -393,7 +393,7 @@ before its fix.
 | H5 trigger-arm TOCTOU | FIXED — acceptance arms, detection does not | `tests/test_trigger_arming.py`, ADR-071 |
 | H6 blocking work on the event loop | FIXED — four sites threaded (five, with the TUI's copy) | `tests/test_event_loop_blocking.py` |
 | H7 cancel picks the wrong reminder | FIXED — **and the branch turned out to be unreachable**; see ADR-070 | `tests/test_audit_contract.py` |
-| H8 journald debug leak | **OPEN — now Step 7, pulled to the front 2026-08-29** (only remaining disclosure defect; everything else left is robustness) | threat-model T7 control 7 |
+| H8 journald debug leak | FIXED — `NoDiskFilter` on the console handler too when `JOURNAL_STREAM` is set; verified through real journald (`systemd-run --user`) pre- and post-fix, not only in pytest | `tests/test_log_no_disk.py`, spec FR-57b |
 | M-P1 expiry resets a live capture | FIXED — expiry never touches the FSM | `test_confirm_expiry_does_not_reset_a_live_capture` |
 | M-A2 cap-timer leak on re-arm | FIXED | `test_rearming_the_cap_cancels_the_previous_handle` |
 | M-A3 `vad=None` resurrects the 15 s cap | FIXED (conservative half-step) — refuse + warn once; OQ-36 raised | `test_arming_without_a_vad_is_refused_and_logged_once` |
@@ -404,6 +404,10 @@ before its fix.
 | L25 selftest docstring lists 7 checks, 8 run | FIXED 2026-08-29 while verifying docs against the tree | `friday/selftest.py` module docstring |
 | *(not a finding)* declined confirms unaudited | CHANGED by decision, not defect — ADR-072 answers OQ-37: a decline now writes a `declined` row | `tests/test_audit_contract.py` |
 | M-A1, M-T1, M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 8–12 and the triage tail | progress.md |
+
+**Status line, 2026-08-29 (Step 7):** the CRITICAL and **all eight HIGHs** are
+closed. Everything still open is MEDIUM or LOW, and none of it is a disclosure
+defect — the remaining work is robustness (Steps 8–12 and the triage tail).
 
 ### Corrections this execution pass found in the report itself
 

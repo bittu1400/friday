@@ -10,7 +10,7 @@ remember preferences, and search the web through a local proxy.
 
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
 review passes; the fifth (the 2026-08-26 full-codebase audit) is HALF FIXED —
-Steps 1–6 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
+Steps 1–7 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
 `hey_jarvis` wake word, ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
@@ -41,7 +41,7 @@ enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
 that spoke success while doing nothing**. (3) The 2026-08-25 live sessions fixed
 13 more (see the session blocks in `progress.md`). (4) A full read-only codebase
 audit (**2026-08-26**, report: `Alpha-ox-analysis.md`) found **1 CRITICAL + 8
-HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–6
+HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–7
 of that fix list**: C1 (text-mode confirm of any action was a silent no-op —
 both UIs now share one `turn.resolve_pending`, ADR-069), H1 (confirmed
 dispatches and web searches wrote zero audit rows), H2/H3/M-P1 (a confirm could
@@ -50,7 +50,9 @@ user's next command), H4 (no-STT mode raised on every capture), H5/M-A2/M-A3
 (arm-on-detection race, cap-timer leak, silent no-VAD degradation, ADR-071), H6
 (four blocking call sites on the event loop), H7 (**`cancel_reminder` had never
 worked at all** — the schema required an id the planner cannot know, ADR-070),
-and M-T2/M-T3/M-T9 (WAL sidecar perms, migration atomicity, retention scope).
+M-T2/M-T3/M-T9 (WAL sidecar perms, migration atomicity, retention scope), and
+H8 (**the debug workflow leaked every transcript to `/var/log/journal`** —
+`no_disk` guarded the file handler only, and under systemd stderr is journald).
 Four decisions were then put to the user rather than defaulted (ADR-072 +
 plan ordering; see the 2026-08-29 block in `progress.md`).
 
@@ -60,14 +62,15 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: Steps 7–12.** Read the `>>> START HERE <<<` block at the top of
+**NEXT SESSION: Steps 8–12.** Read the `>>> START HERE <<<` block at the top of
 `progress.md` first, then the **fix-status table at the bottom of
 `Alpha-ox-analysis.md`** — it is the fastest map of what is fixed and what is
 not, and it records three places the audit itself was wrong. Do not re-audit.
-**H8 is the one invariant-#7 violation still live: `FRIDAY_DEBUG=1` under
-systemd leaks raw transcripts to journald. Run debug in the foreground only
-until Step 7 lands — it was pulled to the front of the remaining list on
-2026-08-29 precisely because it is the last disclosure defect.** Short version:
+**No disclosure defect is left open: Step 7 (H8) landed 2026-08-29 — `no_disk`
+records are now dropped from stderr too whenever `JOURNAL_STREAM` says stderr
+is journald, so `FRIDAY_DEBUG=1` is safe under systemd (it just cannot show you
+the transcripts there; run the daemon in the foreground for that).** Everything
+remaining is robustness. Short version:
 
 ```bash
 just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
@@ -409,4 +412,5 @@ just prefs list|forget  # manage stored preferences
 | "The function has an ordering bug, fix the ordering" | First check anything can reach it. `cancel_reminder`'s branch was unreachable — the validator required an id the planner cannot know — so it had never worked at all (ADR-070). |
 | "The confirm is armed, so the user was asked" | Only if the question was actually spoken. Arming before delivery meant a TTS failure left a `system_wifi{off}` pending with no timer, and an unrelated "yeah" dispatched it (ADR-069). |
 | "It's just a `notify-send`, it's fast" | It is `subprocess.run(timeout=2)` on the single event loop, in the path that fires while a turn is already running. While the loop blocks, Friday is deaf (H6). |
+| "`FRIDAY_DEBUG` only echoes to the console, so nothing hits disk" | Under systemd the console IS journald, and journald persists to `/var/log/journal`. The `no_disk` filter guarded the file handler only, so the workflow built to watch a session wrote every transcript to disk (H8). Name the *sinks that outlive the process*, not the handlers. |
 | "History is in the prompt, so anaphora just works" | It also lets Friday's own suggestion become her own command — a bare "hey jarvis" dispatched `open_app{editor}` 4/4. Plan without history first; confirm anything only history could supply (ADR-065). |
