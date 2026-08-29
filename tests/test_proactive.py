@@ -82,7 +82,6 @@ def test_scheduler_fires_due_reminders(db):
 
     sched = Scheduler(
         store=store,
-        dnd=dnd,
         is_idle=lambda: True,
         on_event=_on_proactive,
         poll_interval_s=0.05,

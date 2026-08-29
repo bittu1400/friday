@@ -13,26 +13,29 @@ import time
 from typing import Any
 
 from friday.store.reminders import Reminder, ReminderStore
-from .dnd import DndManager
 from .notifier import anotify
 
 log = logging.getLogger(__name__)
 
 
 class Scheduler:
-    """Background scheduler for proactive events (reminders, timers, briefings)."""
+    """Background scheduler for proactive events (reminders, timers, briefings).
+
+    It takes no `DndManager` and consults no DND state, deliberately: per the
+    2026-08-24 decision, timers and reminders fire during DND (see `_poll_step`).
+    It used to accept a `dnd=` it stored and never read — an unused parameter
+    that told a reader the opposite of the decision. Removed 2026-08-29.
+    """
 
     def __init__(
         self,
         *,
         store: ReminderStore,
-        dnd: DndManager,
         is_idle: Callable[[], bool],
         on_event: Callable[[str, str], Coroutine[Any, Any, None]],
         poll_interval_s: float = 1.0,
     ) -> None:
         self._store = store
-        self._dnd = dnd
         self._is_idle = is_idle
         self._on_event = on_event
         self._poll_interval = poll_interval_s

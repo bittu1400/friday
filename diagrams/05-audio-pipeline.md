@@ -86,6 +86,34 @@ allowing the user's voice to be detected mid-playback for **hands-free barge-in*
              |                                     +---------------+              |
 ```
 
+## The PortAudio boundary (added 2026-08-29, M-A1)
+
+Both input streams enter Python through a sounddevice callback running on a
+PortAudio thread, and both go through one `CallbackGuard`
+(`friday/audio/guard.py`):
+
+```
+   PortAudio thread                          consequence if it escapes
+   ----------------                          -------------------------
+   wake.py    _sd_callback -> guard.run(_on_frame)   sounddevice prints the
+   capture.py _sd_callback -> guard.run(_write)      traceback and NEVER CALLS
+                                                     BACK AGAIN.  The stream
+                                                     object stays open, the
+                                                     `audio_devices` self-test
+                                                     still passes, and wake,
+                                                     VAD, barge-in and capture
+                                                     are dead for the rest of
+                                                     the process.
+
+   guard: swallow -> count CONSECUTIVE failures -> past the limit (5),
+          log E_AUDIO_DEAD once at ERROR and degrade:
+            wake    -> detector = None (stream stays open; PTT still works)
+            capture -> keeps running (it only gate-checks and copies, so
+                       there is nothing to disable)
+```
+
+One transient bad frame costs nothing: the count resets on the next success.
+
 ## Latency budget — end of speech to first audio
 
 ```

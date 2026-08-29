@@ -70,7 +70,10 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        dnd.py               conversational DND state manager & hush phrase matchers (G11)
        notifier.py          notify-send desktop notification adapter (G11)
        briefing.py          startup & sign-off close summaries (G11)
-       scheduler.py         background reminder poller & single turn arbiter (G11)
+       scheduler.py         background reminder poller & single turn arbiter (G11).
+                            Takes NO DndManager: timers and reminders fire during
+                            DND by decision (2026-08-24), and the unused `dnd=`
+                            parameter that implied otherwise was removed 2026-08-29
 
      tools/
        registry.py          frozen dict: tool_id -> ToolSpec (system, hyprland, files, apps)
@@ -94,6 +97,8 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        wake.py              openWakeWord hey_jarvis detector, FarEndRef, WakeListener (G10)
        dictation.py         DictationManager & spoken punctuation formatter (G12)
        speaker.py           SpeakerVerifier using sherpa-onnx 3D-Speaker CAM++ (G13)
+       guard.py             CallbackGuard: nothing escapes a PortAudio callback,
+                            consecutive failures degrade loudly (M-A1, 2026-08-29)
 
      store/
        __init__.py          `prompt_digests` — the habits + session digests both

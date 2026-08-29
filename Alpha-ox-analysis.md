@@ -10,6 +10,17 @@ Every file:line citation below was re-verified mechanically against the tree
 later the same day (61-point check); corrections found by that pass are applied
 inline and listed at the bottom of this file.
 
+> **READ THIS BEFORE FOLLOWING A LINE NUMBER (added 2026-08-29).** This file is
+> a **snapshot**, and the fix phase has since moved the code underneath it: the
+> tree is now 7795 src lines / 58 modules / 67 test files / 450 tests. Every
+> `file.py:NN` below is as-of 2026-08-26 and most no longer resolve — several
+> point into code that was **deleted** (`ban.py:49,53` are past end-of-file now;
+> `turn.py:251-254`, `registry.py:311`, `store/db.py:104-108` and
+> `scripts/wake_bench.py:42-43` all named code that no longer exists). Use the
+> **fix-status table at the bottom of this file** for what is true, and
+> `progress.md` for what happened. Do not re-derive a finding from a line
+> number here without grepping for the symbol first.
+
 Findings that were **[verified]** were re-read and confirmed by hand, not just reported.
 
 ---
@@ -280,14 +291,26 @@ copied passwords get vocalized (`turn.py:549`). L25 selftest docstring lists 7 c
 
 ## Dead code inventory (all caller-verified)
 
-> **SWEPT 2026-08-29 (Step 12).** Deleted: `RiskTier` + `import os`,
-> `NOT_YET_WIRED` and its branch, `Database.awrite`/`aquery` (+ the now-unused
-> `import asyncio`), the vestigial `sd.stop()`, `create_detector`'s ignored
-> `threshold=`, `_Probe.reset`, and two stale docstring claims. **Kept and made
-> live instead of deleted, with reasons in progress.md:** `ToolResult.code` and
-> `E_TOOL_TIMEOUT`/`E_TOOL_FAILED` (adopted by ADR-073), `E_SCHEMA` (now
-> logged), `PendingAction.description` (now logged when a confirm arms).
-> `preferences.source='user_typed'` was already gone.
+> **SWEPT 2026-08-29 (Step 12, completed by the doc-readiness pass the same
+> day).** Deleted: `RiskTier` + `import os`, `NOT_YET_WIRED` and its branch,
+> `Database.awrite`/`aquery` (+ the now-unused `import asyncio`), the vestigial
+> `sd.stop()`, `create_detector`'s ignored `threshold=`, `_Probe.reset`, two
+> stale docstring claims, **the scheduler's `dnd` param** (+ its `DndManager`
+> import and three call sites), **the dead `color = ""` local** (the F841 in the
+> static-analysis note below), and **three unused imports** (`re` in
+> `logging_config.py`, `sys` in `selftest.py`, `Vad` in `wake.py`).
+>
+> The `dnd` param and the F841 were **missed by the Step 12 commit and caught by
+> the doc-readiness pass** that followed it — recorded rather than quietly
+> folded in, because "the sweep is done" was stated once already.
+>
+> **Kept and made live instead of deleted, with reasons in progress.md:**
+> `ToolResult.code` and `E_TOOL_TIMEOUT`/`E_TOOL_FAILED` (adopted by ADR-073),
+> `E_SCHEMA` + `E_LLM_DOWN` + `E_LLM_TIMEOUT` (now logged where their failure is
+> caught), `PendingAction.description` (now logged when a confirm arms), and
+> `PolicyRejected.code`, which the table calls unconsumed but which
+> `executor.execute` reads on the DENIED path — **the table was wrong about that
+> one**. `preferences.source='user_typed'` was already gone.
 
 | Item | Location | Note |
 |---|---|---|
@@ -458,3 +481,20 @@ and the registry and never ran them against the compositor.
    imported in `daemon.py` (retiring the F821 annotation item), and
    `habits.describe_action`'s `web_search` branch is reachable now that search
    writes audit rows — it is kept and tested, as ADR-067b directed.
+
+5. **`PolicyRejected.code` is consumed.** The dead-code table lists it as
+   "raised, but `.code` never consumed". `executor.execute` reads it on the
+   denial path — `return ToolResult(Outcome.DENIED, "", exc.code)` — and has
+   since G3. Found by the 2026-08-29 doc-readiness pass while verifying the
+   sweep. Fourth time now that re-checking a finding against the tree has found
+   the finding at fault rather than the code; that is the argument for
+   `progress.md`'s rule that the buggy code must be shown REACHABLE before its
+   logic is touched.
+
+6. **Two `just` recipes cited in this repo do not exist.** `daemon.py` told the
+   operator to run `just enroll` (it is `just enroll-voice`) in the one warning
+   that fires when speaker verification is failing OPEN, and a G7 evidence block
+   in `progress.md` cites `just test-grammar-lock`, which `git log -S` shows was
+   never a recipe. Both corrected 2026-08-29. A command in a doc is a claim like
+   any other.
+

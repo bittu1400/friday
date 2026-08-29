@@ -181,49 +181,6 @@ alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
-### OQ-38 — How should the Hyprland tools talk to Hyprland 0.56's Lua dispatcher?
-**Status:** CLOSED 2026-08-29, same day it was raised — **ADR-074**. Put to the
-user: fix now rather than after Step 12, and treat the Lua as its own audited
-exception. The answer went stricter than ADR-027 — a parameter never reaches
-the Lua at all, it selects one of sixteen import-time constants — and
-`workspace` became a closed enum in `PARAM_SCHEMA` instead of free text.
-Verified against the live compositor (workspace 3 -> 1 -> 2, read back with
-`hyprctl activeworkspace`). `hypr_window` is implemented but NOT live-verified:
-`close`/`fullscreen` act on the focused window, so they are left for the human
-live pass rather than probed. Original write-up follows.
-
-`hypr_workspace` and `hypr_window` have **never worked on this machine**, and
-Friday announced success every time. Found the moment ADR-073 made a command's
-exit code a verdict. Two independent causes, both measured through the real
-executor (evidence in `docs/reality-check.md` §A10 and the Step 9 session block
-in `progress.md`):
-
-1. `HYPRLAND_INSTANCE_SIGNATURE` is missing from `registry._APP_ENV`, so
-   `hyprctl` cannot find the compositor at all (rc=1). One line to fix; the
-   systemd unit already passes the variable through.
-2. `hyprctl dispatch workspace 2` no longer parses — Hyprland 0.56 routes
-   `dispatch` through Lua (rc=7). `registry.py`'s own comment records this for
-   `dispatch exec` (it is why apps are spawned directly); nobody checked the
-   sibling call sites. The working form here, verified by switching workspaces
-   and reading `hyprctl activeworkspace` back, is
-   `hyprctl dispatch 'hl.dsp.focus{workspace=N}'`, with window dispatchers
-   under `hl.dsp.window.*` (`close`, `fullscreen`, `float`, …).
-
-**What decides it:** the user, on two points. (a) Fix now or after Steps 10–12
-— ADR-067 explicitly rejected opportunistic fixes during other work, which is
-why this was recorded instead of folded into Step 9. (b) Whether building a
-**Lua expression** in `build_argv` needs its own ADR. It is not an invariant-#2
-breach as long as the parameter stays a closed set (workspace is a validated
-1–10, the window action a closed enum) — code owns the template, the model owns
-only an enum member — but it is the same *shape* as ADR-027's audited youtube
-exception, and that precedent says a second string-building tool gets its own
-ADR rather than inheriting one.
-**Blocks:** two of the twelve G12 rows of `docs/reality-check.md`.
-**Default if undecided:** fix both causes with the measured syntax, under a new
-ADR, immediately after Step 12.
-
----
-
 ### OQ-36 — Should a wake trigger be refused outright when there is no VAD?
 **Status:** OPEN — needs data, raised 2026-08-29 while fixing M-A3.
 
@@ -350,6 +307,59 @@ grounding turn is grammar-locked exactly like search (ADR-008).
 _(Move entries here with the answer and the date. Do not delete them —
 the reasoning behind a closed question is the thing you will want in six
 months.)_
+
+- **OQ-38 — How should the Hyprland tools talk to Hyprland 0.56's Lua
+  dispatcher?** ANSWERED 2026-08-29, the same day it was raised (**ADR-074**),
+  and implemented the same day. Both `hypr_workspace` and `hypr_window` had
+  **never worked on this machine** while Friday announced success every time —
+  two causes: `HYPRLAND_INSTANCE_SIGNATURE` was missing from the executor's
+  minimal env (`hyprctl` cannot find the compositor, rc=1), and Hyprland 0.56
+  routes `dispatch` through Lua so the old positional form no longer parses
+  (rc=7). Found only because ADR-073 made a command's exit code a verdict.
+  Two questions were put to the user: **fix now, before Step 10** (rather than
+  after Step 12), and **treat the Lua as its own audited exception with its own
+  ADR** (rather than an ordinary `build_argv` change). The answer went stricter
+  than ADR-027: no parameter is formatted into the Lua at all — a closed-set
+  param SELECTS one of sixteen import-time constants — and `workspace` became a
+  closed enum in `PARAM_SCHEMA` instead of free text. Verified against the live
+  compositor (workspace 3 -> 1 -> 2, read back with `hyprctl activeworkspace`).
+  `hypr_window` is implemented but deliberately NOT live-probed: `close` and
+  `fullscreen` act on the focused window, so it stays a hand-tick row in
+  `docs/reality-check.md` §A10. The original write-up follows.
+
+  **The evidence, as first written:**
+
+  `hypr_workspace` and `hypr_window` have **never worked on this machine**, and
+  Friday announced success every time. Found the moment ADR-073 made a command's
+  exit code a verdict. Two independent causes, both measured through the real
+  executor (evidence in `docs/reality-check.md` §A10 and the Step 9 session block
+  in `progress.md`):
+
+  1. `HYPRLAND_INSTANCE_SIGNATURE` is missing from `registry._APP_ENV`, so
+     `hyprctl` cannot find the compositor at all (rc=1). One line to fix; the
+     systemd unit already passes the variable through.
+  2. `hyprctl dispatch workspace 2` no longer parses — Hyprland 0.56 routes
+     `dispatch` through Lua (rc=7). `registry.py`'s own comment records this for
+     `dispatch exec` (it is why apps are spawned directly); nobody checked the
+     sibling call sites. The working form here, verified by switching workspaces
+     and reading `hyprctl activeworkspace` back, is
+     `hyprctl dispatch 'hl.dsp.focus{workspace=N}'`, with window dispatchers
+     under `hl.dsp.window.*` (`close`, `fullscreen`, `float`, …).
+
+  **What decides it:** the user, on two points. (a) Fix now or after Steps 10–12
+  — ADR-067 explicitly rejected opportunistic fixes during other work, which is
+  why this was recorded instead of folded into Step 9. (b) Whether building a
+  **Lua expression** in `build_argv` needs its own ADR. It is not an invariant-#2
+  breach as long as the parameter stays a closed set (workspace is a validated
+  1–10, the window action a closed enum) — code owns the template, the model owns
+  only an enum member — but it is the same *shape* as ADR-027's audited youtube
+  exception, and that precedent says a second string-building tool gets its own
+  ADR rather than inheriting one.
+  **Blocks:** two of the twelve G12 rows of `docs/reality-check.md`.
+  **Default if undecided:** fix both causes with the measured syntax, under a new
+  ADR, immediately after Step 12.
+
+  ---
 
 - **OQ-37 — Should a DECLINED confirm write an audit row?** ANSWERED
   2026-08-29: **yes** (ADR-072), and it is implemented the same day. The four

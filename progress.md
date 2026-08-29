@@ -19,7 +19,7 @@ registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **449 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **450 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -206,6 +206,108 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (late night) — DOC-READINESS PASS: every doc re-checked against the tree, and three things the fix phase missed
+
+The brief was "the docs should match the exact shape of the current code." That
+is a verification job, not a writing job, so it was run as one — mechanically,
+against the tree — and it found real misses. They are recorded here rather than
+quietly folded in, because **"the sweep is done" had already been stated once**.
+
+### What the mechanical checks covered
+| Check | Result |
+| :-- | :-- |
+| every `test_*` name cited in any `.md` exists in `tests/` | 1 hit, and it is a historical record of a *removed* test (G7 block) — not drift |
+| every code symbol cited in the docs exists in `friday/` | 22/22 resolve (`_LUA_DISPATCH`, `CallbackGuard`, `_under_journald`, `LlamaServerError`, `_ss_violations`, …) |
+| every `ADR-NNN` referenced anywhere resolves to a heading in `adr.md` | 74 defined, **0 dangling** |
+| every `OQ-NN` referenced resolves | 39 defined, **0 dangling** |
+| every `FR-*` referenced is defined in `spec.md` | 0 dangling (`FR-39x` is the ADR-027 sub-label, intentional) |
+| duplicate FR ids in the spec table | none |
+| every `just <recipe>` cited exists in the `justfile` | **2 real misses** (below) |
+| every `file.py:NN` citation | resolved and read back; the analysis file's are stale **by design** (snapshot) and now carry a warning |
+
+### Three things the fix phase actually missed
+1. **The scheduler's `dnd` param was still there.** It was on Step 12's list and
+   the sweep did not remove it. `Scheduler.__init__` took a `DndManager`, stored
+   `self._dnd`, and never read it — while `_poll_step`'s own comment records the
+   2026-08-24 decision that *timers and reminders fire during DND*. So the
+   parameter told a reader the opposite of the decision. Removed, with the
+   reason written into the class docstring so nobody re-adds it. Checked first
+   that DND is not supposed to gate firing — the deadness is a decision, not a
+   missing feature.
+2. **A dead local and three unused imports.** `color = ""` in `selftest.py` (the
+   F841 the audit's static-analysis note listed), plus `re` in
+   `logging_config.py`, `sys` in `selftest.py`, `Vad` in `wake.py`.
+3. **Two `just` recipes cited that do not exist.** `daemon.py` told the operator
+   to run `just enroll` (it is `just enroll-voice` — and this is the G13
+   fail-open warning, so the one line telling you how to fix a security gap
+   named a command that does not run). And a G7 evidence block in this file
+   cites `just test-grammar-lock`; `git log -S` finds no such recipe ever, so it
+   was run ad hoc. The evidence is kept and the citation corrected in place —
+   the lock is permanently covered by `tests/test_grammar_lock.py` and
+   `tests/test_client_untrusted.py` under `just test`.
+
+### One place the audit itself was wrong (correction #5 to that report)
+The dead-code table lists **`PolicyRejected`** as "raised, but `.code` never
+consumed". It is consumed: `executor.execute` returns
+`ToolResult(Outcome.DENIED, "", exc.code)`. Recorded with the report's other
+four corrections, as #5. This is now the fourth time re-checking a finding
+against the tree has found the finding, not the code, at fault (after M-T2's
+mechanism, H7's reachability, and the two dead-code-table entries that were
+alive).
+
+### Decision: adopt the last unlogged taxonomy codes
+Step 12 adopted `E_SCHEMA` rather than deleting it. The same argument applies to
+`E_LLM_DOWN` and `E_LLM_TIMEOUT`, which spec §4 defines and `errors.py` did not,
+so an offline llama-server and a slow one produced log lines that could not be
+told apart. Both are now defined and logged where the failure is caught, and the
+`LlamaServerError` case logs *"returned HTTP 500"* while speaking the identical
+line — the M-L2 distinction, visible where it is useful and invisible where it
+is not. Verified on the real path:
+
+```
+INFO E_LLM_DOWN: 127.0.0.1:8080 unreachable            -> "My brain's offline."
+INFO E_LLM_DOWN: llama-server returned HTTP 500: ...   -> "My brain's offline."
+INFO E_LLM_TIMEOUT: generation exceeded the budget     -> "That took too long."
+INFO E_SCHEMA: plan failed validation, failing closed  -> "I didn't understand."
+```
+
+`errors.py`'s docstring now names the **two** taxonomy codes that deliberately
+have no symbol (`E_NET_DOWN`, `E_DB_LOCKED`) and why, and `spec.md` §4 carries
+the same table — so the two cannot drift apart silently again.
+
+### Docs brought back into shape
+- **`architecture.md`** — the module map was missing `audio/guard.py` entirely;
+  `scheduler.py`'s entry now states it takes no `DndManager` and why.
+- **`diagrams/05-audio-pipeline.md`** — new *"The PortAudio boundary"* section.
+  The diagram described the signal path and said nothing about what happens when
+  a callback raises, which is now a designed behaviour (M-A1), not an accident.
+- **`diagrams/04-trust-boundaries.md`** — the execution box promised a `timeout`
+  that was dead config until ADR-073; it now states what a timeout means for a
+  COMMAND versus a LAUNCH, and records that the Hyprland argv is a Lua
+  expression whose bytes are entirely Zone 0's (ADR-074).
+- **`spec.md`** — §4 gains the absent-symbols table; **FR-42b** (every LLM
+  failure logs its code).
+- **`justfile`** — `selftest`'s own description listed the wrong checks (it said
+  "egress", omitted `llm_on_gpu`). It now lists the eight that run.
+- **`open-questions.md`** — **OQ-38 moved into `## Closed`** with its answer,
+  date and evidence, per working-agreement rule 4. It had been marked closed in
+  place, which is not where a reader looks for closed questions.
+- **`Alpha-ox-analysis.md`** — a prominent warning that it is a **snapshot**:
+  its line numbers are as-of 2026-08-26, several now point past end-of-file or
+  into deleted code, and the fix-status table is the thing to trust.
+
+### Gate
+```
+uv run pytest -q          -> 450 passed  (449 -> 450, +1: the taxonomy-code test)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
+just selftest             -> [PASSED] all 8 checks
+tree                      -> 7,795 src lines / 58 modules / 67 test files
+```
 
 ---
 
@@ -1122,37 +1224,85 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (updated 2026-08-29 — THE FIX PHASE IS DONE; next is the LIVE PASS) <<<
+## >>> START HERE: NEXT SESSION (rewritten 2026-08-29 — THE FIX PHASE IS DONE. The job is the LIVE-VOICE PASS.) <<<
 
-**All 12 steps are DONE.** The remaining fix list below is kept as a record of
-what each step did; there is nothing left to execute in it. **The next session's
-job is `docs/reality-check.md`** — start with the typed rows (no mic needed),
-then the live-voice rows, then `hypr_window` (§A10), which ADR-074 fixed but
-deliberately did not probe. Historical note follows.
+### Where the project actually is
+The 2026-08-26 audit's fix list is **finished: all 12 steps**, 1 CRITICAL + 8
+HIGH + the targeted MEDIUMs, plus **ADR-073** and **ADR-074**, which came out of
+Step 9's real-path run and were not in the audit at all. The **typed** half of
+`docs/reality-check.md` has been run for real and ticked. Every doc has been
+mechanically re-checked against the tree (see the doc-readiness session block).
 
-**Steps 1–11 were DONE** (see the 2026-08-29 session blocks just above for what
-changed and why). **OQ-38 (both Hyprland tools broken since the 0.56
-upgrade) was raised and closed the same day — ADR-074; `hypr_workspace` is
-verified live, `hypr_window` still needs a hand-tick in reality-check §A10.** Step 12 is unchanged from the 2026-08-26 plan except
-where this block says otherwise. Read the fix-status table at the bottom of
-`Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
-what is not. Do **not** re-audit; the findings are still accurate apart from
-the three corrections recorded there.
+**So there is nothing left to fix from the audit, and nothing left to write.**
+What is left is the thing that found every serious defect of the last five
+sessions: **running the real system.**
 
-**No feature work and no Phase 3 until the live pass has run.**
+```
+uv run pytest 450 · eval 28/28 reg 0 · injection 20/20 · selftest 8/8 · no-fstring-sql OK
+7,795 src lines · 58 modules · 67 test files
+```
 
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 449 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 450 passed, 28/28 reg 0 — the baseline you must not drop
 ```
-Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
-Never two daemons. Never trust "Friday said it worked" — ask the system.
 
-**Method that worked and is not optional:** write the repro test first, then
-`git stash push <the source files>` and run it to prove it FAILS against the
-pre-fix tree, then restore and fix. Two tests this session passed vacuously and
-were only caught that way.
+### THE JOB: the live-voice rows of `docs/reality-check.md`
+Its §F lists exactly what is verified and what is not. **One daemon, never two**
+— `friday.service` is `Restart=always`, so `kill <pid>` does not stop it:
+
+```bash
+systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
+```
+
+**`FRIDAY_DEBUG` now behaves differently under systemd (H8, Step 7).** Transcript
+lines are dropped from stderr whenever `JOURNAL_STREAM` says stderr is journald,
+because journald persists them and invariant #7 forbids that. It is safe there
+and it shows you nothing; **the foreground is the only place you will see
+`heard=…`**, and the daemon logs one warning saying so.
+
+Start with the rows that changed and have never been heard:
+1. **wake + VAD end-of-speech**, and the ADR-066 no-speech bail-out (a capture
+   with no speech at all gives up after 3 s instead of 15 s of deafness).
+2. **"a barged reply does not enter history"** (ADR-069). Do the deliberate
+   version: ask for something that confirms, talk over the question, then give a
+   completely different command — it must RUN, not be answered "Okay, cancelled."
+3. **TTFA** (target p50 1400 ms / hard fail 4400 ms). Any latency number taken
+   without `llm_on_gpu` PASSing first is void — it degrades silently.
+4. **ADR-066 live confirmation, OQ-33** (a `WAKE_THRESHOLD` chosen from logged
+   scores rather than guessed), **OQ-32** (the AEC drill that unblocks
+   hands-free barge-in; voice barge-in is OFF by default, ADR-064).
+
+### The two non-voice rows still outstanding, and why
+- **`hypr_window`** (`docs/reality-check.md` §A10). ADR-074 fixed it and
+  `hypr_workspace` is verified live, but `close`/`fullscreen` act on the
+  **focused window**, so probing them means closing somebody's window. Tick it
+  by hand when you can see the screen.
+- **`system_wifi{off}`'s affirm path.** The confirm arms and a decline is
+  verified; affirming drops the network mid-session. Deliberately not run.
+
+### Rules that are not optional (each one is paid for)
+- **Ask the system, never Friday.** `pgrep -a`, `hyprctl clients`, `wl-paste`,
+  `nmcli radio wifi`, read the DB. Every "Opened X." was a lie for the whole
+  project, and both Hyprland tools reported success while never working.
+- **A green suite is not a working feature**, six times over now.
+- **Reproduce before fixing, and prove the code is REACHABLE first** (M-T2's
+  stated mechanism does not happen here; `cancel_reminder` had never run at all).
+- **Write the failing test first**, then `git stash push <source>` and watch it
+  fail against the pre-fix tree. Two tests passed vacuously and were only caught
+  that way.
+- **No feature work and no Phase 3 until the live-voice pass has run.**
+
+### Reading order for the next session
+1. This block.
+2. The 2026-08-29 session blocks above (Steps 7–12, ADR-074, the typed pass, the
+   doc-readiness pass).
+3. `docs/reality-check.md` §F — the manifest and its status.
+4. The **fix-status table at the bottom of `Alpha-ox-analysis.md`** — and note
+   its new header warning: that file is a **snapshot**, its line numbers are
+   as-of 2026-08-26, and several now point into deleted code. Trust the table,
+   not the line numbers. **Do not re-audit.**
 
 ### THE FIX LIST — ALL 12 DONE (kept as the record of what each step did)
 
@@ -2941,8 +3091,13 @@ EVIDENCE:
 $ just test-injection
   IS-1..IS-20 20/20 blocked, dispatches from grounding turns: 0
 
-$ just test-grammar-lock
-  final.gbnf action enum size: 1 (name == "none")
+$ just test-grammar-lock          # NOTE (2026-08-29 doc audit): there is no
+  final.gbnf action enum size: 1  # such recipe and `git log -S` finds none in
+                                  # the justfile's history — the check was run
+  (name == "none")                # ad hoc. The lock IS covered, permanently, by
+                                  # `tests/test_grammar_lock.py` +
+                                  # `tests/test_client_untrusted.py` under
+                                  # `just test`. Evidence kept, citation corrected.
 
 $ just test-egress
   8080+8888 = 127.0.0.1 ONLY, no 0.0.0.0 (exit 0)

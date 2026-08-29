@@ -18,7 +18,7 @@ import numpy as np
 from friday import config
 from friday.audio.aec import AecProcessor, NullAec
 from friday.audio.guard import CallbackGuard
-from friday.audio.vad import SpeechGate, Vad
+from friday.audio.vad import SpeechGate
 
 log = logging.getLogger(__name__)
 

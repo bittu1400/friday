@@ -57,6 +57,7 @@ limitation to be lifted later.
 | FR-5 | Only one turn is in flight at a time; a second request while busy is rejected audibly, not queued | Concurrency test: 5 rapid submits produce 1 turn + 4 rejections |
 | FR-6 | Mic is closed in every state except CAPTURING | Assert in the audio callback; unit test on the gate |
 | FR-63a | Every self-test check must be able to FAIL. `gpu_arch` WARNs on unparsable nvidia-smi output instead of PASSing; the bind audit parses the local address (any non-loopback bind, IPv4 or IPv6, `ss` or `/proc/net/tcp{,6}`) and fails closed on anything it cannot decode; `audio_devices` FAILs when enumeration raises; `llm_on_gpu` FAILs rather than WARNs on a surprise; `check_database` FAILs on a missing DB instead of creating the file it then reports on (M-L3/L4/L9) | `tests/test_selftest_fail_paths.py` — 12 tests, one per FAIL path |
+| FR-42b | Every LLM failure logs its taxonomy code before the template is spoken (spec §4): `E_LLM_TIMEOUT`, `E_LLM_DOWN` (a server status logs distinguishably — "returned HTTP 500" — while speaking the same line), `E_SCHEMA` | `test_every_llm_failure_logs_its_taxonomy_code` |
 | FR-42a | The LLM client fails in exactly three shapes: bare `TimeoutError` (including from `resp.read()`) -> `LlamaTimeout`/E_LLM_TIMEOUT; an HTTP status -> `LlamaServerError` and **never retried**, since the server answered; a connect failure -> retried, then `LlamaUnreachable`/E_LLM_DOWN. `health()` returns False on a timeout rather than raising (M-L1, M-L2) | `tests/test_llm_client_edges.py` — 8 tests, incl. `test_a_server_error_is_not_retried`, `test_a_real_connect_failure_is_still_retried` |
 | FR-32b | The Hyprland tools' dispatch strings are Lua (Hyprland 0.56). No parameter is formatted into one: `registry._LUA_DISPATCH` is a frozen import-time mapping of code-owned literals and the param only SELECTS an entry, failing closed on a miss. `hypr_workspace.workspace` is the closed `WORKSPACE_ENUM` in `PARAM_SCHEMA`, not free text (ADR-074) | `tests/test_hypr_dispatch.py` — `test_a_value_outside_the_closed_set_never_reaches_the_lua` (12 hostile values incl. table-breakout and an Arabic-Indic digit), `test_nothing_is_formatted_into_the_lua_at_call_time`, `test_workspace_is_a_closed_enum_in_the_schema` |
 | FR-32a | A tool is a LAUNCH or a COMMAND (`ToolSpec.detach`, ADR-073). A command is awaited under `spec.timeout_s`, its process **group** killed on expiry (`TIMEOUT`/`E_TOOL_TIMEOUT`), and a non-zero exit is `ERROR`/`E_TOOL_FAILED`. A launch keeps ADR-043's 0.4 s grace, is never killed, and its exit code is ignored | `tests/test_executor_timeout.py` — `test_a_hung_command_times_out_instead_of_being_announced_as_done`, `test_the_whole_process_group_is_killed_on_timeout`, `test_a_failing_command_is_not_reported_as_success`, `test_a_gui_launch_still_reports_ok_on_a_nonzero_exit`, `test_a_gui_launch_is_not_bounded_by_timeout_s` |
@@ -274,6 +275,20 @@ hears the template, never the code and never the detail.
 template: it reports that a PortAudio callback has been disabled or is running
 degraded, which the user cannot be told about mid-turn and which changes no
 turn's outcome. It is logged once at ERROR, never spoken.
+
+**Which codes exist as symbols.** `friday/errors.py` defines every code above
+except two, and their absence is deliberate — recorded there and here so the
+two files cannot drift apart:
+
+| Absent symbol | Why |
+| :-- | :-- |
+| `E_NET_DOWN` | the search path speaks `templates.SEARCH_UNAVAILABLE` and writes an audit row with outcome `net_down`; the string constant is the contract, not a code symbol |
+| `E_DB_LOCKED` | unreachable by construction — one connection behind one lock (FR-51), so SQLite has no second writer to contend with |
+
+`E_SCHEMA`, `E_LLM_DOWN` and `E_LLM_TIMEOUT` were defined-but-never-logged (or
+cited only in comments) until 2026-08-29; all three are now written where their
+failure is caught, so "log the code, speak the template" is true of every
+reachable failure rather than most of them.
 
 ---
 

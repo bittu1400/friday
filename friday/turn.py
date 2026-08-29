@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import config
-from .errors import Outcome
+from .errors import E_LLM_DOWN, E_LLM_TIMEOUT, E_SCHEMA, Outcome
 from .llm import chat, grounding, schema
 from .llm.client import LlamaClient, LlamaTimeout, LlamaUnreachable
 from .llm.prompt import assemble_system
@@ -161,11 +161,16 @@ async def _plan_and_act(
         # Log the code, speak the template (spec §4). E_SCHEMA existed in the
         # taxonomy and was written nowhere, so a run of malformed plans left no
         # trace distinguishable from the user saying nothing useful.
-        log.info("E_SCHEMA: plan failed validation, failing closed to none")
+        log.info("%s: plan failed validation, failing closed to none", E_SCHEMA)
         return TurnResult("none", {}, "I didn't understand.", False)
     except LlamaTimeout:
+        log.info("%s: generation exceeded the budget", E_LLM_TIMEOUT)
         return TurnResult("none", {}, "That took too long.", False)
-    except LlamaUnreachable:
+    except LlamaUnreachable as exc:
+        # `LlamaServerError` subclasses this (M-L2): same spoken line, but the
+        # log distinguishes "nothing is listening" from "the server answered
+        # with a status", which are different things to go fix.
+        log.info("%s: %s", E_LLM_DOWN, exc)
         return TurnResult("none", {}, "My brain's offline.", False)
 
     params = dict(plan.params)

@@ -45,7 +45,9 @@ far_ref = wake.FarEndRef()
 aec_proc = aec.create(enabled=config.AEC_ENABLED, sample_rate=16000,
                       frame_ms=config.AEC_FRAME_MS)
 vad_det = vad.create(mode=config.VAD_AGGRESSIVENESS, sample_rate=16000)
-det = wake.create_detector(config.WAKE_MODEL, threshold=config.WAKE_THRESHOLD)
+det = wake.create_detector(config.WAKE_MODEL)  # 2026-08-29: create_detector
+# no longer takes `threshold=` — it accepted and IGNORED it. The threshold is
+# WakeListener's, and it is passed below where it actually does something.
 speaker = Speaker.create(config.KOKORO_MODEL, config.KOKORO_VOICES,
                          voice=config.KOKORO_VOICE,
                          fallback=config.KOKORO_VOICE_FALLBACK,

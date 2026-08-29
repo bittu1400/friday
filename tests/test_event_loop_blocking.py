@@ -183,7 +183,7 @@ def test_scheduler_notify_runs_off_the_loop(monkeypatch, tmp_path):
         delivered.append(message)
 
     sched = Scheduler(
-        store=store, dnd=DndManager(), is_idle=lambda: True, on_event=on_event,
+        store=store, is_idle=lambda: True, on_event=on_event,
     )
 
     async def go():

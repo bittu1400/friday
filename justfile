@@ -93,7 +93,9 @@ voice *ARGS:
 ptt CMD:
     uv run python -m friday.ptt_cli {{CMD}}
 
-# Full system self-test (G9): server reachability, GPU arch, DB perms/schema, audio, panic, egress.
+# Full system self-test (G9), 8 checks: llama-server, searxng, GPU arch,
+# LLM actually on GPU, DB perms/schema (incl. WAL sidecars), audio devices,
+# panic switch, loopback-only socket binds.
 selftest *ARGS:
     uv run python -m friday.selftest {{ARGS}}
 

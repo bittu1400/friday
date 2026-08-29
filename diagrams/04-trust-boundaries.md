@@ -106,3 +106,24 @@ directory listing.
    |  timeout.  Model supplies an ID.  Never a path.            |
    +-----------------------------------------------------------+
 ```
+
+The `timeout` in that box was aspirational until 2026-08-29 (`ToolSpec.timeout_s`
+was dead config). It is real now, and it means two different things (ADR-073):
+
+```
+   COMMAND (detach=False)   wpctl, brightnessctl, playerctl, nmcli, hyprctl
+                            await(timeout_s) -> SIGKILL the whole process GROUP
+                            on expiry; a non-zero exit is the verdict (ERROR).
+
+   LAUNCH  (detach=True)    the GUI apps + file_open.  0.4 s grace, then left
+                            alone: it must OUTLIVE the turn (ADR-043), and its
+                            exit code means nothing (a single-instance handoff
+                            exits non-zero ON SUCCESS).  Because the launch
+                            cannot be verified, it speaks "Launching X.", never
+                            "Opened X."
+```
+
+The Hyprland tools' argv element is a Lua expression on Hyprland 0.56
+(`hl.dsp.focus{workspace=2}`). No parameter is formatted into it: a closed-set
+param SELECTS one of sixteen import-time constants, so Zone 0 still owns every
+byte that reaches the compositor (ADR-074).

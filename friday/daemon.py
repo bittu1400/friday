@@ -99,7 +99,7 @@ class Daemon:
             # Verify fails OPEN with no enrolled voiceprint (a mic-only check
             # cannot reject an unknown speaker). Say so loudly at startup so an
             # operator who flipped the flag is not lulled into thinking turns
-            # are being gated when they are not. Enroll with `just enroll`.
+            # are being gated when they are not. Enroll with `just enroll-voice`.
             if getattr(self._speaker_verifier, "_voiceprint", None) is None:
                 log.warning(
                     "speaker verification ENABLED but no voiceprint enrolled at %s; "
@@ -113,7 +113,6 @@ class Daemon:
             from .proactive.scheduler import Scheduler
             self._scheduler = Scheduler(
                 store=ReminderStore(db),
-                dnd=self._dnd,
                 is_idle=lambda: self.state.is_idle,
                 on_event=self.on_proactive_event,
             )

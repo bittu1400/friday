@@ -117,3 +117,49 @@ def test_health_is_false_not_an_exception_when_the_read_times_out(monkeypatch):
     would report a crash rather than an unhealthy server."""
     _patch(monkeypatch, lambda n: _Resp(TimeoutError("timed out")))
     assert LlamaClient().health() is False
+
+
+def test_every_llm_failure_logs_its_taxonomy_code(caplog):
+    """spec §4: log the code, speak the template. `E_LLM_DOWN`/`E_LLM_TIMEOUT`
+    were cited in comments and defined nowhere until 2026-08-29, so an offline
+    llama-server and a slow one left log lines that could not be told apart."""
+    import asyncio
+    import logging
+
+    from friday.turn import run_turn
+
+    class Down:
+        def complete(self, **k):
+            raise LlamaUnreachable("127.0.0.1:8080 unreachable")
+
+    class Http:
+        def complete(self, **k):
+            raise LlamaServerError(500, "Server Error")
+
+    class Slow:
+        def complete(self, **k):
+            raise LlamaTimeout("timed out")
+
+    class Junk:
+        def complete(self, **k):
+            return "not json at all"
+
+    cases = [
+        (Down(), "E_LLM_DOWN", "My brain's offline."),
+        (Http(), "E_LLM_DOWN", "My brain's offline."),
+        (Slow(), "E_LLM_TIMEOUT", "That took too long."),
+        (Junk(), "E_SCHEMA", "I didn't understand."),
+    ]
+    for client, code, spoken in cases:
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            res = asyncio.run(run_turn("open my browser", client, request_id="t", dry_run=True))
+        assert res.spoken == spoken
+        assert any(code in r.getMessage() for r in caplog.records), code
+
+    # The server-error case must be distinguishable in the log even though the
+    # spoken line is identical (M-L2).
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        asyncio.run(run_turn("open my browser", Http(), request_id="t", dry_run=True))
+    assert any("HTTP 500" in r.getMessage() for r in caplog.records)

@@ -9,9 +9,11 @@ Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
-review passes; the fifth (the 2026-08-26 full-codebase audit) is **FULLY
-FIXED — all 12 steps executed 2026-08-29**, plus ADR-073/074 which came out of
-Step 9's real-path run and were not in the audit at all.** `friday/` is a real text+voice assistant
+review passes. The fifth (the 2026-08-26 full-codebase audit) is FULLY FIXED:
+all 12 steps executed 2026-08-29, plus ADR-073 and ADR-074, which came out of
+Step 9's real-path run and were not in the audit at all. The TYPED half of
+`docs/reality-check.md` is verified; the live-VOICE half is the next session's
+whole job.** `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
 `hey_jarvis` wake word, ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
@@ -26,7 +28,7 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **449 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+`uv run pytest` **450 passed**, `just eval` **28/28 reg 0**, `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**,
 `just test-egress` loopback-only. (Verified 2026-08-29 with the LLM confirmed on
 GPU — see `llm_on_gpu`.)
@@ -51,15 +53,23 @@ user's next command), H4 (no-STT mode raised on every capture), H5/M-A2/M-A3
 (arm-on-detection race, cap-timer leak, silent no-VAD degradation, ADR-071), H6
 (four blocking call sites on the event loop), H7 (**`cancel_reminder` had never
 worked at all** — the schema required an id the planner cannot know, ADR-070),
-M-T2/M-T3/M-T9 (WAL sidecar perms, migration atomicity, retention scope), and
+M-T2/M-T3/M-T9 (WAL sidecar perms, migration atomicity, retention scope),
 H8 (**the debug workflow leaked every transcript to `/var/log/journal`** —
 `no_disk` guarded the file handler only, and under systemd stderr is journald),
-and M-A1 (an exception out of either PortAudio callback made sounddevice stop
+M-A1 (an exception out of either PortAudio callback made sounddevice stop
 calling back **forever** — an open stream, a passing health check, and a deaf
-assistant), and M-T1 (`timeout_s` was dead config, the promised process-group
-kill did not exist, and a failing command was announced as success — ADR-073).
-Four decisions were then put to the user rather than defaulted (ADR-072 +
-plan ordering; see the 2026-08-29 block in `progress.md`).
+assistant), M-T1 (`timeout_s` was dead config, the promised process-group kill
+did not exist, and a failing command was announced as success — ADR-073),
+M-L1/M-L2 (a bare read timeout escaped the turn and disabled TUI input forever;
+a 500 was retried three times and reported as unreachable), and M-L3/M-L4/M-L9
+(five self-test checks that could not fail, including a bind audit that passed a
+LAN-IP bind and a DB check that CREATED the database it then reported on).
+Step 9's first real-path run then found what the audit had missed entirely:
+**both Hyprland tools had never worked on this machine** (ADR-074).
+**Ten decisions were put to the user rather than defaulted** — four during
+Steps 1–6 (ADR-072 + plan ordering) and six during Steps 8–12 and ADR-074; each
+is recorded with its rejected alternatives in the 2026-08-29 blocks of
+`progress.md`.
 
 NOTE: `friday.service` is `Restart=always`, so `kill <pid>` does NOT stop the
 daemon — use `systemctl --user stop friday`. All three units (`friday`,
@@ -67,15 +77,26 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: the LIVE PASS (`docs/reality-check.md`), not more fixing.** The fix phase is complete; what remains is that most of the manifest has never been touched by a human at a keyboard. Step 9's real-path run found both Hyprland tools had never worked here (missing `HYPRLAND_INSTANCE_SIGNATURE` + Hyprland 0.56's Lua `dispatch`); fixed the same day as **ADR-074**, `hypr_workspace` verified live, **`hypr_window` still needs a hand-tick** (`close`/`fullscreen` act on the focused window, so they were not probed). Read the `>>> START HERE <<<` block at the top of
-`progress.md` first, then the **fix-status table at the bottom of
-`Alpha-ox-analysis.md`** — it is the fastest map of what is fixed and what is
-not, and it records three places the audit itself was wrong. Do not re-audit.
-**No disclosure defect is left open: Step 7 (H8) landed 2026-08-29 — `no_disk`
-records are now dropped from stderr too whenever `JOURNAL_STREAM` says stderr
-is journald, so `FRIDAY_DEBUG=1` is safe under systemd (it just cannot show you
-the transcripts there; run the daemon in the foreground for that).** Everything
-remaining is robustness. Short version:
+**NEXT SESSION: the LIVE-VOICE PASS (`docs/reality-check.md`), not more fixing.**
+Nothing from the audit is left to fix and no doc is left to write — every doc was
+mechanically re-checked against the tree on 2026-08-29 (0 dangling ADR/OQ/FR
+ids, every cited test and symbol resolves). What remains is that most of the
+manifest has never been heard by a human. Read the `>>> START HERE <<<` block at
+the top of `progress.md` first; it is written for exactly this. Then §F of
+`docs/reality-check.md`, and the **fix-status table at the bottom of
+`Alpha-ox-analysis.md`** — trust that table, not that file's line numbers, which
+are a 2026-08-26 snapshot and now point into deleted code in places. It records
+**six** places the audit itself was wrong. Do not re-audit.
+
+Two non-voice rows are outstanding on purpose: **`hypr_window`** (`close` and
+`fullscreen` act on the focused window, so ADR-074 fixed them but did not probe
+them) and **`system_wifi{off}`'s affirm path** (it drops the network).
+
+**No disclosure defect is left open.** Step 7 (H8) landed: `no_disk` records are
+dropped from stderr whenever `JOURNAL_STREAM` says stderr is journald, so
+`FRIDAY_DEBUG=1` is safe under systemd — and shows you nothing there. **Run the
+daemon in the foreground to actually see `heard=…`**; it logs one warning saying
+so. Short version:
 
 ```bash
 just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
@@ -163,10 +184,16 @@ Lessons that block repeats — every one of them paid for:
   without confirming `llm_on_gpu` first is untrustworthy.
 
 `docs/reality-check.md` remains the manifest of what Friday must do and must
-refuse. Text-mode rows are verified; wake, VAD end-of-speech and "voice barge
-must not fire" are now ticked live. **The rest of the live-voice rows are still
-the main work** — and per defect #4, verify them by asking the system, never by
-what Friday says.
+refuse. **Typed rows: verified 2026-08-29** against the real app, real LLM, real
+SQLite and real `wl-copy`/`nmcli` — the five confirm paths (C1's blast radius),
+`cancel_reminder`'s first ever successful run (ADR-070), `clipboard_read`'s
+disclosure gate (ADR-068a), `clipboard_set` really copying, and the audit
+contract observed on real rows. Wake, VAD end-of-speech and "voice barge must
+not fire" are ticked live from 2026-08-25. **Everything else in the live-voice
+half is still the main work**, plus two deliberate hold-outs: `hypr_window`
+(acts on the focused window) and `system_wifi{off}`'s affirm (drops the
+network). Per defect #4, verify by asking the system, never by what Friday
+says.
 
 ## Working agreement — how sessions run
 
@@ -257,15 +284,31 @@ evidence, not defaults. A dependency added without this drill is not done.
 ## Document map — read in this order
 
 ```
-   progress.md        what is ACTUALLY done.  start here, always.
-   friday.md          the build plan, gate by gate, with commands
+   progress.md        what is ACTUALLY done.  start here, always.  Its
+                      >>> START HERE <<< block is written for the next session.
+   docs/reality-check.md
+                      the manifest of what Friday must DO and must REFUSE, on
+                      the real machine.  Section F says what is verified and
+                      what is not.  This is the next session's work.
+   friday.md          the build plan, gate by gate, with commands (all gates
+                      complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost
+   adr.md             decisions + why + what they cost.  74 ADRs.
    threat-model.md    threats, controls, and which file enforces each
-   open-questions.md  what is undecided and what it blocks
+   open-questions.md  what is undecided and what it blocks (+ ## Closed, which
+                      keeps the reasoning behind every answered question)
+   tech-stack.md      the pinned versions and what each piece is for
+   Alpha-ox-analysis.md
+                      the 2026-08-26 audit.  A SNAPSHOT: its line numbers are
+                      stale and some point into deleted code.  Read its
+                      fix-status table (bottom), not its line numbers.
    diagrams/          ASCII.  02 (injection trust boundary) and 04 (zones +
                       privilege ladder) are the important ones.
+   docs/aec-probe.md  the OQ-32 measurement harness (runnable)
+   docs/systemd-setup.md, docs/searxng-setup.md
+                      deployment procedures for the three user units
+   docs/superpowers/  the Phase-2 design + per-gate plans (historical)
    docs/archive/      friday-v4.md and the AI reviews.  HISTORICAL ONLY.
 
    laptop-specifications.md   local only, GITIGNORED (ADR-024 — it
@@ -274,9 +317,18 @@ evidence, not defaults. A dependency added without this drill is not done.
                       a tracked file.
 ```
 
-`friday.md`, `gemini-thoughts.md`, and `gpt-thoughts.md` are archived
-inputs. They contain at least one wrong technical claim each (see
-ADR-021, ADR-003, ADR-022). **Do not cite them as current.**
+**On `friday.md`** — the doc map above lists it as the build plan, and it is:
+`friday.md` v5 is the executable gate-by-gate plan, and its §0 exists precisely
+to record where v4 was wrong. What is stale about it is only that **every gate
+in it is complete** — G0–G13 all shipped — so read it as the record of how the
+build was sequenced, never as a to-do list, and never in preference to
+`progress.md`, which is the only file that says what is true now.
+
+`gemini-thoughts.md` and `gpt-thoughts.md` ARE archived inputs and contain wrong
+technical claims (see ADR-021, ADR-003, ADR-022). **Do not cite them as
+current.** (Before 2026-08-29 this paragraph lumped `friday.md` in with them,
+while the doc map called it the build plan — the two statements contradicted
+each other for weeks.)
 
 ## Hard invariants — never violate, never "temporarily" bypass
 
@@ -404,7 +456,7 @@ just prefs list|forget  # manage stored preferences
 | "Add streaming TTS now, it's an easy win" | ADR-020. Measure at G6 first. |
 | "Speaker verify is on, so impostors are blocked" | Only if a voiceprint is enrolled — it fails OPEN otherwise, and it is OFF by default (`FRIDAY_SPEAKER_VERIFY_ENABLE`). Enroll with `just enroll-voice` first. |
 | "Make the timer recurring by default / it fired twice so it loops" | Timers are strictly one-shot (marked `fired`). A repeated toast in tests means `notify-send` wasn't stubbed, not a reminder bug. |
-| "A green test suite proves the feature works" | Five times now, tests passed while the real path was broken (G13 enroll, `clipboard_set`, `file_open`, the CPU-only LLM, and 328 green tests over a text UI whose every action confirm crashed). Exercise the actual path; see `docs/reality-check.md`. |
+| "A green test suite proves the feature works" | Seven times now, tests passed while the real path was broken (G13 enroll, `clipboard_set`, `file_open`, the CPU-only LLM, 328 green tests over a text UI whose every action confirm crashed, and **both Hyprland tools, whose argv test asserted exactly the string the compositor rejected**). Exercise the actual path; see `docs/reality-check.md`. |
 | "The health check is green, so the system is healthy" | `gpu_arch` passed through an entire GPU outage — it asked "does a GPU exist", not "is the LLM using it". A check that cannot fail is worthless; write the FAIL-path test. |
 | "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
 | "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |

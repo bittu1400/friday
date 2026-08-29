@@ -41,7 +41,6 @@ import shutil
 import struct
 import stat
 import subprocess
-import sys
 import urllib.request
 
 from . import config
@@ -577,7 +576,6 @@ def run_selftest() -> int:
 
     for res in results:
         badge = f"[{res.status.value}]"
-        color = ""
         if res.status is Status.PASS:
             prefix = f"\033[32m{badge:<6}\033[0m"
         elif res.status is Status.WARN:
