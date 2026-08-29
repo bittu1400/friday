@@ -42,6 +42,18 @@ diagram, the diagram is wrong — fix the diagram.
    projected total in use:  4700 + 224 + 300 + 400  =  5624 MiB
    working ceiling:                                    6500 MiB
    slack:                                               876 MiB
+
+   MEASURED 2026-08-29 (nvidia-smi --query-compute-apps, the same query
+   `selftest.check_llm_on_gpu` uses):
+
+     llama-server, all layers offloaded, 8192 ctx q8_0 KV   4710 MiB
+     whole GPU in use (llama-server is the only compute app) 4720 MiB
+     slack against the 6500 MiB ceiling                     1790 MiB
+
+   The projection over-estimated by ~900 MiB — the CUDA context and scratch
+   are smaller in practice than budgeted.  The budget is NOT revised down:
+   the headroom is the point, and this is the same card that lost a boot race
+   with the driver and served from CPU for hours (see llm_on_gpu).
 ```
 
 ### KV cache arithmetic (Qwen2.5-7B: 28 layers, 4 KV heads GQA, head_dim 128)

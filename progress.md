@@ -299,6 +299,58 @@ the same table — so the two cannot drift apart silently again.
   its line numbers are as-of 2026-08-26, several now point past end-of-file or
   into deleted code, and the fix-status table is the thing to trust.
 
+### Second round — the docs I had not yet read line by line
+The first round checked *citations*. The second read the remaining documents for
+**claims**, and every one of these was verified against the running system, not
+reasoned about:
+
+1. **`spec.md` §6 documented a configuration file that has never existed.** It
+   specifies `~/.local/state/friday/config.toml`; nothing in the tree imports
+   `tomllib`, and the state dir contains only `friday.log`, `memory.db` and its
+   WAL sidecars. Configuration is **22 environment variables** read by
+   `config.py` — and **16 of them appeared in no document at all**. Added
+   **§6.1**, generated from `config.py` and then verified default-by-default
+   against the loaded module (all 23 checked values match). The original TOML
+   design is kept as §6.2, marked NOT IMPLEMENTED, because it is still the
+   intended shape if a file ever lands. Worth naming the pattern: the docs
+   described the *design*, the code shipped something else that worked, and
+   nobody reconciled them because the env vars did their job silently.
+2. **`diagrams/01` had PLANNING timing out at 10 s. The code says 20 s** — and
+   the constant carries a comment explaining why (a `web_search` turn adds
+   SearXNG plus grounding on top of planning). The diagram had been wrong
+   through all of Phase 2. Its EXECUTING row also still described `timeout_s` as
+   one per-tool number, which ADR-073 split in two.
+3. **`tech-stack.md` said "Echo handling: half-duplex boolean mic gate — **no**
+   acoustic echo cancellation"** — contradicted by G10 a week ago — and had no
+   rows at all for the wake word, VAD or speaker verification, and **no
+   dependency versions anywhere**. Added the full pinned table. Two distribution
+   names do not match their import names (`webrtcvad-wheels` imports as
+   `webrtcvad`; `pywebrtc-audio` imports as `pywebrtc_audio`), which is exactly
+   the kind of thing that costs an hour later. **My own first draft of that
+   table got the second one wrong, and importing every entry caught it** — the
+   check earned its keep on the doc I had just written.
+4. **"No embedding model"** in both `architecture.md` §9 and `tech-stack.md`
+   contradicted G13, which runs a 512-dim **voice** embedding. Qualified to "no
+   TEXT embedding model": what is absent is semantic retrieval.
+5. **`threat-model.md` T7 control 2 pointed at `obs/log.py`** — a module from the
+   pre-G0 sketch that has never existed under that name.
+6. **`diagrams/00` was still a Phase 1 picture.** The mic stream has been
+   always-on since G10 and there are four event sources, none of which were
+   drawn; the state-dir box omitted the WAL sidecars and `voiceprint.npy`. Also
+   replaced the "~3.5 GB" RAM budget with the measured figure: the daemon's RSS
+   is **~1.6 GB** with whisper, kokoro, openWakeWord and the AEC all resident.
+7. **`diagrams/03` was a projection with no measurement beside it.** It budgets
+   5,624 MiB of VRAM; measured today, llama-server holds **4,710 MiB** (whole
+   GPU 4,720 MiB), so the projection over-estimated by ~900 MiB. The budget is
+   deliberately **not** revised down — the headroom is the point on the card
+   that once lost a boot race with its own driver and served from CPU for hours.
+
+Checked and found correct, so recorded as checked: the `open_app` registry table
+(5 entries, ids and binaries match `apps.py` exactly), the systemd/SearXNG setup
+procedures (all three units linked, enabled and running; 8888 bound to
+`127.0.0.1` only), every file path named in `spec.md` and `architecture.md`, and
+the `just` recipe list in `CLAUDE.md`.
+
 ### Gate
 ```
 uv run pytest -q          -> 450 passed  (449 -> 450, +1: the taxonomy-code test)
@@ -308,6 +360,10 @@ just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
 just selftest             -> [PASSED] all 8 checks
 tree                      -> 7,795 src lines / 58 modules / 67 test files
 ```
+
+**Nothing in this session changed behaviour that a user could see**, apart from
+three log lines that now carry their taxonomy code. The rest is deletion and
+documentation.
 
 ---
 

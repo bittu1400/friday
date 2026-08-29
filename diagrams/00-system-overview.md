@@ -13,7 +13,19 @@ not exist yet.
   | PipeWire    |
   | Mic Source  |
   +------+------+
-         |  PCM 16k mono
+         |  PCM 16k mono, ALWAYS ON since G10 (the mic stream never closes;
+         |  the FSM's mic_open gate decides what is KEPT — ADR-014)
+         v
+  +------+----------------------------------------------+
+  |  PortAudio callback -> CallbackGuard (M-A1)          |
+  |    WebRTC APM AEC  -> openWakeWord "hey_jarvis"      |
+  |                    -> WebRTC VAD / SpeechGate        |
+  |                    -> SpeakerVerifier (off by dflt)  |
+  |  Three trigger sources reach the FSM: WAKE, PTT,     |
+  |  BARGE (voice barge OFF by default, ADR-064).        |
+  |  A fourth event source is not audio at all: the      |
+  |  proactive Scheduler (reminders/timers, G11).        |
+  +------+----------------------------------------------+
          |
          v
   +------+-------------------------------------------------------------+
@@ -48,13 +60,18 @@ not exist yet.
                                     |  spawn      |
                                     +-------------+
 
-            +-----------------+          +------------------------+
-            | faster-whisper  |          |  ~/.local/state/friday |
-            | small.en (int8) |          |                        |
-            | ON CPU          |          |  memory.db  (SQLite)   |
-            | 8 threads       |          |  friday.log (rotated)  |
-            +-----------------+          |  DISABLED (panic flag) |
-                                         +------------------------+
+            +-----------------+          +---------------------------+
+            | faster-whisper  |          |  ~/.local/state/friday    |
+            | small.en (int8) |          |  (0700; every file 0600)  |
+            | ON CPU          |          |                           |
+            | 8 threads       |          |  memory.db  (SQLite, WAL) |
+            +-----------------+          |  memory.db-wal / -shm     |
+                                         |  friday.log (rotated)     |
+                                         |  voiceprint.npy (G13, if  |
+                                         |    enrolled — absent here)|
+                                         |  DISABLED (panic flag,    |
+                                         |    absent = armed)        |
+                                         +---------------------------+
 
             +-----------------+
             |  SearXNG        |   <-- ONLY egress point in the system
@@ -70,7 +87,10 @@ not exist yet.
 ```
    RTX 5070 VRAM  -----> llama-server ONLY.  One CUDA context. No exceptions.
    CPU (24 cores) -----> whisper (8 threads) + kokoro (8 threads) + orchestrator
-   System RAM     -----> everything CPU-side, ~3.5 GB total
+   System RAM     -----> everything CPU-side.  MEASURED 2026-08-29: the voice
+                         daemon's RSS is ~1.6 GB with whisper + kokoro +
+                         openWakeWord + the AEC all resident (the ~3.5 GB
+                         figure was the Phase 1 budget, before those loaded)
    Network        -----> SearXNG on loopback only. Nothing else opens a socket.
 ```
 
