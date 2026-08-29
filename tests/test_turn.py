@@ -55,4 +55,4 @@ def test_none_speaks_out_of_scope_line() -> None:
 def test_open_app_dispatches_via_template() -> None:
     r = _turn('{"action":{"name":"open_app","params":{"app":"browser"}}}')
     assert r.plan_name == "open_app" and r.dispatched
-    assert r.spoken.startswith("Opened Brave")
+    assert r.spoken.startswith("Launching Brave")  # ADR-073: a launch states what it did

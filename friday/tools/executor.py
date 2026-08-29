@@ -5,7 +5,11 @@ renders an outcome template AFTER this returns (ADR-009, execute-first).
 Guarantees (architecture.md §3.3, FR-32, FR-41):
     - shell=False by construction (argv list, create_subprocess_exec)
     - minimal explicit env, no inheritance
-    - bounded by spec.timeout_s; the whole process group is killed on timeout
+    - a COMMAND is bounded by spec.timeout_s and its whole process group is
+      killed on expiry; its exit code is the verdict (ADR-073)
+    - a LAUNCH (spec.detach) is fire-and-forget: it must outlive the turn, so
+      it is neither waited on nor killed, and its exit code means nothing
+      (ADR-043 — a single-instance handoff exits NON-ZERO on success)
     - NEVER retried (retrying a side effect duplicates it)
     - the panic switch is checked before every dispatch (FR-36)
     - a value that fails a tool policy (youtube charset) fails closed to
@@ -15,7 +19,10 @@ Guarantees (architecture.md §3.3, FR-32, FR-41):
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import shutil
+import signal
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -23,7 +30,9 @@ from .. import config
 from ..errors import (
     E_DISABLED,
     E_POLICY_DENIED,
+    E_TOOL_FAILED,
     E_TOOL_NOTFOUND,
+    E_TOOL_TIMEOUT,
     Outcome,
     PolicyRejected,
 )
@@ -93,6 +102,25 @@ async def execute(
     except (FileNotFoundError, PermissionError):
         return ToolResult(Outcome.NOT_FOUND, display, E_TOOL_NOTFOUND)
 
+    if not spec.detach:
+        # A COMMAND, not a launch: wpctl, brightnessctl, playerctl, nmcli,
+        # hyprctl. It exits, so wait for it — `timeout_s` was dead config until
+        # 2026-08-29 (M-T1) and a hung `nmcli` was announced as a Wi-Fi change.
+        try:
+            rc = await asyncio.wait_for(proc.wait(), timeout=spec.timeout_s)
+        except asyncio.TimeoutError:
+            _kill_group(proc)
+            with contextlib.suppress(Exception):
+                await proc.wait()  # reap, so no zombie outlives the turn
+            dur = int((loop.time() - start) * 1000)
+            return ToolResult(Outcome.TIMEOUT, display, E_TOOL_TIMEOUT, dur)
+        dur = int((loop.time() - start) * 1000)
+        if rc != 0:
+            # Here the exit code IS the verdict (ADR-073). ADR-043's warning is
+            # about GUI handoffs, which take the branch below.
+            return ToolResult(Outcome.ERROR, display, E_TOOL_FAILED, dur)
+        return ToolResult(Outcome.OK, display, None, dur)
+
     # Fire-and-forget launch (ADR-043, amended). A GUI app does not exit, so we
     # do NOT wait for it — we give it a short grace only to catch a launch that
     # never happened, then leave it alone.
@@ -105,12 +133,26 @@ async def execute(
     # which() already preflighted the binary and a real exec failure raises
     # FileNotFoundError above (-> NOT_FOUND), so once we have spawned, we report
     # the launch as OK regardless of how the (possibly handoff) process exits.
-    # The cost: a binary that spawns then instantly crashes (missing lib, early
-    # segfault) is reported OK; that is rarer than the single-instance handoff,
-    # and its no-window is visible to the user either way.
+    #
+    # What we still cannot tell is whether a WINDOW appeared: a binary that
+    # spawns and instantly dies (missing lib, early segfault) looks identical
+    # from here. So the OK template does not claim one — it says "Launching X."
+    # rather than "Opened X." (ADR-073).
     try:
         await asyncio.wait_for(proc.wait(), timeout=_LAUNCH_GRACE_S)
     except asyncio.TimeoutError:
         pass  # still running past the grace — the normal GUI case
     dur = int((loop.time() - start) * 1000)
     return ToolResult(Outcome.OK, display, None, dur)
+
+
+def _kill_group(proc: asyncio.subprocess.Process) -> None:
+    """SIGKILL the child's whole process group.
+
+    The executor's docstring has promised this since G3 and it did not exist.
+    `start_new_session=True` above makes the child a session leader, so its pgid
+    is its pid: a tool that forks (a shell wrapper, `hyprctl` behind a script)
+    leaves the grandchild running forever without this.
+    """
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)

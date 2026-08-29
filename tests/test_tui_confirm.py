@@ -83,7 +83,7 @@ def test_tui_confirmed_pending_action_executes(monkeypatch, spy_executor):
 
     assert spy_executor == [{"app": "browser"}]
     assert app._pending is None
-    assert "Opened Brave." in out
+    assert "Launching Brave." in out  # ADR-073
 
 
 def test_tui_declined_pending_action_does_not_execute(monkeypatch, spy_executor):

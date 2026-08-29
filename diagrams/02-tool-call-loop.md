@@ -122,16 +122,20 @@ Direct actions never enter the untrusted zone at all:
 Templates for Phase 1:
 
 ```
-   ok            -> "Opened {app_display_name}."
+   ok (launch)   -> "Launching {app_display_name}."
+   ok (command)  -> "{display}."            e.g. "Volume up." / "Wi-Fi off."
    not_found     -> "I couldn't find {app_display_name} on this system."
    timeout       -> "That took too long, so I stopped it."
    denied        -> "I'm not allowed to do that."
    error         -> "That didn't work."
 ```
 
-NOTE (2026-08-26): the `timeout` outcome is currently UNREACHABLE from tools —
-the executor abandons at `_LAUNCH_GRACE_S = 0.4` and kills nothing
-(architecture §3.3, audit M-T1). ADR-067d makes `spec.timeout_s` real; until
-Step 8 lands, this row describes the target contract, not today's behavior.
+NOTE (updated 2026-08-29, ADR-073): `timeout` and `error` are now REACHABLE
+from tools — a command is awaited under `spec.timeout_s`, killed by process
+group on expiry, and a non-zero exit renders `error`. They remain unreachable
+for a **launch**, which is fire-and-forget by design (ADR-043) and whose exit
+code means nothing; that is why its `ok` line says "Launching", not "Opened" —
+the executor cannot know a window appeared. Until 2026-08-29 every tool shared
+the launch template, so the command tools spoke "Opened volume up.".
 
 No LLM round-trip. No hallucinated success. ~0 ms.

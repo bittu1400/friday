@@ -273,7 +273,7 @@ async def _plan_and_act(
 
     # Execute FIRST, then speak (ADR-009).
     result = await executor.execute(spec, params, request_id, dry_run=dry_run)
-    spoken = templates.render(result.outcome, result.display)
+    spoken = templates.render(result.outcome, result.display, detach=spec.detach)
     dispatched = result.outcome not in (Outcome.DENIED, Outcome.DISABLED, Outcome.NOT_FOUND)
     if audit is not None:
         await audit.arecord(
@@ -475,7 +475,7 @@ async def resolve_pending(
         policy_decision="allowed" if dispatched else res.outcome.value,
         duration_ms=res.duration_ms,
     )
-    return templates.render(res.outcome, res.display)
+    return templates.render(res.outcome, res.display, detach=spec.detach)
 
 
 async def _audit_confirmed(

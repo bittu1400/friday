@@ -376,7 +376,7 @@ no fix step reordered.
 
 ---
 
-## Fix status — updated 2026-08-29 (Steps 1–8 executed)
+## Fix status — updated 2026-08-29 (Steps 1–9 executed)
 
 This report is a snapshot of 2026-08-26 and is **not** rewritten as fixes land.
 Use this table for what is done; use `progress.md`'s START HERE block for what
@@ -404,11 +404,15 @@ before its fix.
 | L25 selftest docstring lists 7 checks, 8 run | FIXED 2026-08-29 while verifying docs against the tree | `friday/selftest.py` module docstring |
 | *(not a finding)* declined confirms unaudited | CHANGED by decision, not defect — ADR-072 answers OQ-37: a decline now writes a `declined` row | `tests/test_audit_contract.py` |
 | M-A1 unguarded PortAudio callbacks | FIXED — one shared `CallbackGuard`; consecutive-failure count, `E_AUDIO_DEAD` at ERROR, wake detector disabled, capture degraded-but-alive | `tests/test_callback_guard.py`, spec FR-6a |
-| M-T1, M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 9–12 and the triage tail | progress.md |
+| M-T1 `timeout_s` dead config + false process-group-kill docstring | FIXED — `ToolSpec.detach` splits launch from command; commands are bounded + group-killed + exit-code judged, launches keep ADR-043 and stop saying "Opened" | `tests/test_executor_timeout.py`, ADR-073 |
+| M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 10–12 and the triage tail | progress.md |
 
-**Status line, 2026-08-29 (Step 8):** the CRITICAL and **all eight HIGHs** are
+**Status line, 2026-08-29 (Step 9):** the CRITICAL and **all eight HIGHs** are
 closed. Everything still open is MEDIUM or LOW, and none of it is a disclosure
-defect — the remaining work is robustness (Steps 8–12 and the triage tail).
+defect — the remaining work is robustness (Steps 10–12 and the triage tail). Note that Step
+9's real-path run found a defect **this audit missed entirely**: both Hyprland
+tools have never worked on this machine (OQ-38). The audit read the executor
+and the registry and never ran them against the compositor.
 
 ### Corrections this execution pass found in the report itself
 

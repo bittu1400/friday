@@ -164,7 +164,8 @@ class ToolSpec:
     build_argv: Callable[[dict], list[str]]   # CODE builds argv, not the model
     cwd: str
     env: Mapping[str, str]                    # minimal, explicit, no inherit
-    timeout_s: float
+    timeout_s: float                          # COMMANDS only (ADR-073)
+    detach: bool                              # True = GUI launch, not waited on
     param_schema: dict                        # typed, closed
 ```
 
@@ -181,10 +182,19 @@ async def execute(spec: ToolSpec, params: dict, request_id: str) -> ToolResult
 Guarantees (as actually implemented 2026-08-26; see ADR-067d):
 
 - `shell=False`, argv list, explicit minimal env
-- bounded by `_LAUNCH_GRACE_S = 0.4` for ALL tools; on expiry the await is
-  abandoned, nothing is killed. `spec.timeout_s` exists in `ToolSpec` but is
-  currently dead config — honoring it (wait + process-group kill for non-GUI
-  tools) is decided in ADR-067d and lands in the hardening phase
+- a tool is a LAUNCH or a COMMAND, and they are bounded differently
+  (`ToolSpec.detach`, ADR-073, landed 2026-08-29):
+  - **command** — awaited under `spec.timeout_s`; on expiry its whole process
+    **group** is SIGKILLed (`start_new_session=True` makes the child a group
+    leader, so a forking tool cannot orphan a grandchild) and the outcome is
+    `TIMEOUT`. A non-zero exit is `ERROR`: for a command the exit code IS the
+    verdict
+  - **launch** — `_LAUNCH_GRACE_S = 0.4`, then the await is abandoned and
+    nothing is killed; the exit code is ignored, because a single-instance
+    handoff exits non-zero ON SUCCESS (ADR-043). What the launch cannot know —
+    whether a window appeared — the template no longer claims: it speaks
+    "Launching X.", not "Opened X."
+  `spec.timeout_s` was dead config until this landed
 - never retried for `reversible` or `irreversible` risk classes
 - returns a typed `Outcome`, never raises to the caller
 - audit rows are written by the CALLERS (`turn.py` dispatch tail and

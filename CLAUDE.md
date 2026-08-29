@@ -10,7 +10,7 @@ remember preferences, and search the web through a local proxy.
 
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
 review passes; the fifth (the 2026-08-26 full-codebase audit) is HALF FIXED —
-Steps 1–8 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
+Steps 1–9 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
 `hey_jarvis` wake word, ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
@@ -41,7 +41,7 @@ enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
 that spoke success while doing nothing**. (3) The 2026-08-25 live sessions fixed
 13 more (see the session blocks in `progress.md`). (4) A full read-only codebase
 audit (**2026-08-26**, report: `Alpha-ox-analysis.md`) found **1 CRITICAL + 8
-HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–8
+HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–9
 of that fix list**: C1 (text-mode confirm of any action was a silent no-op —
 both UIs now share one `turn.resolve_pending`, ADR-069), H1 (confirmed
 dispatches and web searches wrote zero audit rows), H2/H3/M-P1 (a confirm could
@@ -55,7 +55,8 @@ H8 (**the debug workflow leaked every transcript to `/var/log/journal`** —
 `no_disk` guarded the file handler only, and under systemd stderr is journald),
 and M-A1 (an exception out of either PortAudio callback made sounddevice stop
 calling back **forever** — an open stream, a passing health check, and a deaf
-assistant).
+assistant), and M-T1 (`timeout_s` was dead config, the promised process-group
+kill did not exist, and a failing command was announced as success — ADR-073).
 Four decisions were then put to the user rather than defaulted (ADR-072 +
 plan ordering; see the 2026-08-29 block in `progress.md`).
 
@@ -65,7 +66,7 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: Steps 9–12.** Read the `>>> START HERE <<<` block at the top of
+**NEXT SESSION: Steps 10–12.** **Read OQ-38 first: Step 9 proved both Hyprland tools have never worked on this machine (missing `HYPRLAND_INSTANCE_SIGNATURE`, plus Hyprland 0.56's Lua `dispatch`), with the working syntax measured and deliberately not applied yet.** Read the `>>> START HERE <<<` block at the top of
 `progress.md` first, then the **fix-status table at the bottom of
 `Alpha-ox-analysis.md`** — it is the fastest map of what is fixed and what is
 not, and it records three places the audit itself was wrong. Do not re-audit.
@@ -407,6 +408,7 @@ just prefs list|forget  # manage stored preferences
 | "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
 | "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |
 | "Put the search results in the planning turn, one round-trip" | T1. This is the exact attack the design prevents. |
+| "A sibling call site uses the same broken thing, but the ticket didn't mention it" | `registry.py` recorded in a comment that Hyprland 0.56 broke `hyprctl dispatch` — and `hypr_workspace`/`hypr_window`, which use the same form, were left broken and announcing success (OQ-38). Knowing a breakage and not grepping for its siblings is how it survives. |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
 | "Only poll the wake detector when we need it" | openWakeWord is a STREAMING model. Starving it leaves stale features and a stale score, and it re-fires the instant you resume — that was OQ-29. Feed it every frame; ignore the result instead. |
 | "Speech during playback means the user is interrupting" | On this hardware the AEC gives −5 to −10 dB, so it is usually Friday. Voice barge-in is off (ADR-064); PTT is the interrupt until OQ-32 lands. |

@@ -181,6 +181,43 @@ alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
+### OQ-38 — How should the Hyprland tools talk to Hyprland 0.56's Lua dispatcher?
+**Status:** OPEN — raised 2026-08-29, with the defect already proven and the
+working syntax already measured. **This is not a research question, it is a
+scope question.**
+
+`hypr_workspace` and `hypr_window` have **never worked on this machine**, and
+Friday announced success every time. Found the moment ADR-073 made a command's
+exit code a verdict. Two independent causes, both measured through the real
+executor (evidence in `docs/reality-check.md` §A10 and the Step 9 session block
+in `progress.md`):
+
+1. `HYPRLAND_INSTANCE_SIGNATURE` is missing from `registry._APP_ENV`, so
+   `hyprctl` cannot find the compositor at all (rc=1). One line to fix; the
+   systemd unit already passes the variable through.
+2. `hyprctl dispatch workspace 2` no longer parses — Hyprland 0.56 routes
+   `dispatch` through Lua (rc=7). `registry.py`'s own comment records this for
+   `dispatch exec` (it is why apps are spawned directly); nobody checked the
+   sibling call sites. The working form here, verified by switching workspaces
+   and reading `hyprctl activeworkspace` back, is
+   `hyprctl dispatch 'hl.dsp.focus{workspace=N}'`, with window dispatchers
+   under `hl.dsp.window.*` (`close`, `fullscreen`, `float`, …).
+
+**What decides it:** the user, on two points. (a) Fix now or after Steps 10–12
+— ADR-067 explicitly rejected opportunistic fixes during other work, which is
+why this was recorded instead of folded into Step 9. (b) Whether building a
+**Lua expression** in `build_argv` needs its own ADR. It is not an invariant-#2
+breach as long as the parameter stays a closed set (workspace is a validated
+1–10, the window action a closed enum) — code owns the template, the model owns
+only an enum member — but it is the same *shape* as ADR-027's audited youtube
+exception, and that precedent says a second string-building tool gets its own
+ADR rather than inheriting one.
+**Blocks:** two of the twelve G12 rows of `docs/reality-check.md`.
+**Default if undecided:** fix both causes with the measured syntax, under a new
+ADR, immediately after Step 12.
+
+---
+
 ### OQ-36 — Should a wake trigger be refused outright when there is no VAD?
 **Status:** OPEN — needs data, raised 2026-08-29 while fixing M-A3.
 

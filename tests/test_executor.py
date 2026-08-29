@@ -16,7 +16,7 @@ from friday.tools.registry import REGISTRY, ToolSpec
 RID = "test-request"
 
 
-def _spec(argv: list[str], target: str, timeout: float = 5.0) -> ToolSpec:
+def _spec(argv: list[str], target: str, timeout: float = 5.0, *, detach: bool = False) -> ToolSpec:
     return ToolSpec(
         tool_id="probe",
         risk="reversible",
@@ -26,6 +26,7 @@ def _spec(argv: list[str], target: str, timeout: float = 5.0) -> ToolSpec:
         cwd="/",
         env=MappingProxyType({"PATH": "/usr/bin:/bin"}),
         timeout_s=timeout,
+        detach=detach,
     )
 
 
@@ -46,7 +47,9 @@ def test_nonzero_exit_after_spawn_reports_launched() -> None:
     # (-> NOT_FOUND) before we get here, so a spawned-then-exited process is
     # reported OK, not ERROR (which used to speak "That didn't work." over a
     # browser that actually opened).
-    r = _run(executor.execute(_spec(["false"], "false"), {}, RID))
+    # detach: these are LAUNCH semantics. A command's non-zero exit IS a
+    # failure since ADR-073; only a launch's is meaningless.
+    r = _run(executor.execute(_spec(["false"], "false", detach=True), {}, RID))
     assert r.outcome is Outcome.OK
 
 
@@ -62,7 +65,7 @@ def test_long_running_launch_returns_ok_promptly() -> None:
     import time
 
     start = time.monotonic()
-    r = _run(executor.execute(_spec(["sleep", "5"], "sleep"), {}, RID))
+    r = _run(executor.execute(_spec(["sleep", "5"], "sleep", detach=True), {}, RID))
     elapsed = time.monotonic() - start
     assert r.outcome is Outcome.OK
     assert elapsed < 2.0  # returned on the 0.4 s grace, not after 5 s

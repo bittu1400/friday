@@ -13,13 +13,13 @@ Rules:
    this is a single-machine project. Paste it.
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
-**2026-08-26 audit fix phase is PAST HALF — Steps 1–8 of 12 executed
+**2026-08-26 audit fix phase is PAST HALF — Steps 1–9 of 12 executed
 2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
 registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **402 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **411 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -31,10 +31,10 @@ the trigger-arm TOCTOU (H5), blocking work on the event loop (H6), the
 wrong-reminder cancel (H7, which turned out to be an unreachable code path —
 `cancel_reminder` had **never** worked; ADR-070), and the journald debug leak
 (H8 — the documented debug workflow wrote every transcript to
-`/var/log/journal`). Plus M-A1, M-P1, M-A2, M-A3, M-T2,
+`/var/log/journal`). Plus M-A1, M-T1, M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION continues with Steps 9–12** — see the `>>> START HERE <<<` block
+**NEXT SESSION continues with Steps 10–12** — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
 is now the fastest map of what is fixed and what is not. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
@@ -42,7 +42,10 @@ too when `JOURNAL_STREAM` says stderr is journald, so `FRIDAY_DEBUG=1` is safe
 under systemd (it shows nothing there; foreground is where transcripts appear).
 Everything left in the list is robustness — and Step 8 (M-A1) is done too:
 both PortAudio callbacks now run through one `CallbackGuard`, so an audio
-callback can no longer die quietly and leave a healthy-looking deaf assistant.
+callback can no longer die quietly and leave a healthy-looking deaf assistant;
+and Step 9 (M-T1, ADR-073) made `timeout_s` real, gave commands a real exit-code
+verdict, and stopped launches claiming "Opened X." **Step 9's first real-path
+run found that both Hyprland tools have never worked here — see OQ-38.**
 `docs/reality-check.md` remains the manifest for live-voice verification; its
 header lists the rows that changed on 2026-08-29 and have never been checked by
 a human at a keyboard.
@@ -201,6 +204,116 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (evening) — FIX PHASE, Step 9 of 12: M-T1, and what honouring an exit code immediately found
+
+**Step 9 landed, and its first real-path run found two live defects the whole
+suite is blind to — one of them a G12 feature that has never worked.**
+
+### The fix (ADR-073)
+`ToolSpec.detach` splits the two things the executor had been treating as one:
+
+- **command** (`detach=False`; the six G12 control tools) — awaited under
+  `spec.timeout_s`, whole process **group** SIGKILLed on expiry, and a non-zero
+  exit is `ERROR`/`E_TOOL_FAILED`. `timeout_s` was dead config; the docstring
+  had promised a process-group kill since G3 and no such code existed.
+- **launch** (`detach=True`; `open_app`, `open_youtube`, `youtube_search`,
+  `file_open`) — unchanged (ADR-043's 0.4 s grace, never killed, exit code
+  ignored), except that it stops claiming a verdict it cannot have: the OK line
+  is now **"Launching Brave."**, not "Opened Brave."
+
+Both were user decisions, asked before any code was written: speak failure on a
+command's non-zero exit (yes), and answer the launch-verdict question with the
+honest wording rather than a `hyprctl clients` poll that would cost up to 1.5 s
+of TTFA. See ADR-073 for the rejected alternatives.
+
+**A third defect fell out of the same seam.** The OK template was shared, so
+the command tools spoke **"Opened volume up."** and **"Opened workspace 3."**
+Nobody had ever heard it, because the live G12 rows of `docs/reality-check.md`
+have never been ticked. A command now speaks its own display: "Volume up."
+
+### Then the real path was run — and this is the part that matters
+Tests pass over fake processes. The six command tools were driven through the
+**real executor against the real system** (volume round-tripped, workspace
+switch to the workspace already active):
+
+```
+hypr_workspace   {'workspace': '2'}       -> error    E_TOOL_FAILED   7ms
+system_volume    {'direction': 'mute'}    -> ok                      16ms
+system_volume    {'direction': 'unmute'}  -> ok                      18ms
+system_media     {'action': 'play_pause'} -> error    E_TOOL_FAILED  13ms
+```
+
+`system_media` is **correct**: `playerctl` exits 1 with "No players found" when
+nothing is playing, and Friday now says "That didn't work." instead of
+announcing a media action that did not happen. That is the fix working.
+
+`hypr_workspace` is a **live defect, and `hypr_window` shares it.** Both
+Hyprland tools have never worked on this machine while Friday announced success
+every time. Two independent causes, each measured:
+
+1. `HYPRLAND_INSTANCE_SIGNATURE` is missing from `registry._APP_ENV`, so
+   `hyprctl` cannot find the compositor:
+   `HYPRLAND_INSTANCE_SIGNATURE not set! (is hyprland running?)`, rc=1.
+   Exactly the `DISPLAY` defect of 2026-08-25, one variable over.
+2. With the signature set it still fails, rc=7:
+   `error: [string "return hl.dispatch(workspace 2)"]:1: ')' expected near '2'`
+   — Hyprland 0.56 routes `dispatch` through Lua. **`registry.py`'s own comment
+   already records this** for `dispatch exec` (it is why apps are spawned
+   directly rather than through hyprctl). The sibling call sites were never
+   checked. Knowing a breakage and not sweeping for its siblings is how this
+   one survived.
+
+The working form was found and verified by asking the system, not by reading
+docs: `hyprctl eval` was used to enumerate the Lua dispatcher tables, and
+`hyprctl dispatch 'hl.dsp.focus{workspace=N}'` was confirmed by switching
+workspaces and reading `hyprctl activeworkspace` back (1 -> 2 -> 3). Window
+dispatchers live under `hl.dsp.window.*` (`close`, `fullscreen`, `float`, …).
+
+**Not fixed in this commit, on purpose.** ADR-067 explicitly rejected fixing
+findings opportunistically during other work, and building a Lua *expression*
+in `build_argv` is the same shape as ADR-027's audited youtube exception —
+which set the precedent that a second such tool gets its own ADR. Raised as
+**OQ-38** with the syntax already measured, so whoever takes it starts from
+evidence rather than a search.
+
+### Tests — verified failing against the pre-fix tree
+`git stash push` of the four source files, then run: **9 failed**. Notably
+`test_the_whole_process_group_is_killed_on_timeout` spawns a real forking child
+and asserts the grandchild is gone; it cannot pass without the killpg. Its
+first draft used `sh -c` and was refused by the ban list (`Banned binary: sh`,
+and `>` is a banned substring) — the ban working exactly as designed, in a
+test that was not testing it.
+
+```
+tests/test_executor_timeout.py   7 tests   FAIL -> PASS
+tests/test_templates.py          2 tests   FAIL -> PASS
+```
+
+Five existing tests changed with the decision, none weakened: two in
+`test_executor.py` now pass `detach=True` because they assert *launch*
+semantics (a launch's non-zero exit is still OK — the ADR-043 regression
+guard), and three assert "Launching Brave." where they asserted "Opened Brave."
+
+### Gate
+```
+uv run pytest -q          -> 411 passed  (402 -> 411, +9)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
+just selftest             -> [PASSED] all 8 checks
+```
+
+### Docs changed in the same commit
+**ADR-073** (new), `spec.md` (FR-32a, FR-40a), `architecture.md` §3.3 (the dead
+`timeout_s` note replaced by the real contract; `ToolSpec` sketch gains
+`detach`), `threat-model.md` T8 control 3 (its "NOT yet enforced" marker is
+gone), `diagrams/02` (the `timeout` row is reachable now, and the ok row is
+split launch/command), `docs/reality-check.md` (A1, A9 measured, **A10 marked
+BROKEN with the evidence**), `open-questions.md` (**OQ-38**),
+`Alpha-ox-analysis.md`, `CLAUDE.md`, and this file.
 
 ---
 
@@ -676,21 +789,23 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 9–12) <<<
+## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 10–12) <<<
 
-**Steps 1–8 are DONE** (see the three 2026-08-29 session blocks just above for
-what changed and why). Steps 9–12 are unchanged from the 2026-08-26 plan except
+**Steps 1–9 are DONE** (see the four 2026-08-29 session blocks just above for
+what changed and why). **Read OQ-38 before anything else — Step 9 proved both
+Hyprland tools have never worked on this machine, and the fix is measured but
+deliberately not applied.** Steps 10–12 are unchanged from the 2026-08-26 plan except
 where this block says otherwise. Read the fix-status table at the bottom of
 `Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
 what is not. Do **not** re-audit; the findings are still accurate apart from
 the three corrections recorded there.
 
-**No feature work and no Phase 3 until Steps 9–12 are done.**
+**No feature work and no Phase 3 until Steps 10–12 are done.**
 
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 402 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 411 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
@@ -700,7 +815,7 @@ Never two daemons. Never trust "Friday said it worked" — ask the system.
 pre-fix tree, then restore and fix. Two tests this session passed vacuously and
 were only caught that way.
 
-### THE REMAINING FIX LIST — Steps 9–12 (audit order, H8 already taken)
+### THE REMAINING FIX LIST — Steps 10–12 (audit order, H8 already taken)
 
 > **Ordering decision, 2026-08-29 — now spent.** The audit's plan had H8 at
 > Step 11. Put to the user; answer: pull it forward to Step 7, because it was
@@ -725,14 +840,14 @@ Repro is the real mechanism, a detector raising on a non-20 ms frame, and it
 was verified escaping into sounddevice pre-fix. Spec FR-6a + `E_AUDIO_DEAD` in
 §4; architecture §5 updated.
 
-**Step 9 (was 8) — M-T1 decision execution (ADR-067d).**
-Honor `spec.timeout_s`: non-GUI tools get `wait_for(timeout_s)` + process-group
-kill on expiry; GUI-launch tools keep the 0.4 s grace semantics (ADR-043). Fix
-the executor docstring, which currently claims a process-group kill that does
-not exist. The delete-or-honor decision is MADE — do not reopen. Closes
-`threat-model.md` T8 control 3's "NOT yet enforced" marker and
-`architecture.md` §3's dead-config note. Fold in the launcher-failure-detection
-task from the 2026-08-25 plan; it lives on the same seam.
+**Step 9 (was 8) — M-T1 decision execution (ADR-067d). DONE 2026-08-29 (ADR-073).**
+`ToolSpec.detach` splits launch from command: a command is awaited under
+`timeout_s` with a process-group kill on expiry and a real exit-code verdict; a
+launch keeps ADR-043's grace and now says "Launching X." instead of claiming
+"Opened X." Command tools also stopped speaking the launch template ("Opened
+volume up."). The launcher-failure-detection task from the 2026-08-25 plan is
+closed by that wording decision. **Its real-path run raised OQ-38: both
+Hyprland tools are broken and always have been.**
 
 **Step 10 (was 9) — LLM client edges: M-L1 + M-L2.**
 Catch bare `TimeoutError` -> `LlamaTimeout` (today it escapes `_plan`'s narrow

@@ -2455,3 +2455,67 @@ narrower one would need re-deciding the moment a fifth confirm-gated tool
 appears. Also rejected: recording the decline as `outcome='denied'`, which
 already means "policy refused it" and would conflate the user changing their
 mind with the ban list firing.
+
+
+---
+
+## ADR-073 — A launch and a command are different things: `timeout_s` is honored, exit codes are a verdict for commands only, and a launch stops claiming "Opened"
+
+**Date:** 2026-08-29. **Status:** Accepted. Executes ADR-067(d) (M-T1) and
+closes the launcher-verdict task raised 2026-08-25.
+
+**Context.** `ToolSpec.timeout_s` was dead config. Every tool — a GUI launch
+and a `wpctl` command alike — got ADR-043's 0.4 s fire-and-forget grace and was
+then reported `OK` no matter what it did. The executor's docstring promised
+"the whole process group is killed on timeout"; no such code existed. Three
+consequences, all live:
+
+1. A hung command (`nmcli` waiting on a radio, `hyprctl` on a stuck socket) was
+   announced as a completed action after 0.4 s, and its process was left
+   running with no one waiting on it.
+2. A command that *failed* was announced as success. Measured the same day:
+   `playerctl play-pause` exits 1 with "No players found" and Friday said the
+   media action had happened.
+3. A launch was announced as `"Opened Brave."` — a verdict the executor cannot
+   produce, because the spawn is fire-and-forget by design (ADR-043) and a
+   single-instance handoff exits **non-zero on success**. That template is what
+   made the `DISPLAY` defect invisible for the entire project.
+
+**Decision.** `ToolSpec` gains `detach: bool`, and the two kinds are handled
+separately.
+
+- **Command** (`detach=False`; the six G12 control tools): awaited with
+  `wait_for(spec.timeout_s)`. On expiry the whole process group is SIGKILLed
+  (`start_new_session=True` already makes the child a group leader, so a tool
+  that forks cannot leave a grandchild behind) and the outcome is `TIMEOUT` /
+  `E_TOOL_TIMEOUT`. A non-zero exit is `ERROR` / `E_TOOL_FAILED` — **for a
+  command the exit code IS the verdict**, and `E_TOOL_FAILED`/`E_TOOL_TIMEOUT`
+  stop being dead codes.
+- **Launch** (`detach=True`; `open_app`, `open_youtube`, `youtube_search`,
+  `file_open`): unchanged from ADR-043 — the 0.4 s grace, never killed, exit
+  code ignored. What changes is the *speech*: the OK template becomes
+  **"Launching X."** instead of "Opened X." Friday says what she did (spawned
+  it), not what she cannot know (a window appeared). The two costlier options
+  were put to the user and rejected: polling `hyprctl clients` before speaking
+  buys a real verdict for up to 1.5 s of TTFA (p95 is 2.73 s) plus an
+  app-to-window-class map that drifts; verifying in the background keeps
+  speaking an unverified claim.
+
+A third thing fell out of the same change. The OK template was shared, so the
+command tools spoke **"Opened volume up."** and **"Opened workspace 3."** —
+nonsense nobody had heard, because the live G12 rows of `docs/reality-check.md`
+have never been ticked. A command now speaks its own display string
+("Volume up.", "Wi-Fi off.").
+
+**Consequences.** Six tools can now speak failure where they previously always
+spoke success; that is the point, and the first real-path run found two of them
+failing on this machine (see the 2026-08-29 Step 9 session block). `render()`
+takes `detach`, and both call sites pass `spec.detach`. FR-32/FR-41 are
+unchanged: still argv-list, `shell=False`, minimal env, never retried.
+
+**Rejected.** Keeping exit codes meaningless for commands too (ADR-043's
+warning is about GUI handoffs, not `wpctl`; generalizing it is what let a
+failing command speak success). Deleting `timeout_s` instead of honoring it —
+that was ADR-067(d)'s explicitly closed question. Killing a launch at
+`timeout_s`, which would close the app the user just asked for.
+

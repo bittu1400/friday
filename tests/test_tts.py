@@ -89,7 +89,7 @@ def test_run_turn_speaks_dispatched_outcome() -> None:
     sp = RecordingSpeaker()
     r = _turn('{"action":{"name":"open_app","params":{"app":"browser"}}}', sp)
     assert r.dispatched
-    assert len(sp.said) == 1 and sp.said[0].startswith("Opened Brave")
+    assert len(sp.said) == 1 and sp.said[0].startswith("Launching Brave")  # ADR-073
 
 
 def test_run_turn_speaks_none_out_of_scope_line() -> None:

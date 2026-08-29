@@ -10,7 +10,7 @@ from __future__ import annotations
 from ..errors import Outcome
 
 TEMPLATES: dict[Outcome, str] = {
-    Outcome.OK: "Opened {display}.",
+    Outcome.OK: "{display}.",
     Outcome.NOT_FOUND: "I couldn't find {display} on this system.",
     Outcome.TIMEOUT: "That took too long, so I stopped it.",
     Outcome.DENIED: "I'm not allowed to do that.",
@@ -19,7 +19,21 @@ TEMPLATES: dict[Outcome, str] = {
 }
 
 
-def render(outcome: Outcome, display: str) -> str:
+# A launch cannot be verified (ADR-043: the spawn is fire-and-forget and a
+# single-instance handoff exits non-zero ON SUCCESS), so it states what it did
+# rather than a verdict it does not have — "Launching Brave.", not "Opened
+# Brave." A command IS verified: it was waited on, its exit code checked, and
+# a non-zero one renders Outcome.ERROR instead of ever reaching this line.
+LAUNCH_OK = "Launching {display}."
+
+
+def render(outcome: Outcome, display: str, *, detach: bool = False) -> str:
+    if outcome is Outcome.OK:
+        if detach:
+            return LAUNCH_OK.format(display=display)
+        # "Opened volume up." was what the command tools spoke until 2026-08-29
+        # — they shared the launch template. Speak the thing that happened.
+        return f"{display[:1].upper()}{display[1:]}." if display else "Done."
     return TEMPLATES[outcome].format(display=display)
 
 

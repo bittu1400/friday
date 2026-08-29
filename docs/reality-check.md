@@ -85,7 +85,7 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 ### A1. Launch apps (`open_app`) — the five, and nothing else
 | Say | Expect | C? |
 | :-- | :-- | :-- |
-| "open my browser" | Brave launches; "Opened Brave." | |
+| "open my browser" | Brave launches; **"Launching Brave."** (ADR-073 — a launch cannot verify a window, so it no longer says "Opened") | |
 | "open a terminal" | foot launches | |
 | "open the editor" / "open VS Code" | VS Code launches | |
 | "play a video" / "open mpv" | mpv launches | |
@@ -168,13 +168,20 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 ### A9. System controls
 | Say | Expect | tool | C? |
 | :-- | :-- | :-- | :-- |
-| "volume up/down" · "mute" · "unmute" | volume changes | wpctl | |
+| "volume up/down" · "mute" · "unmute" | volume changes; **"Volume up."** not "Opened volume up." (ADR-073) | wpctl | |
 | "brightness up" · "dim the screen" | brightness changes | brightnessctl | |
 | "pause" · "next track" · "previous" · "play" | media control | playerctl | |
 | "turn on wifi" | Wi-Fi on | nmcli | |
 | "turn off wifi" | asks to confirm, then off | nmcli | C? |
 
 - [ ] Each spoken outcome matches the real system state change
+- [x] **2026-08-29, measured through the real executor:** `system_volume`
+      mute/unmute → `ok` (volume restored to 0.80). `system_media{play_pause}`
+      → **`error` / E_TOOL_FAILED**, correctly: `playerctl` exits 1 with "No
+      players found" when nothing is playing. Since ADR-073 Friday says "That
+      didn't work." there instead of announcing the media action.
+- [ ] Decide whether "no player running" deserves its own line rather than the
+      generic failure template
 
 ### A10. Hyprland window/workspace
 | Say | Expect | C? |
@@ -186,6 +193,23 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
 - [ ] Workspace outside 1–10 is refused
 - [ ] "close window" actually closes it (regression: it used to be a silent no-op)
+- [x] **BROKEN — measured 2026-08-29 through the real executor.** Both Hyprland
+      tools have never worked on this machine, and Friday announced success
+      every time. Two independent causes, both now proven:
+      1. `HYPRLAND_INSTANCE_SIGNATURE` is not in the executor's minimal env, so
+         `hyprctl` cannot even find the compositor: *"HYPRLAND_INSTANCE_SIGNATURE
+         not set! (is hyprland running?)"*, rc=1. Same class as the `DISPLAY`
+         defect of 2026-08-25.
+      2. Even with it set, the registry's `hyprctl dispatch workspace 2` no
+         longer parses: Hyprland 0.56 routes `dispatch` through Lua and answers
+         *"[string \"return hl.dispatch(workspace 2)\"]:1: ')' expected near '2'"*,
+         rc=7. `registry.py` already knew this for `dispatch exec` (it is why
+         apps are spawned directly) — the sibling call sites were never checked.
+      The working form on this machine, verified by switching workspaces and
+      reading `hyprctl activeworkspace` back: `hyprctl dispatch
+      'hl.dsp.focus{workspace=N}'`; the window dispatchers live under
+      `hl.dsp.window.*` (`close`, `fullscreen`, `float`, …).
+      Only visible because ADR-073 made the exit code a verdict.
 
 ### A11. Files (`file_open`) — registered aliases only
 | Say | Expect |

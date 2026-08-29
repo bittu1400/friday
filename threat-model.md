@@ -270,11 +270,14 @@ slow search exhausts RAM, pins all 24 cores, or leaves the FSM stuck.
 1. 15 s capture cap, preallocated ring buffer. — FR-4
 2. Turn queue depth 0; second request rejected audibly. — FR-5
 3. Every stage has a timeout; process groups killed on tool timeout.
-   **NOT yet enforced** — found by the 2026-08-26 audit (M-T1): the executor
-   waits only `_LAUNCH_GRACE_S = 0.4` for every tool and kills nothing;
-   `ToolSpec.timeout_s` is dead config. ADR-067d decides to honor it
-   (`wait_for(timeout_s)` + process-group kill for non-GUI tools; GUI
-   launches keep ADR-043's grace semantics). Step 8 of the fix plan.
+   *Landed 2026-08-29 (M-T1, ADR-073, Step 9).* A **command** is awaited under
+   `spec.timeout_s` and its whole process group is SIGKILLed on expiry — the
+   docstring had promised that since G3 and no such code existed, so a forking
+   tool left its grandchild running forever (proved by
+   `test_the_whole_process_group_is_killed_on_timeout`, which spawns a real
+   forking child). A **launch** keeps ADR-043's 0.4 s grace and is never
+   killed, because closing the app the user just asked for is not a DoS
+   control.
 4. Thread counts pinned so whisper cannot take all 24 cores. — diagram 03
 5. `E_BUSY` and the panic file give the user a way out. — FR-36
 6. Blocking work is kept off the event loop, so a slow subsystem cannot make

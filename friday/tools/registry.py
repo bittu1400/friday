@@ -43,6 +43,10 @@ class ToolSpec:
     cwd: str
     env: Mapping[str, str]
     timeout_s: float
+    # A LAUNCH (GUI app) must outlive the turn, so it is fire-and-forget and
+    # its exit code is not a verdict (ADR-043). A COMMAND exits, and its exit
+    # code IS the verdict — it is waited on and bounded by timeout_s (ADR-073).
+    detach: bool = False
 
 
 # --- youtube query hardening (ADR-027, FR-39x) -----------------------------
@@ -214,6 +218,7 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
             cwd=_HOME,
             env=_APP_ENV,
             timeout_s=5.0,
+            detach=True,  # GUI launch: fire-and-forget (ADR-043)
         ),
         "open_youtube": ToolSpec(
             tool_id="open_youtube",
@@ -224,6 +229,7 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
             cwd=_HOME,
             env=_APP_ENV,
             timeout_s=5.0,
+            detach=True,  # GUI launch: fire-and-forget (ADR-043)
         ),
         "youtube_search": ToolSpec(  # ADR-027, THE exception
             tool_id="youtube_search",
@@ -234,6 +240,7 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
             cwd=_HOME,
             env=_APP_ENV,
             timeout_s=5.0,
+            detach=True,  # GUI launch: fire-and-forget (ADR-043)
         ),
         "system_volume": ToolSpec(
             tool_id="system_volume",
@@ -304,6 +311,7 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
             cwd=_HOME,
             env=_APP_ENV,
             timeout_s=5.0,
+            detach=True,  # GUI launch: fire-and-forget (ADR-043)
         ),
     }
 )
