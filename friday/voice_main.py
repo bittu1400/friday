@@ -103,7 +103,7 @@ def _build(args, loop_holder: dict[str, asyncio.AbstractEventLoop]) -> tuple[Dae
     if not args.no_wake and config.WAKE_ENABLED:
         aec_proc = aec.create(enabled=config.AEC_ENABLED, sample_rate=16000, frame_ms=config.AEC_FRAME_MS)
         vad_detector = vad.create(mode=config.VAD_AGGRESSIVENESS, sample_rate=16000)
-        wake_det = wake.create_detector(config.WAKE_MODEL, threshold=config.WAKE_THRESHOLD)
+        wake_det = wake.create_detector(config.WAKE_MODEL)  # threshold lives on WakeListener
 
         def _schedule(coro_fn):
             def cb() -> None:

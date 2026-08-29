@@ -47,9 +47,10 @@ def test_none_speaks_out_of_scope_line() -> None:
     assert r.spoken != "(no action)"
 
 
-# NOTE: NOT_YET_WIRED is empty as of G7 (web_search is now wired in the turn
-# loop). The web_search path — which never dispatches — is covered by
-# tests/test_web_search_turn.py; there is no "planned …" fallback left to test.
+# NOTE: the NOT_YET_WIRED map and its "[planned …]" branch were deleted in the
+# 2026-08-29 sweep — it had been an empty mapping since G7 wired web_search, so
+# the branch was unreachable. The web_search path, which never dispatches, is
+# covered by tests/test_web_search_turn.py.
 
 
 def test_open_app_dispatches_via_template() -> None:

@@ -39,10 +39,6 @@ class _Probe:
         self.max_score = max(self.max_score, s)
         return s
 
-    def reset(self) -> None:
-        self._inner.reset()
-
-
 def run_benchmark(duration_s: float = 10.0, threshold: float = 0.5) -> None:
     print(f"=== Friday Wake-Word & VAD Benchmark ({duration_s}s) ===")
     print(f"Model: {config.WAKE_MODEL}")
@@ -52,7 +48,7 @@ def run_benchmark(duration_s: float = 10.0, threshold: float = 0.5) -> None:
     far_ref = wake.FarEndRef()
     aec_proc = aec.create(enabled=config.AEC_ENABLED, sample_rate=16000, frame_ms=config.AEC_FRAME_MS)
     vad_det = vad.create(mode=config.VAD_AGGRESSIVENESS, sample_rate=16000)
-    wake_det = wake.create_detector(config.WAKE_MODEL, threshold=threshold)
+    wake_det = wake.create_detector(config.WAKE_MODEL)
     probe = _Probe(wake_det) if wake_det is not None else None
 
     events: list[tuple[float, str]] = []

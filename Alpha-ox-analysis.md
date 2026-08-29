@@ -280,6 +280,15 @@ copied passwords get vocalized (`turn.py:549`). L25 selftest docstring lists 7 c
 
 ## Dead code inventory (all caller-verified)
 
+> **SWEPT 2026-08-29 (Step 12).** Deleted: `RiskTier` + `import os`,
+> `NOT_YET_WIRED` and its branch, `Database.awrite`/`aquery` (+ the now-unused
+> `import asyncio`), the vestigial `sd.stop()`, `create_detector`'s ignored
+> `threshold=`, `_Probe.reset`, and two stale docstring claims. **Kept and made
+> live instead of deleted, with reasons in progress.md:** `ToolResult.code` and
+> `E_TOOL_TIMEOUT`/`E_TOOL_FAILED` (adopted by ADR-073), `E_SCHEMA` (now
+> logged), `PendingAction.description` (now logged when a confirm arms).
+> `preferences.source='user_typed'` was already gone.
+
 | Item | Location | Note |
 |---|---|---|
 | `PendingAction` name in annotation | `daemon.py:124` | never imported; survives only via `from __future__ import annotations` — NameError under introspection |
@@ -376,7 +385,7 @@ no fix step reordered.
 
 ---
 
-## Fix status — updated 2026-08-29 (Steps 1–11 executed)
+## Fix status — updated 2026-08-29 (**ALL 12 STEPS EXECUTED**)
 
 This report is a snapshot of 2026-08-26 and is **not** rewritten as fixes land.
 Use this table for what is done; use `progress.md`'s START HERE block for what

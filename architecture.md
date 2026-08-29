@@ -77,7 +77,9 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        executor.py          subprocess argv, no shell, bounded timeout, ban preflight
        apps.py              app_id -> argv map
        search.py            searxng client + sanitizer (G7)
-       ban.py               permanent hard ban validator & RiskTier enum (G12)
+       ban.py               permanent hard ban validator (G12). The RiskTier
+                            enum was deleted 2026-08-29: never referenced —
+                            the three tiers live in the confirm logic, not a type
        typer.py             Wayland typer using ydotool or wtype fail-soft (G12)
 
      audio/

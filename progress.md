@@ -13,7 +13,7 @@ Rules:
    this is a single-machine project. Paste it.
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
-**2026-08-26 audit fix phase is PAST HALF — Steps 1–11 of 12 executed
+**2026-08-26 audit fix phase is COMPLETE — all 12 steps executed
 2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
 registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
@@ -34,7 +34,7 @@ wrong-reminder cancel (H7, which turned out to be an unreachable code path —
 `/var/log/journal`). Plus M-A1, M-T1, M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION continues with Step 12** — see the `>>> START HERE <<<` block
+**NEXT SESSION is the LIVE PASS, not more fixing** — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
 is now the fastest map of what is fixed and what is not. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
@@ -205,6 +205,65 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (night) — FIX PHASE, Step 12 of 12: the dead-code sweep — **THE FIX PHASE IS COMPLETE**
+
+Twelve of twelve. Every item was re-verified dead against the tree before
+deletion, because the audit's own list had already been wrong twice (the
+`PendingAction` F821 note and the `habits.describe_action` branch, both retired
+in Steps 1/3).
+
+### Deleted
+| What | Why it was safe |
+| :-- | :-- |
+| `RiskTier` enum + `import os` (`ban.py`) | zero references anywhere; the three tiers live in the confirm logic, not in a type |
+| `NOT_YET_WIRED` + its dispatch branch (`registry.py`, `turn.py`) | the mapping has been `{}` since G7 wired `web_search`, so the branch was unreachable |
+| `Database.awrite`/`aquery` (+ the now-unused `import asyncio`) | no caller in `friday/`; the async callers already wrap `db.write` in `asyncio.to_thread` themselves |
+| the vestigial `sd.stop()` in `Speaker.stop` | it stops the module-level stream `sd.play()` uses, and nothing has called `sd.play()` since `say()` grew its own `OutputStream` |
+| `create_detector(threshold=…)` | **accepted and ignored** — the threshold belongs to `WakeListener`. Two callers passed `config.WAKE_THRESHOLD` believing it took effect. A parameter that is dropped is worse than a missing one: the caller has evidence it was set |
+| `_Probe.reset()` (`scripts/wake_bench.py`) | wrapper around a method nothing calls |
+| two stale docstring claims | the registry said `web_search` "shows as not-yet-wired" and that only launch tools live there (commands do too since ADR-073); `db.py` credited `awrite` for the one-writer guarantee |
+
+### Kept — and made live instead, which the audit offered as the alternative
+- **`ToolResult.code`, `E_TOOL_TIMEOUT`, `E_TOOL_FAILED`** — adopted by Step 9.
+  They were dead when the audit was written; they are the verdict now.
+- **`E_SCHEMA`** — existed in the taxonomy and was written nowhere, so a run of
+  malformed plans left no trace distinguishable from the user saying nothing
+  useful. Now logged where `SchemaError` is caught: log the code, speak the
+  template (spec §4).
+- **`PendingAction.description`** — built at five call sites and read at none.
+  Deleting it was the listed action; it is instead logged when a confirm arms
+  (`confirm armed: turn off Wi-Fi (30s)`). A confirm window opening with no
+  record of what it is FOR is precisely the observability gap H2 and ADR-069
+  were about, and the field is the only human phrasing of the request that
+  exists. Not `no_disk`: it is a fixed phrase written by us, never the user's
+  words and never model output.
+- **`daemon.py`'s string-literal `E_BUSY`** now uses the constant, per the
+  audit's own note.
+
+### Gate
+```
+uv run pytest -q          -> 449 passed (unchanged: the sweep removes code, not coverage)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
+just selftest             -> [PASSED] all 8 checks
+```
+
+Three tests changed with the code, none weakened: `test_db`'s FR-51 proof now
+drives `asyncio.to_thread(db.write, …)`, which is what the real callers do;
+`test_tts_cancel` asserts the stream abort (the actual mechanism) instead of
+`sd.stop()`; `test_registry` drops its `NOT_YET_WIRED` assertion.
+
+### THE 2026-08-26 AUDIT FIX PHASE IS DONE — what is left is verification
+All twelve steps executed, 1 CRITICAL + 8 HIGH + the targeted MEDIUMs closed,
+plus ADR-073 and ADR-074 (which came out of Step 9's real-path run and were not
+in the audit at all). **The next work is not more fixing — it is the live pass**
+(`docs/reality-check.md`), because the honest summary of this whole phase is
+that the defects the suite could not see were found by running the real system,
+and most of the manifest has still never been touched by a human at a keyboard.
 
 ---
 
@@ -972,9 +1031,15 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Step 12) <<<
+## >>> START HERE: NEXT SESSION (updated 2026-08-29 — THE FIX PHASE IS DONE; next is the LIVE PASS) <<<
 
-**Steps 1–11 are DONE** (see the 2026-08-29 session blocks just above for what
+**All 12 steps are DONE.** The remaining fix list below is kept as a record of
+what each step did; there is nothing left to execute in it. **The next session's
+job is `docs/reality-check.md`** — start with the typed rows (no mic needed),
+then the live-voice rows, then `hypr_window` (§A10), which ADR-074 fixed but
+deliberately did not probe. Historical note follows.
+
+**Steps 1–11 were DONE** (see the 2026-08-29 session blocks just above for what
 changed and why). **OQ-38 (both Hyprland tools broken since the 0.56
 upgrade) was raised and closed the same day — ADR-074; `hypr_workspace` is
 verified live, `hypr_window` still needs a hand-tick in reality-check §A10.** Step 12 is unchanged from the 2026-08-26 plan except
@@ -983,7 +1048,7 @@ where this block says otherwise. Read the fix-status table at the bottom of
 what is not. Do **not** re-audit; the findings are still accurate apart from
 the three corrections recorded there.
 
-**No feature work and no Phase 3 until Step 12 is done.**
+**No feature work and no Phase 3 until the live pass has run.**
 
 ### First commands, in order
 ```bash
@@ -998,7 +1063,7 @@ Never two daemons. Never trust "Friday said it worked" — ask the system.
 pre-fix tree, then restore and fix. Two tests this session passed vacuously and
 were only caught that way.
 
-### THE REMAINING FIX LIST — Step 12 (audit order, H8 already taken)
+### THE FIX LIST — ALL 12 DONE (kept as the record of what each step did)
 
 > **Ordering decision, 2026-08-29 — now spent.** The audit's plan had H8 at
 > Step 11. Put to the user; answer: pull it forward to Step 7, because it was
@@ -1047,19 +1112,14 @@ closed on anything it cannot decode; `audio_devices` and `llm_on_gpu` FAIL where
 they used to WARN; `check_database` no longer creates the database it verifies.
 Twelve FAIL-path tests. Closes `threat-model.md` T6 control 4.
 
-**Step 12 — dead-code sweep (one commit).**
-The audit's table, minus two items already retired in Step 1/3 (the
-`PendingAction` F821 annotation is now a real import; the
-`habits.describe_action` web_search branch is reachable and tested — KEEP it).
-Remaining: `RiskTier` + its `import os`, the `NOT_YET_WIRED` branch (+ its
-test), the scheduler `dnd` param, `PendingAction.description`, `ToolResult.code`,
-`E_SCHEMA`/`E_TOOL_TIMEOUT`/`E_TOOL_FAILED` (or adopt them — but stop the
-string-literal `E_BUSY` in `daemon.py`), `awrite`/`aquery`, the vestigial
-`sd.stop()`, the stale registry docstring, the `create_detector(threshold=…)`
-param, `preferences.source='user_typed'`, and `_Probe.reset()` in
-`scripts/wake_bench.py`. Run the full suite after; eval must stay 28/28.
+**Step 12 — dead-code sweep. DONE 2026-08-29.** Deleted `RiskTier`,
+`NOT_YET_WIRED` + its branch, `awrite`/`aquery`, the vestigial `sd.stop()`,
+`create_detector`'s ignored `threshold=`, `_Probe.reset`, two stale docstrings.
+Kept and made live instead: `ToolResult.code` + `E_TOOL_*` (ADR-073),
+`E_SCHEMA` (now logged), `PendingAction.description` (logged when a confirm
+arms). Suite unchanged at 449 — a sweep removes code, not coverage.
 
-### After Steps 7–12
+### After the fix phase — THIS IS NOW THE WORK
 
 > **Sequencing decision, 2026-08-29.** Whether to verify the fixed-but-unverified
 > typed rows *before* Steps 7–12 was put to the user. Answer: **keep the plan** —

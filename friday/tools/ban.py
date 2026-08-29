@@ -6,20 +6,10 @@ matching a banned binary or destructive verb is rejected before execution.
 
 from __future__ import annotations
 
-from enum import Enum
-import os
 from pathlib import Path
 from typing import Sequence
 
 from friday.errors import PolicyRejected
-
-
-class RiskTier(str, Enum):
-    """Three-tier risk policy for actions."""
-
-    HARMLESS = "harmless"          # Immediate execution
-    CONSEQUENTIAL = "consequential"# Requires spoken confirmation ("yes")
-    DANGEROUS = "dangerous"        # Requires two-pass speaker verification (G13)
 
 
 BANNED_BINARIES: frozenset[str] = frozenset(

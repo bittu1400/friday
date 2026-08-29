@@ -372,7 +372,9 @@ APPS = MappingProxyType({
 })
 
 # friday/tools/registry.py — code builds argv; only launch tools execute at
-# G3. web_search (G7) and the memory tools (G4) are NOT_YET_WIRED.
+# G3. web_search (G7) and the memory tools (G4) are not in the registry —
+# they have their own paths through the turn loop. (The NOT_YET_WIRED map
+# itself was deleted 2026-08-29; it had been empty since G7.)
 #   open_app        -> hyprctl dispatch exec <APPS[app].argv>
 #   open_youtube    -> hyprctl dispatch exec brave https://www.youtube.com
 #   youtube_search  -> hyprctl dispatch exec brave <youtube_url(query)>

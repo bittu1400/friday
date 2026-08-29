@@ -50,7 +50,13 @@ def test_100_parallel_writes_no_lock(tmp_path) -> None:
     async def go() -> None:
         await asyncio.gather(
             *[
-                db.awrite(
+                # `Database.awrite`/`aquery` were deleted in the 2026-08-29
+                # dead-code sweep: nothing in `friday/` ever called them, and
+                # the callers that DO write from the loop already wrap
+                # `db.write` in `asyncio.to_thread` themselves. This is what
+                # they do, so FR-51 is still proved against the real code path.
+                asyncio.to_thread(
+                    db.write,
                     "INSERT INTO action_audit(request_id, tool_id, args_redacted, "
                     "policy_decision, outcome, duration_ms, created_at) "
                     "VALUES (?,?,?,?,?,?,?)",

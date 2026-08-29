@@ -114,12 +114,15 @@ class OpenWakeWordDetector:
 
 
 
-def create_detector(
-    model_path: Path | str | None = None,
-    *,
-    threshold: float = 0.5,
-) -> WakeDetector | None:
-    """Factory for wake word detector, fail-soft to None."""
+def create_detector(model_path: Path | str | None = None) -> WakeDetector | None:
+    """Factory for wake word detector, fail-soft to None.
+
+    It took a `threshold=` and ignored it: the threshold belongs to
+    `WakeListener`, which compares the score. Callers passed
+    `config.WAKE_THRESHOLD` here believing it took effect. A parameter that is
+    accepted and dropped is worse than a missing one — the caller has evidence
+    it was set.
+    """
     target_path = Path(model_path or config.WAKE_MODEL)
     if not target_path.exists():
         # Fallback to package model if local share doesn't exist

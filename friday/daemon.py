@@ -30,6 +30,7 @@ from .audio.capture import Recorder
 from .audio.state import State, TurnState
 from .audio.stt import Transcriber
 from .dialogue import Dialogue
+from .errors import E_BUSY
 from .llm.client import LlamaClient
 from .proactive import notifier
 from .store.audit import AuditLog
@@ -149,7 +150,7 @@ class Daemon:
         captures that STT reported as 100% silence. So say so.
         """
         self.rejected += 1
-        log.info("E_BUSY: %s ignored in %s", source, self.state.state.value)
+        log.info("%s: %s ignored in %s", E_BUSY, source, self.state.state.value)
         # Module-qualified so tests can stub notifier.notify (a real notify-send
         # in the suite is how the phantom "pasta" toasts happened). Off the loop
         # (H6): `notify-send` can block for up to 2 s, and this path fires while
@@ -472,6 +473,16 @@ class Daemon:
     # --- confirm-first voice handshake ------------------------------------
 
     def _open_confirm_window(self) -> None:
+        # `PendingAction.description` is a human phrasing of what was asked
+        # ("turn off Wi-Fi"). The 2026-08-29 sweep listed it as dead — built at
+        # five call sites, read at none — but a confirm window opening with no
+        # record of WHAT it is for is the observability gap H2 and ADR-069 were
+        # about. Adopted rather than deleted. Not `no_disk`: it is a fixed
+        # phrase written by us, never the user's words and never model output.
+        what = getattr(self._pending, "description", None)
+        if what:
+            log.info("confirm armed: %s (%ds)", what, _CONFIRM_WINDOW)
+
         # A DISTINCT timer from the 15 s capture cap: pressing the key to speak
         # the yes/no answer arms the capture cap, and sharing one handle would
         # orphan this 30 s timer (it would then fire mid-future-turn and reset

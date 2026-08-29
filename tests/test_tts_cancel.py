@@ -108,10 +108,17 @@ def test_cancel_during_synthesis_never_starts_audio(fake_sd):
     assert fake_sd.played is False  # cancel landed before play started
 
 
-def test_stop_sets_flag_and_stops_stream(fake_sd):
+def test_stop_sets_flag_and_aborts_the_stream(fake_sd):
+    """`sd.stop()` was dropped in the 2026-08-29 sweep: it only stops the
+    module-level stream `sd.play()` uses, and nothing has called `sd.play()`
+    since say() grew its own OutputStream. Aborting OUR stream is the whole
+    mechanism, so that is what this asserts."""
     sp = Speaker(FakeKokoro(), "af_bella")
+    sp._stream = fake_sd.OutputStream(samplerate=24000, channels=1, dtype="float32",
+                                      callback=lambda *a: None, finished_callback=lambda: None)
     sp.stop()
-    assert fake_sd.stopped is True
+    assert sp._cancel.is_set()
+    assert fake_sd.aborted is True
 
 
 def test_say_clears_stale_cancel(fake_sd):

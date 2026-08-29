@@ -9,8 +9,9 @@ Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
-review passes; the fifth (the 2026-08-26 full-codebase audit) is HALF FIXED —
-Steps 1–11 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
+review passes; the fifth (the 2026-08-26 full-codebase audit) is **FULLY
+FIXED — all 12 steps executed 2026-08-29**, plus ADR-073/074 which came out of
+Step 9's real-path run and were not in the audit at all.** `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
 `hey_jarvis` wake word, ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
@@ -25,7 +26,7 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **395 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+`uv run pytest` **449 passed**, `just eval` **28/28 reg 0**, `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**,
 `just test-egress` loopback-only. (Verified 2026-08-29 with the LLM confirmed on
 GPU — see `llm_on_gpu`.)
@@ -41,7 +42,7 @@ enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
 that spoke success while doing nothing**. (3) The 2026-08-25 live sessions fixed
 13 more (see the session blocks in `progress.md`). (4) A full read-only codebase
 audit (**2026-08-26**, report: `Alpha-ox-analysis.md`) found **1 CRITICAL + 8
-HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–11
+HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed all 12 steps
 of that fix list**: C1 (text-mode confirm of any action was a silent no-op —
 both UIs now share one `turn.resolve_pending`, ADR-069), H1 (confirmed
 dispatches and web searches wrote zero audit rows), H2/H3/M-P1 (a confirm could
@@ -66,7 +67,7 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: Step 12** (the dead-code sweep), then the live pass. Step 9's real-path run found both Hyprland tools had never worked here (missing `HYPRLAND_INSTANCE_SIGNATURE` + Hyprland 0.56's Lua `dispatch`); fixed the same day as **ADR-074**, `hypr_workspace` verified live, **`hypr_window` still needs a hand-tick** (`close`/`fullscreen` act on the focused window, so they were not probed). Read the `>>> START HERE <<<` block at the top of
+**NEXT SESSION: the LIVE PASS (`docs/reality-check.md`), not more fixing.** The fix phase is complete; what remains is that most of the manifest has never been touched by a human at a keyboard. Step 9's real-path run found both Hyprland tools had never worked here (missing `HYPRLAND_INSTANCE_SIGNATURE` + Hyprland 0.56's Lua `dispatch`); fixed the same day as **ADR-074**, `hypr_workspace` verified live, **`hypr_window` still needs a hand-tick** (`close`/`fullscreen` act on the focused window, so they were not probed). Read the `>>> START HERE <<<` block at the top of
 `progress.md` first, then the **fix-status table at the bottom of
 `Alpha-ox-analysis.md`** — it is the fastest map of what is fixed and what is
 not, and it records three places the audit itself was wrong. Do not re-audit.

@@ -4,11 +4,11 @@ params; CODE in this file — never the model — builds the argv. Adding a
 capability is a code change plus a test, by design (that friction is the
 feature).
 
-Only tools that dispatch a *subprocess* live here: the launch tools. The
-memory tools (`remember_preference`/`forget_preference`) act on the SQLite
-store, not a subprocess, so they are handled in the turn loop (G4), not
-through this registry. `web_search` (needs SearXNG, G7) is a valid plan
-action with no entry yet — the caller shows it as not-yet-wired.
+Only tools that dispatch a *subprocess* live here — the GUI launches and
+the G12 commands (`ToolSpec.detach` tells them apart, ADR-073). The memory
+tools (`remember_preference`/`forget_preference`) act on the SQLite store,
+not a subprocess, so they are handled in the turn loop (G4), and `web_search`
+has its own path through the turn loop (G7), not an entry here.
 
 Risk classes are `read_only`, `reversible`, `irreversible`. Phase 1 ships
 only the first two (FR-33); a registry test asserts no irreversible entry
@@ -343,5 +343,4 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
     }
 )
 
-NOT_YET_WIRED: Mapping[str, str] = MappingProxyType({})
 

@@ -2,8 +2,9 @@
 
 One `Database` owns one connection guarded by one lock, so every write is
 serialized whether it arrives from the sync CLI or from the async turn loop
-(via `awrite`). That is the whole of "one writer" (FR-51): there is no
-second connection that could see `database is locked`.
+(which wraps `write` in `asyncio.to_thread` at the call site). That is the
+whole of "one writer" (FR-51): there is no second connection that could see
+`database is locked`.
 
 Guarantees:
     - WAL + `busy_timeout=5000` set on connect
@@ -15,7 +16,6 @@ Guarantees:
 
 from __future__ import annotations
 
-import asyncio
 import sqlite3
 import threading
 from pathlib import Path
@@ -166,12 +166,6 @@ class Database:
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute(sql, params).fetchall()
-
-    async def awrite(self, sql: str, params: tuple = ()) -> int:
-        return await asyncio.to_thread(self.write, sql, params)
-
-    async def aquery(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-        return await asyncio.to_thread(self.query, sql, params)
 
     def close(self) -> None:
         with self._lock:

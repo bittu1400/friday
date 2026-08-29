@@ -33,7 +33,7 @@ from .llm.validate import SchemaError, validate
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore, resolve
 from .tools import executor
-from .tools.registry import NOT_YET_WIRED, REGISTRY
+from .tools.registry import REGISTRY
 from .tools.search import SearchClient, SearchResult, SearchUnavailable, sanitize
 from .ui import templates
 
@@ -158,6 +158,10 @@ async def _plan_and_act(
             if resolved.name not in ("none", "chat"):
                 plan, from_history = resolved, True
     except SchemaError:
+        # Log the code, speak the template (spec §4). E_SCHEMA existed in the
+        # taxonomy and was written nowhere, so a run of malformed plans left no
+        # trace distinguishable from the user saying nothing useful.
+        log.info("E_SCHEMA: plan failed validation, failing closed to none")
         return TurnResult("none", {}, "I didn't understand.", False)
     except LlamaTimeout:
         return TurnResult("none", {}, "That took too long.", False)
@@ -260,11 +264,6 @@ async def _plan_and_act(
         return await _do_web_search(
             params.get("query", utterance), client, search_client, connected,
             audit=audit, request_id=request_id,
-        )
-
-    if plan.name in NOT_YET_WIRED:
-        return TurnResult(
-            plan.name, params, f"[planned {plan.name} — {NOT_YET_WIRED[plan.name]}]", False
         )
 
     spec = REGISTRY.get(plan.name)

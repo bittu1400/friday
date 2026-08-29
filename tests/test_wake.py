@@ -150,7 +150,7 @@ def test_farend_ref_ring():
 
 
 def test_detector_create_smoke():
-    det = create_detector(model_path=config.WAKE_MODEL, threshold=0.5)
+    det = create_detector(model_path=config.WAKE_MODEL)
     assert det is not None
     # Feed silent frame
     score = det.score(np.zeros(320, dtype=np.float32))

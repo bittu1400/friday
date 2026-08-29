@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from friday.llm import schema
 from friday.tools.apps import APPS
-from friday.tools.registry import NOT_YET_WIRED, REGISTRY
+from friday.tools.registry import REGISTRY
 
 
 def test_no_irreversible_tools() -> None:
@@ -15,7 +15,6 @@ def test_no_irreversible_tools() -> None:
 def test_every_registered_tool_is_a_known_action() -> None:
     known = set(schema.ACTIONS)
     assert set(REGISTRY) <= known
-    assert set(NOT_YET_WIRED) <= known
 
 
 def test_open_app_builds_direct_binary_argv_per_app() -> None:

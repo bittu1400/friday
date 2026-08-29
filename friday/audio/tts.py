@@ -188,19 +188,14 @@ class Speaker:
         self._cancel.set()
         if self._far_ref is not None:
             self._far_ref.clear()
-        # say() now owns an OutputStream, which sd.stop() does not touch — it
-        # only stops the module-level stream sd.play() uses. Abort ours too, or
-        # a barge-in would set the flag and then wait out the whole utterance.
+        # say() owns an OutputStream. `sd.stop()` used to be called here too,
+        # but it only stops the module-level stream `sd.play()` uses and nothing
+        # has called `sd.play()` since say() grew its own stream — it was noise
+        # that made this look like it did more than it does.
         stream = self._stream
         if stream is not None:
             try:
                 stream.abort(ignore_errors=True)
             except Exception:
                 pass
-        try:
-            import sounddevice as sd
-
-            sd.stop()
-        except Exception:
-            return
 
