@@ -221,7 +221,17 @@ async def _plan_and_act(
         return await _do_read_notes(prefs)
 
     if plan.name == "clipboard_read":
-        return await _do_clipboard_read()
+        # ADR-068a (OQ-34): the clipboard is read ALOUD, so its contents leave
+        # the machine as sound in whatever room Friday is in — a copied
+        # password or 2FA code included. Speaking it because the planner
+        # matched a phrase is not acceptable, so it joins clipboard_set,
+        # wifi-off and window-close behind the confirm. Nothing is even read
+        # until the user says yes.
+        return TurnResult(
+            "clipboard_read", params,
+            "Do you want me to read your clipboard aloud?", False,
+            pending=PendingAction("clipboard_read", {}, "read the clipboard aloud"),
+        )
 
     if plan.name == "clipboard_set":
         return TurnResult(
@@ -388,6 +398,19 @@ async def resolve_pending(
 
         ok = await asyncio.to_thread(set_clipboard, pending.params.get("text", ""))
         return "Copied to your clipboard." if ok else "Clipboard unavailable."
+
+    if pending.tool_id == "clipboard_read":
+        # ADR-068a: read only now, on an explicit yes — a declined confirm must
+        # not so much as fetch the selection, let alone voice it.
+        from .tools.clipboard import read_clipboard
+
+        raw = await asyncio.to_thread(read_clipboard)
+        if raw is None:
+            return "Clipboard unavailable."
+        txt = " ".join(raw.split())
+        if not txt:
+            return "Your clipboard is empty."
+        return f"Clipboard contains: {txt[:100]}"
 
     spec = REGISTRY.get(pending.tool_id)
     if spec is None:
@@ -591,16 +614,7 @@ async def _do_read_notes(prefs: PrefStore | None) -> TurnResult:
     return TurnResult("read_notes", {}, f"Here are your latest notes: {items}", False)
 
 
-async def _do_clipboard_read() -> TurnResult:
-    from .tools.clipboard import read_clipboard
-
-    raw = await asyncio.to_thread(read_clipboard)
-    if raw is None:
-        return TurnResult("clipboard_read", {}, "Clipboard unavailable.", False)
-    txt = raw.strip()
-    if not txt:
-        return TurnResult("clipboard_read", {}, "Your clipboard is empty.", False)
-    snippet = " ".join(txt.split())[:100]
-    return TurnResult("clipboard_read", {}, f"Clipboard contains: {snippet}", False)
+# `_do_clipboard_read` is gone: reading the clipboard aloud is now a confirmed
+# action, resolved in `resolve_pending` (ADR-068a).
 
 

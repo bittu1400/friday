@@ -120,6 +120,9 @@ class Daemon:
         )
         self._turn_task: asyncio.Task | None = None
         self._speak_task: asyncio.Task | None = None
+        # The speak task `_cancel_speak` most recently cut, so `_speak` can tell
+        # a barge-in apart from its own turn task being cancelled (ADR-069).
+        self._barged_speak_task: asyncio.Task | None = None
         self._sched_task: asyncio.Task | None = None
         self._pending: PendingPreference | PendingAction | None = None  # awaiting voice confirm
         self._cap_timer: asyncio.TimerHandle | None = None
@@ -223,8 +226,18 @@ class Daemon:
         # listener arms itself on wake; barge-in was never armed, so it could
         # only end at the 15 s cap. PTT stays unarmed on purpose (ADR-044:
         # the second tap ends it).
-        if source in ("barge", "ptt-barge") and self._wake_listener is not None:
-            self._wake_listener.arm_end_of_speech()
+        if source in ("barge", "ptt-barge"):
+            # A barge-in is the user starting something NEW over whatever
+            # Friday is saying. If a confirm was somehow still armed, the next
+            # utterance is a command, never the yes/no answer to a question
+            # that got talked over (ADR-069/H3). Ordering makes this hard to
+            # reach today — the window only opens after the question finishes —
+            # but "currently unreachable" has never been a control here.
+            if self._pending is not None:
+                self._pending = None
+                self._disarm_confirm()
+            if self._wake_listener is not None:
+                self._wake_listener.arm_end_of_speech()
         if hasattr(self._recorder, "ensure_open"):
             self._recorder.ensure_open()
         self._recorder.reset()
@@ -328,8 +341,8 @@ class Daemon:
             if is_signoff_phrase(text):
                 spoken = generate_signoff_summary(self._dialogue.render(), self._client)
                 self.state.got_plan(will_speak=True)
-                await self._speak(spoken)
-                self._dialogue.add(text, spoken)
+                if await self._speak(spoken):  # ADR-069: heard, or not history
+                    self._dialogue.add(text, spoken)
                 return
 
             # PLANNING + EXECUTING (execute-first inside run_turn; no speech).
@@ -373,10 +386,19 @@ class Daemon:
 
 
             if result.pending is not None:  # confirm-first (ADR-037)
-                self._pending = result.pending
                 self.state.got_plan(will_speak=True)
-                await self._speak(result.spoken)  # the question
-                self._open_confirm_window()
+                # Arm the handshake ONLY if the question was actually delivered
+                # (ADR-069). Arming first was two defects at once:
+                #   H2 — if `speaker.say` raised (device gone), `_pending` stayed
+                #        set with NO confirm timer armed, so a "yeah" opening an
+                #        unrelated turn minutes later dispatched a held
+                #        `system_wifi{off}` the user never heard proposed;
+                #   H3 — on barge-in the user's new COMMAND was read as the
+                #        yes/no answer, cancelled ("Okay, cancelled.") and lost.
+                # An undelivered question is not a question.
+                if await self._speak(result.spoken):
+                    self._pending = result.pending
+                    self._open_confirm_window()
                 return
 
             if config.DEBUG:
@@ -387,10 +409,15 @@ class Daemon:
                 )
             will_speak = bool(result.spoken) and result.spoken != "(no action)"
             self.state.got_plan(will_speak=will_speak)
-            if will_speak:
-                await self._speak(result.spoken, measure=True)
+            if will_speak and await self._speak(result.spoken, measure=True):
                 # Append after speaking so cross-turn context holds (action and
                 # chat turns alike). RAM-only — the buffer is never persisted.
+                #
+                # Only after speech the user actually RECEIVED (ADR-069). A
+                # barged reply used to be recorded as if fully delivered, and
+                # history is what ADR-065 resolves anaphora against — so Friday
+                # could resolve a later "open it" against a sentence that was
+                # cut off before the user heard the noun.
                 self._dialogue.add(text, result.spoken)
         except asyncio.TimeoutError:
             await self._fail_speak("That took too long.")  # E_LLM_TIMEOUT
@@ -436,11 +463,18 @@ class Daemon:
             self._confirm_timer = None
 
     def _expire_confirm(self) -> None:
-        # 30 s with no answer -> cancel silently (diagram 01).
+        # 30 s with no answer -> cancel silently (diagram 01). Dropping the
+        # pending IS the cancellation; a later utterance is then simply a fresh
+        # command.
         self._confirm_timer = None
         self._pending = None
-        if self.state.state is not State.IDLE:
-            self.state.reset()
+        # It must NOT touch the FSM. Firing while the user is mid-answer used to
+        # slam the mic gate shut (CAPTURING -> IDLE), so the release found the
+        # wrong state and the answer vanished with zero feedback (audit M-P1) —
+        # and resetting during TRANSCRIBING/PLANNING would break that turn's own
+        # transitions the same way H4 did. Every state here is owned by an
+        # in-flight turn that ends on its own: the 15 s cap (FR-4) ends a
+        # capture, `_fail_speak` clears ERROR.
 
     async def _resolve_confirm(self, text: str, rid: str) -> None:
         pending, self._pending = self._pending, None
@@ -458,23 +492,46 @@ class Daemon:
 
     # --- speaking (cancellable) -------------------------------------------
 
-    async def _speak(self, text: str, *, measure: bool = False) -> None:
+    async def _speak(self, text: str, *, measure: bool = False) -> bool:
+        """Speak `text`. Returns True if it was delivered to the end, False if
+        barge-in cut it off (ADR-069).
+
+        Callers act on the answer: an interrupted line is not history, and an
+        interrupted question does not arm a confirm. Two independent signals
+        mean "cut off" — `Speaker.say` returns False when `stop()` beat it, and
+        the task is cancelled when `_cancel_speak` got there first — so both
+        are checked.
+        """
         if self._speaker is None:
             if self.state.state is State.SPEAKING:
                 self.state.done_speaking()
-            return
+            return True
         on_play = self._ttfa_logger() if (measure and config.DEBUG) else None
-        self._speak_task = asyncio.create_task(
+        task = self._speak_task = asyncio.create_task(
             asyncio.to_thread(self._speaker.say, text, on_play)
         )
         try:
-            await self._speak_task
+            played = await task
         except asyncio.CancelledError:
-            return  # barge-in cancelled us; state already moved on
+            # Only swallow OUR cancellation. If the turn task itself was
+            # cancelled, the inner task is collateral and the CancelledError
+            # belongs to the caller.
+            if self._barged_speak_task is not task:
+                raise
+            self._barged_speak_task = None
+            return False
         finally:
-            self._speak_task = None
+            # Identity-checked: a superseded turn must not blank the handle a
+            # newer turn already installed, or the next barge-in would find
+            # nothing to cancel.
+            if self._speak_task is task:
+                self._speak_task = None
+        if played is False:  # stop() beat us to it; the task was never cancelled
+            self._barged_speak_task = None
+            return False
         if self.state.state is State.SPEAKING:
             self.state.done_speaking()
+        return True
 
     def _ttfa_logger(self):  # noqa: ANN202 - returns a thread callback
         """A one-shot callback for `Speaker.say(on_play=...)` that logs TTFA —
@@ -491,8 +548,17 @@ class Daemon:
     async def _say_now(self, text: str) -> None:
         """Speak a line that is not tied to SPEAKING-state bookkeeping (errors
         during TRANSCRIBING)."""
-        if self._speaker is not None:
+        if self._speaker is None:
+            return
+        try:
             await asyncio.to_thread(self._speaker.say, text)
+        except Exception:
+            # The error path must not be able to fail worse than what it is
+            # reporting. `_fail_speak` calls this; a raising speaker (dead audio
+            # device) would otherwise raise out of the exception handler, kill
+            # the turn task mid-unwind and strand the FSM in ERROR, rejecting
+            # every later trigger. Log the code, never the exception (FR-26).
+            log.error("E_TTS_FAILED: could not speak")
 
     async def _fail_speak(self, text: str) -> None:
         self.state.fail()
@@ -502,8 +568,12 @@ class Daemon:
     def _cancel_speak(self) -> None:
         if self._speaker is not None:
             self._speaker.stop()
-        if self._speak_task is not None and not self._speak_task.done():
-            self._speak_task.cancel()
+        task = self._speak_task
+        if task is not None and not task.done():
+            # Remember WHICH task we cut, so `_speak` can tell our cancellation
+            # apart from the turn task being cancelled out from under it.
+            self._barged_speak_task = task
+            task.cancel()
 
     async def _abort(self) -> None:
         self._cancel_speak()

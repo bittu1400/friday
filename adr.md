@@ -2204,3 +2204,91 @@ in the fix phase — (a) with Step 2's confirm-lifecycle commit, (b) with Step 6
 DB work — not as separate steps.
 
 **Status:** Accepted 2026-08-27. Implementation pending (fix phase).
+
+---
+
+## ADR-069 — One confirm resolver for both UIs; a confirm is armed only by a question the user actually heard
+
+**Status:** Accepted (2026-08-29). Implements the fix-phase Steps 1 and 2 of
+ADR-067; carries ADR-068(a) with it. Amends ADR-037 and ADR-057.
+
+**Context.** The 2026-08-26 audit found four separate defects in the
+confirm-first handshake, all of them on paths no fixture drove:
+
+- **C1 (CRITICAL).** The TUI's `_resolve_pending` assumed every held pending
+  was a `PendingPreference` and called `confirm_preference(pending, …)`, which
+  reads `pending.key`. Phase 2 also stores `PendingAction` there. Every
+  text-mode action confirm raised AttributeError inside a Textual worker and
+  did nothing — "Are you sure you want to overwrite your clipboard?" → "yes" →
+  silence, forever. The voice path had been migrated at G12; the text path
+  never was, and nothing compared them.
+- **H2.** `_pending` was assigned *before* the question was spoken. If
+  `speaker.say` raised, `_pending` stayed set with **no confirm timer armed**,
+  so an unrelated "yeah" minutes later was consumed as the answer — dispatching
+  a held `system_wifi{off}` the user never heard proposed.
+- **H3.** `_speak` swallowed `CancelledError` and returned normally, so a
+  barge-in over the question still opened the 30 s window: the user's real
+  command was read as the yes/no answer, cancelled, and lost. The same silence
+  meant an interrupted reply was appended to `Dialogue` as if delivered —
+  feeding ADR-065's history resolution with content the user never received.
+- **M-P1.** `_expire_confirm` force-reset the FSM. Firing while the user was
+  CAPTURING the answer slammed the mic gate shut; the release then found the
+  wrong state and the answer vanished with no feedback.
+
+**Decision.**
+
+1. *One resolver.* `turn.resolve_pending(pending, answer, …)` handles both
+   pending types and is called by the daemon **and** the TUI. The per-UI copies
+   are deleted. C1 was not a typo, it was two implementations of one protocol;
+   deleting the second copy is what stops it recurring. The declined-preference
+   line now comes from `templates.cancelled_preference()` like every other
+   direct-action string (ADR-009) rather than a literal in the daemon.
+2. *`_speak` returns delivered-or-not.* True only if the line played to the
+   end. Two independent signals mean "cut off" — `Speaker.say` returns False
+   when `stop()` beat it, and the task is cancelled when `_cancel_speak` got
+   there first — so both are checked. `_cancel_speak` records **which** task it
+   cut (`_barged_speak_task`), so `_speak` can tell a barge-in apart from its
+   own turn task being cancelled and never swallows a cancellation that is not
+   its own.
+3. *Delivery gates arming.* `_pending` is set and the window opened only when
+   the question returned True. An undelivered question is not a question.
+4. *Delivery gates history.* `dialogue.add` runs only after a delivered line,
+   on both the normal and the sign-off path.
+5. *Expiry never touches the FSM.* Dropping `_pending` **is** the cancellation;
+   a later utterance is then simply a fresh command. Every state the timer
+   could fire in is owned by an in-flight turn that ends on its own (the 15 s
+   cap ends a capture, `_fail_speak` clears ERROR), and resetting mid-turn is
+   the same double-transition bug as H4.
+6. *`_say_now` cannot fail worse than what it reports.* A raising speaker used
+   to propagate out of `_fail_speak`, kill the turn task mid-unwind and strand
+   the FSM in ERROR — rejecting every later trigger. It now logs a code and
+   returns (FR-26).
+7. *ADR-068(a) lands here.* `clipboard_read` returns a `PendingAction`; the
+   selection is not fetched at all until an affirmative, and is spoken only by
+   `resolve_pending`. `turn._do_clipboard_read` is deleted.
+
+**Superseded turn tasks are neutralized by guards, not by cancellation.** After
+a barge-in two turn tasks are briefly alive. Cancelling the older one was
+considered and rejected: its work sits in `asyncio.to_thread`, which cannot be
+cancelled — the worker thread runs on regardless — so cancellation would buy
+the *appearance* of neutralization while turning a benign unwind into a
+`CancelledError` the daemon must then reap. Instead every tail the old task can
+still reach is guarded: it skips `dialogue.add` (interrupted), returns before
+`done_speaking()` (interrupted), and clears `_speak_task` only if it still owns
+it — an identity check, because blanking a newer turn's handle would leave the
+next barge-in with nothing to cancel.
+
+**Consequences.** The two UIs cannot drift again — there is one code path, and
+the TUI-parity tests drive the real Textual app headless rather than a stand-in.
+`_speak`'s signature changes from `None` to `bool`; every caller was updated.
+Barge-in over a question now costs the user a re-ask instead of eating their
+command. Tests that patched `daemon.confirm_preference` now patch
+`turn.confirm_preference`, where the lookup moved. No invariant moved: #4
+(execute first, then speak) and #10 (three-tier confirm) are strengthened, not
+relaxed, because a confirm can no longer be armed by a question nobody heard.
+
+**Rejected.** Clearing `_pending` in the daemon's exception handlers (the
+audit's other suggested fix for H2) — it fixes the raise but not the barge-in,
+and leaves two places that must agree about when a confirm is live. Keeping a
+thin TUI copy that "just adds an isinstance branch" — that is exactly the shape
+that produced C1.
