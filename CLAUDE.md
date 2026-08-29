@@ -66,7 +66,7 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: Steps 10–12.** **Read OQ-38 first: Step 9 proved both Hyprland tools have never worked on this machine (missing `HYPRLAND_INSTANCE_SIGNATURE`, plus Hyprland 0.56's Lua `dispatch`), with the working syntax measured and deliberately not applied yet.** Read the `>>> START HERE <<<` block at the top of
+**NEXT SESSION: Steps 10–12.** Step 9's real-path run found both Hyprland tools had never worked here (missing `HYPRLAND_INSTANCE_SIGNATURE` + Hyprland 0.56's Lua `dispatch`); fixed the same day as **ADR-074**, `hypr_workspace` verified live, **`hypr_window` still needs a hand-tick** (`close`/`fullscreen` act on the focused window, so they were not probed). Read the `>>> START HERE <<<` block at the top of
 `progress.md` first, then the **fix-status table at the bottom of
 `Alpha-ox-analysis.md`** — it is the fastest map of what is fixed and what is
 not, and it records three places the audit itself was wrong. Do not re-audit.
@@ -408,7 +408,9 @@ just prefs list|forget  # manage stored preferences
 | "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
 | "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |
 | "Put the search results in the planning turn, one round-trip" | T1. This is the exact attack the design prevents. |
-| "A sibling call site uses the same broken thing, but the ticket didn't mention it" | `registry.py` recorded in a comment that Hyprland 0.56 broke `hyprctl dispatch` — and `hypr_workspace`/`hypr_window`, which use the same form, were left broken and announcing success (OQ-38). Knowing a breakage and not grepping for its siblings is how it survives. |
+| "A sibling call site uses the same broken thing, but the ticket didn't mention it" | `registry.py` recorded in a comment that Hyprland 0.56 broke `hyprctl dispatch` — and `hypr_workspace`/`hypr_window`, which use the same form, were left broken and announcing success (ADR-074). Knowing a breakage and not grepping for its siblings is how it survives. |
+| "The argv test passes, so the tool works" | `test_hypr_tools_argv` asserted `["hyprctl","dispatch","workspace","3"]` for months. That argv is exactly what the code built and exactly what the compositor rejected. A test that asserts the argv the code builds proves only that the code builds it. |
+| "Escape the value into the command string carefully" | Don't build the string. `_LUA_DISPATCH` maps a closed param to one of sixteen import-time constants, so there is no interpolation to escape (ADR-074, stricter than ADR-027 because a workspace is one of ten values and a search query is not). |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
 | "Only poll the wake detector when we need it" | openWakeWord is a STREAMING model. Starving it leaves stale features and a stale score, and it re-fires the instant you resume — that was OQ-29. Feed it every frame; ignore the result instead. |
 | "Speech during playback means the user is interrupting" | On this hardware the AEC gives −5 to −10 dB, so it is usually Friday. Voice barge-in is off (ADR-064); PTT is the interrupt until OQ-32 lands. |

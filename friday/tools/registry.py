@@ -99,7 +99,18 @@ def youtube_url(query: str) -> str:
 # params, so the env stays explicit and minimal.
 def _build_app_env() -> Mapping[str, str]:
     env = {"PATH": os.environ.get("PATH") or "/usr/bin:/bin", "HOME": _HOME}
-    for key in ("WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY"):
+    for key in (
+        "WAYLAND_DISPLAY",
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "DISPLAY",
+        # Without this hyprctl cannot find the compositor at all — it prints
+        # "HYPRLAND_INSTANCE_SIGNATURE not set! (is hyprland running?)" and
+        # exits 1, which the executor swallowed until ADR-073. Both Hyprland
+        # tools had therefore never worked (OQ-38). The systemd unit already
+        # passes it through; the env copy simply never listed it.
+        "HYPRLAND_INSTANCE_SIGNATURE",
+    ):
         val = os.environ.get(key)
         if val:
             env[key] = val
@@ -160,31 +171,47 @@ def _build_wifi_argv(p: Mapping[str, str]) -> list[str]:
     return ["nmcli", "radio", "wifi", state]
 
 
+# Hyprland 0.56 routes `hyprctl dispatch` through Lua: the old positional form
+# (`dispatch workspace 2`) is parsed as Lua and dies with "')' expected near
+# '2'". The comment above already recorded this for `dispatch exec`; the two
+# tools below used the same broken form and nobody swept for siblings (OQ-38).
+#
+# An argv element is therefore now a small Lua program, which is exactly the
+# thing invariant #2 exists to prevent — so no parameter is ever formatted into
+# one. Every reachable dispatch string is built HERE, at import, from code-owned
+# literals, and a param can only SELECT one. A value outside the closed set is
+# rejected; it cannot be interpolated, escaped, or "sanitized". See ADR-074.
+_LUA_DISPATCH: Mapping[str, str] = MappingProxyType(
+    {
+        **{f"workspace:{i}": f"hl.dsp.focus{{workspace={i}}}" for i in range(1, 11)},
+        # `hl.dsp.focus` names directions in full: it rejects anything but
+        # left/right/up/down ("invalid direction \"zzz\"", measured 2026-08-29).
+        "focus_left": 'hl.dsp.focus{direction="left"}',
+        "focus_right": 'hl.dsp.focus{direction="right"}',
+        "focus_up": 'hl.dsp.focus{direction="up"}',
+        "focus_down": 'hl.dsp.focus{direction="down"}',
+        "fullscreen": "hl.dsp.window.fullscreen{}",
+        "close": "hl.dsp.window.close{}",
+    }
+)
+
+
 def _build_workspace_argv(p: Mapping[str, str]) -> list[str]:
-    ws = p.get("workspace", "1")
-    if not ws.isdigit() or not (1 <= int(ws) <= 10):
+    dispatch = _LUA_DISPATCH.get(f"workspace:{p.get('workspace', '1')}")
+    if dispatch is None:  # fail CLOSED: not a member of the closed set
         raise PolicyRejected("Invalid workspace number")
-    return ["hyprctl", "dispatch", "workspace", ws]
+    return ["hyprctl", "dispatch", dispatch]
 
 
 def _build_window_argv(p: Mapping[str, str]) -> list[str]:
     action = p.get("action", "fullscreen").lower()
-    if action == "focus_left":
-        return ["hyprctl", "dispatch", "movefocus", "l"]
-    elif action == "focus_right":
-        return ["hyprctl", "dispatch", "movefocus", "r"]
-    elif action == "focus_up":
-        return ["hyprctl", "dispatch", "movefocus", "u"]
-    elif action == "focus_down":
-        return ["hyprctl", "dispatch", "movefocus", "d"]
-    elif action == "fullscreen":
-        return ["hyprctl", "dispatch", "fullscreen", "1"]
-    elif action == "close":
-        # `killactive` closes the focused window with no argument. `closewindow`
-        # takes a window regex/address — "active" is not a valid selector there
-        # and silently matches nothing (reported OK on a no-op).
-        return ["hyprctl", "dispatch", "killactive"]
-    raise PolicyRejected(f"Unknown window action: {action}")
+    dispatch = _LUA_DISPATCH.get(action)
+    # `hl.dsp.window.close{}` is the Lua form of the old `killactive`: it closes
+    # the FOCUSED window and takes no selector. (`closewindow` needs a regex or
+    # address; "active" is not one and silently matched nothing.)
+    if dispatch is None or action.startswith("workspace:"):
+        raise PolicyRejected(f"Unknown window action: {action}")
+    return ["hyprctl", "dispatch", dispatch]
 
 
 # User file placeholders (agreed 2026-08-24). Can be overridden on demand.

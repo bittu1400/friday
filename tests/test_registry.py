@@ -42,6 +42,8 @@ def test_env_is_minimal_and_explicit() -> None:
         "XDG_RUNTIME_DIR",
         "DBUS_SESSION_BUS_ADDRESS",
         "DISPLAY",
+        "HYPRLAND_INSTANCE_SIGNATURE",  # ADR-074: hyprctl cannot find the
+                                        # compositor without it
     }
     for spec in REGISTRY.values():
         assert {"PATH", "HOME"} <= set(spec.env)
@@ -76,6 +78,7 @@ def test_env_omits_session_vars_when_absent(monkeypatch) -> None:
     monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
     from friday.tools.registry import _build_app_env
 
     assert set(_build_app_env()) == {"PATH", "HOME"}

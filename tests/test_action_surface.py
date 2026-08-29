@@ -55,15 +55,22 @@ def test_wifi_tool_argv():
 
 
 def test_hypr_tools_argv():
+    """These assertions used to spell out the PRE-0.56 positional form
+    (`dispatch workspace 3`, `movefocus l`, `killactive`) and passed happily
+    while neither tool worked on the machine at all — Hyprland 0.56 routes
+    `dispatch` through Lua (OQ-38, ADR-074). A test that asserts the argv the
+    code builds proves only that the code builds it."""
     ws_spec = REGISTRY["hypr_workspace"]
-    assert ws_spec.build_argv({"workspace": "3"}) == ["hyprctl", "dispatch", "workspace", "3"]
+    assert ws_spec.build_argv({"workspace": "3"}) == [
+        "hyprctl", "dispatch", "hl.dsp.focus{workspace=3}",
+    ]
     with pytest.raises(PolicyRejected):
         ws_spec.build_argv({"workspace": "99"})
 
     win_spec = REGISTRY["hypr_window"]
-    assert win_spec.build_argv({"action": "focus_left"}) == ["hyprctl", "dispatch", "movefocus", "l"]
-    assert win_spec.build_argv({"action": "fullscreen"}) == ["hyprctl", "dispatch", "fullscreen", "1"]
-    assert win_spec.build_argv({"action": "close"}) == ["hyprctl", "dispatch", "killactive"]
+    assert win_spec.build_argv({"action": "focus_left"})[2] == 'hl.dsp.focus{direction="left"}'
+    assert win_spec.build_argv({"action": "fullscreen"})[2] == "hl.dsp.window.fullscreen{}"
+    assert win_spec.build_argv({"action": "close"})[2] == "hl.dsp.window.close{}"
 
 
 def test_file_open_argv():

@@ -2519,3 +2519,71 @@ failing command speak success). Deleting `timeout_s` instead of honoring it —
 that was ADR-067(d)'s explicitly closed question. Killing a launch at
 `timeout_s`, which would close the app the user just asked for.
 
+
+---
+
+## ADR-074 — The Hyprland tools speak Lua, and a parameter SELECTS a dispatcher constant rather than being formatted into one
+
+**Date:** 2026-08-29. **Status:** Accepted. Closes OQ-38. Second audited
+string-building tool after ADR-027, and deliberately stricter than it.
+
+**Context.** `hypr_workspace` and `hypr_window` had **never worked on this
+machine**, and Friday announced success every time. Two independent causes,
+both invisible until ADR-073 made a command's exit code a verdict:
+
+1. `HYPRLAND_INSTANCE_SIGNATURE` was not in the executor's minimal env, so
+   hyprctl could not find the compositor: *"HYPRLAND_INSTANCE_SIGNATURE not
+   set! (is hyprland running?)"*, rc=1. One variable away from the `DISPLAY`
+   defect of 2026-08-25, and the systemd unit already passed it through.
+2. Hyprland 0.56 routes `hyprctl dispatch` through Lua, so the positional form
+   `dispatch workspace 3` is parsed as Lua and dies with `')' expected near
+   '3'`, rc=7. **`registry.py` already documented this** for `dispatch exec` —
+   it is why apps are spawned directly — and the two sibling call sites using
+   the same form were never checked.
+
+`tests/test_action_surface.py::test_hypr_tools_argv` asserted the broken
+positional argv and passed throughout. A test that asserts the argv the code
+builds proves only that the code builds it.
+
+**Decision.** The dispatch strings are Lua, so an argv element is now a small
+program — precisely what invariant #2 exists to prevent. Rather than escape a
+parameter into it, **no parameter is formatted into it at all.**
+
+`registry._LUA_DISPATCH` is a frozen mapping built at import from code-owned
+literals — ten workspace entries plus six window actions. `build_argv` performs
+a **lookup**, and a key outside the set raises `PolicyRejected`. The param is
+therefore a selector, never an input to a format string: there is no
+interpolation to escape, no sanitizer to get wrong, and injection has nothing
+to inject into. `PARAM_SCHEMA["hypr_workspace"]["workspace"]` also stops being
+free `text` and becomes the closed `WORKSPACE_ENUM` ("1".."10"), so the
+validator rejects an off-vocabulary value before the registry ever sees it —
+the 2026-08-25 lesson that a closed set belongs in the schema, not only in a
+builder.
+
+This is stricter than ADR-027, and intentionally so: `youtube_search.query` is
+genuinely open text and must be charset-whitelisted and percent-encoded, but a
+workspace is one of ten known values, so the audited exception it would need is
+one it can simply not take.
+
+**Measured, on this machine, 2026-08-29.** `hyprctl eval` was used to enumerate
+the Lua dispatcher tables (`hl.dsp.focus`, `hl.dsp.window.*`), and the form was
+confirmed by driving the real executor and reading `hyprctl activeworkspace`
+back: workspace 3 -> 1 -> 2, `ok` in 9 ms and 19 ms. `hl.dsp.focus` names
+directions in full and rejects abbreviations
+(*"invalid direction \"zzz\" (expected left/right/up/down)"*).
+
+**Consequences.** `hypr_workspace` works for the first time. `hypr_window` is
+believed correct but is **not** verified live: `close` and `fullscreen` act on
+the focused window, and probing them means closing the user's window — they are
+marked for the live pass in `docs/reality-check.md` §A10 rather than asserted
+here. `fullscreen` also changes meaning slightly: the old argv was
+`fullscreen 1` (Hyprland's maximize mode), the Lua form is
+`hl.dsp.window.fullscreen{}`.
+
+**Rejected.** Escaping/quoting the parameter into the Lua (the entire class of
+bug this project avoids by construction). Keeping the range check only in
+`build_argv` (a prompt-and-a-builder is not a control — ADR-008's own
+reasoning). Searching for a non-Lua route to the compositor: a socket write to
+`$XDG_RUNTIME_DIR/hypr/$HIS/.socket.sock` would trade one version-coupled
+format for another, less documented one.
+

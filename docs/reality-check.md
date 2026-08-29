@@ -193,23 +193,21 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
 - [ ] Workspace outside 1–10 is refused
 - [ ] "close window" actually closes it (regression: it used to be a silent no-op)
-- [x] **BROKEN — measured 2026-08-29 through the real executor.** Both Hyprland
-      tools have never worked on this machine, and Friday announced success
-      every time. Two independent causes, both now proven:
-      1. `HYPRLAND_INSTANCE_SIGNATURE` is not in the executor's minimal env, so
-         `hyprctl` cannot even find the compositor: *"HYPRLAND_INSTANCE_SIGNATURE
-         not set! (is hyprland running?)"*, rc=1. Same class as the `DISPLAY`
-         defect of 2026-08-25.
-      2. Even with it set, the registry's `hyprctl dispatch workspace 2` no
-         longer parses: Hyprland 0.56 routes `dispatch` through Lua and answers
-         *"[string \"return hl.dispatch(workspace 2)\"]:1: ')' expected near '2'"*,
-         rc=7. `registry.py` already knew this for `dispatch exec` (it is why
-         apps are spawned directly) — the sibling call sites were never checked.
-      The working form on this machine, verified by switching workspaces and
-      reading `hyprctl activeworkspace` back: `hyprctl dispatch
-      'hl.dsp.focus{workspace=N}'`; the window dispatchers live under
-      `hl.dsp.window.*` (`close`, `fullscreen`, `float`, …).
-      Only visible because ADR-073 made the exit code a verdict.
+- [x] **WAS BROKEN, FIXED 2026-08-29 (ADR-074).** Both Hyprland tools had
+      never worked on this machine and Friday announced success every time.
+      Two causes, both measured: `HYPRLAND_INSTANCE_SIGNATURE` was missing from
+      the executor's minimal env (*"is hyprland running?"*, rc=1), and
+      Hyprland 0.56 routes `dispatch` through Lua so `hyprctl dispatch
+      workspace 2` no longer parses (rc=7). Only visible because ADR-073 made
+      the exit code a verdict.
+      **`hypr_workspace` is verified live:** driven through the real executor,
+      workspace 3 → 1 → 2, `ok` in 9 ms / 19 ms, read back with `hyprctl
+      activeworkspace`.
+- [ ] **`hypr_window` is NOT live-verified — this is the row to tick by hand.**
+      `close` and `fullscreen` act on the focused window, so they were not
+      probed. Expect `hl.dsp.window.close{}` / `hl.dsp.window.fullscreen{}` /
+      `hl.dsp.focus{direction="left"}`. Note `fullscreen` changed meaning: the
+      old argv was `fullscreen 1` (maximize), the Lua form is plain fullscreen.
 
 ### A11. Files (`file_open`) — registered aliases only
 | Say | Expect |

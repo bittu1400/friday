@@ -53,7 +53,7 @@ addressed. params: {"key": text, "value": text}
   system_brightness    adjust display brightness ("brightness up", "dim screen"). params: {"direction": "up" | "down"}
   system_media         control media playback ("pause music", "next track", "previous track", "play"). params: {"action": "play_pause" | "next" | "previous" | "stop"}
   system_wifi          turn Wi-Fi on or off ("turn off wifi", "enable wifi"). params: {"state": "on" | "off"}
-  hypr_workspace       switch to a workspace ("workspace 2", "go to workspace 3"). params: {"workspace": text}
+  hypr_workspace       switch to a workspace ("workspace 2", "go to workspace 3"). params: {"workspace": "1"…"10"}
   hypr_window          manage window focus, fullscreen, or closing ("focus left", "fullscreen", "close window"). params: {"action": "focus_left" | "focus_right" | "focus_up" | "focus_down" | "fullscreen" | "close"}
   file_open            open a registered file ("open my notes", "open my config", "open my todo"). params: {"alias": text}
   create_note          capture a quick note ("note that ...", "take a note ...", "save a note ..."). params: {"content": text}

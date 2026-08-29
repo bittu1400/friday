@@ -40,6 +40,11 @@ WINDOW_ENUM: Final[tuple[str, ...]] = (
     "focus_left", "focus_right", "focus_up", "focus_down", "fullscreen", "close",
 )
 DICTATION_ENUM: Final[tuple[str, ...]] = ("start", "stop")
+# Ten workspaces, as strings, because that is what the planner emits. This was
+# `{"kind": "text"}` with the range checked only inside build_argv — the same
+# shape that let brightness "brighten" reach a builder that guessed (2026-08-25).
+# It matters more now: the workspace selects a Lua dispatch constant (ADR-074).
+WORKSPACE_ENUM: Final[tuple[str, ...]] = tuple(str(i) for i in range(1, 11))
 
 # Param kinds:
 #   "enum" — a closed set, exact match required after NFKC normalization.
@@ -98,7 +103,9 @@ PARAM_SCHEMA: Final = MappingProxyType(
         "system_wifi": MappingProxyType({"state": {"kind": "enum", "values": WIFI_ENUM}}),
         # workspace stays text: it is a NUMBER, not a vocabulary. The registry
         # validates isdigit() + 1..10 and already fails closed.
-        "hypr_workspace": MappingProxyType({"workspace": {"kind": "text"}}),
+        "hypr_workspace": MappingProxyType(
+            {"workspace": {"kind": "enum", "values": WORKSPACE_ENUM}}
+        ),
         "hypr_window": MappingProxyType(
             {"action": {"kind": "enum", "values": WINDOW_ENUM}}
         ),

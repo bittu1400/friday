@@ -182,9 +182,15 @@ separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
 ### OQ-38 — How should the Hyprland tools talk to Hyprland 0.56's Lua dispatcher?
-**Status:** OPEN — raised 2026-08-29, with the defect already proven and the
-working syntax already measured. **This is not a research question, it is a
-scope question.**
+**Status:** CLOSED 2026-08-29, same day it was raised — **ADR-074**. Put to the
+user: fix now rather than after Step 12, and treat the Lua as its own audited
+exception. The answer went stricter than ADR-027 — a parameter never reaches
+the Lua at all, it selects one of sixteen import-time constants — and
+`workspace` became a closed enum in `PARAM_SCHEMA` instead of free text.
+Verified against the live compositor (workspace 3 -> 1 -> 2, read back with
+`hyprctl activeworkspace`). `hypr_window` is implemented but NOT live-verified:
+`close`/`fullscreen` act on the focused window, so they are left for the human
+live pass rather than probed. Original write-up follows.
 
 `hypr_workspace` and `hypr_window` have **never worked on this machine**, and
 Friday announced success every time. Found the moment ADR-073 made a command's

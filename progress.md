@@ -19,7 +19,7 @@ registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **411 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **429 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -45,7 +45,8 @@ both PortAudio callbacks now run through one `CallbackGuard`, so an audio
 callback can no longer die quietly and leave a healthy-looking deaf assistant;
 and Step 9 (M-T1, ADR-073) made `timeout_s` real, gave commands a real exit-code
 verdict, and stopped launches claiming "Opened X." **Step 9's first real-path
-run found that both Hyprland tools have never worked here — see OQ-38.**
+run found that both Hyprland tools had never worked here; that is fixed the
+same day (ADR-074, OQ-38 closed) and `hypr_workspace` is verified live.**
 `docs/reality-check.md` remains the manifest for live-voice verification; its
 header lists the rows that changed on 2026-08-29 and have never been checked by
 a human at a keyboard.
@@ -204,6 +205,90 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (evening, cont.) — OQ-38 closed the same day it was raised: the Hyprland tools work for the first time (ADR-074)
+
+Step 9's real-path run found that `hypr_workspace` and `hypr_window` had
+**never worked on this machine** while Friday announced success every time.
+Put to the user rather than defaulted, and both answers were the stricter one:
+**fix it now, before Step 10**, and **treat the Lua as its own audited
+exception with its own ADR**.
+
+### What was wrong (two causes, both measured)
+1. `HYPRLAND_INSTANCE_SIGNATURE` missing from `registry._APP_ENV` — hyprctl
+   could not find the compositor: *"HYPRLAND_INSTANCE_SIGNATURE not set! (is
+   hyprland running?)"*, rc=1. The systemd unit already passed it through; the
+   env copy simply never listed it. One variable from the `DISPLAY` defect.
+2. Hyprland 0.56 routes `dispatch` through Lua, so `hyprctl dispatch workspace
+   3` dies with `')' expected near '3'`, rc=7. **`registry.py`'s own comment
+   recorded this for `dispatch exec`** — it is why apps are spawned directly —
+   and the sibling call sites were never swept.
+
+And a third, quieter one: `tests/test_action_surface.py::test_hypr_tools_argv`
+asserted the broken positional argv and passed all along. A test that asserts
+the argv the code builds proves only that the code builds it.
+
+### The fix (ADR-074) — stricter than ADR-027, on purpose
+The dispatch string is Lua, so an argv element is now a small program. Rather
+than escape a parameter into it, **no parameter is formatted into it at all**:
+`registry._LUA_DISPATCH` is a frozen import-time mapping of code-owned literals
+(ten workspaces + six window actions) and `build_argv` does a lookup, failing
+closed on a miss. There is no interpolation to escape and nothing to inject
+into. `PARAM_SCHEMA["hypr_workspace"]["workspace"]` also stopped being free
+`text` and became the closed `WORKSPACE_ENUM` — the 2026-08-25 lesson that a
+closed set belongs in the schema, not only in a builder.
+
+`youtube_search.query` needs ADR-027's charset whitelist because it is genuinely
+open text. A workspace is one of ten values, so the exception it would need is
+one it can simply decline to take.
+
+### Verified by asking the system, not by what Friday says
+`hyprctl eval` enumerated the Lua dispatcher tables (`hl.dsp.focus`,
+`hl.dsp.window.*`; `focus` rejects abbreviations — *"invalid direction \"zzz\"
+(expected left/right/up/down)"*). Then the real executor:
+
+```
+workspace before: 3
+hypr_workspace {'workspace': '1'} -> ok None  9ms
+hypr_workspace {'workspace': '2'} -> ok None 19ms
+workspace after:  2          (read back with `hyprctl activeworkspace`)
+```
+
+Pre-fix, for the record: `_build_workspace_argv({'workspace':'3'})` produced
+`['hyprctl','dispatch','workspace','3']` and `HYPRLAND_INSTANCE_SIGNATURE in
+_build_app_env()` was `False`.
+
+**`hypr_window` is implemented but NOT live-verified, and that is deliberate:**
+`close` and `fullscreen` act on the focused window, so probing them means
+closing the user's window. Left as a hand-tick row in `docs/reality-check.md`
+§A10. *Noted honestly:* while probing dispatcher signatures earlier in the
+session, `hl.dsp.window.close{}` was executed against the live compositor. No
+window was focused (the user was on an empty workspace), so it had no target
+and both clients survived — but it was careless, and destructive dispatchers
+are now probed by error message only.
+
+### Tests
+`tests/test_hypr_dispatch.py`, 18 assertions, including twelve hostile
+workspace values (Lua table breakout `3"} hl.dsp.window.close{`, `3} or
+hl.dsp.exit{`, an Arabic-Indic digit, whitespace padding) that must all be
+rejected before the Lua exists. Two existing tests were corrected rather than
+weakened: the env allowlist gains one variable, and `test_hypr_tools_argv`
+stops asserting the pre-0.56 form.
+
+### Gate
+```
+uv run pytest -q          -> 429 passed  (411 -> 429, +18)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+```
+
+### Docs changed in the same commit
+**ADR-074** (new), `spec.md` (FR-32b), `open-questions.md` (**OQ-38 CLOSED**),
+`docs/reality-check.md` §A10 (workspace verified, window left to tick),
+`friday/llm/prompt.py` (the workspace param is now `"1"…"10"`), `CLAUDE.md`,
+and this file.
 
 ---
 
@@ -792,9 +877,9 @@ system.
 ## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 10–12) <<<
 
 **Steps 1–9 are DONE** (see the four 2026-08-29 session blocks just above for
-what changed and why). **Read OQ-38 before anything else — Step 9 proved both
-Hyprland tools have never worked on this machine, and the fix is measured but
-deliberately not applied.** Steps 10–12 are unchanged from the 2026-08-26 plan except
+what changed and why). **OQ-38 (both Hyprland tools broken since the 0.56
+upgrade) was raised and closed the same day — ADR-074; `hypr_workspace` is
+verified live, `hypr_window` still needs a hand-tick in reality-check §A10.** Steps 10–12 are unchanged from the 2026-08-26 plan except
 where this block says otherwise. Read the fix-status table at the bottom of
 `Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
 what is not. Do **not** re-audit; the findings are still accurate apart from
@@ -805,7 +890,7 @@ the three corrections recorded there.
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 411 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 429 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
@@ -847,7 +932,7 @@ launch keeps ADR-043's grace and now says "Launching X." instead of claiming
 "Opened X." Command tools also stopped speaking the launch template ("Opened
 volume up."). The launcher-failure-detection task from the 2026-08-25 plan is
 closed by that wording decision. **Its real-path run raised OQ-38: both
-Hyprland tools are broken and always have been.**
+Hyprland tools were broken and always had been — closed the same day, ADR-074.**
 
 **Step 10 (was 9) — LLM client edges: M-L1 + M-L2.**
 Catch bare `TimeoutError` -> `LlamaTimeout` (today it escapes `_plan`'s narrow
