@@ -57,9 +57,13 @@ limitation to be lifted later.
 | FR-5 | Only one turn is in flight at a time; a second request while busy is rejected audibly, not queued | Concurrency test: 5 rapid submits produce 1 turn + 4 rejections |
 | FR-6 | Mic is closed in every state except CAPTURING | Assert in the audio callback; unit test on the gate |
 | FR-7 | PTT during SPEAKING is barge-in: cancel playback, drop the turn, go to CAPTURING | Manual test recorded at G6 |
+| FR-7c | An interrupted line is treated as **not delivered** (ADR-069): `_speak` reports completed-vs-cancelled, an interrupted reply is not appended to `Dialogue`, and a talked-over confirm question does not arm the handshake — the barged utterance is a fresh command, never the yes/no answer | `test_interrupted_reply_is_not_recorded_as_history`, `test_barge_during_question_leaves_no_pending` |
 | FR-7a | VOICE barge-in (speech detected during playback) is OFF by default and must not fire; PTT is the interrupt. The AEC yields only −5 to −10 dB on this hardware, so speech heard during playback is usually Friday herself (ADR-064). Re-enable with `FRIDAY_BARGE_VAD_ENABLE=1` once OQ-32 lands | `test_voice_barge_is_off_by_default` |
 | FR-7b | A capture in which no speech is ever detected is abandoned after `VAD_NO_SPEECH_TIMEOUT_S` (3 s) rather than running to the 15 s cap, since `VAD_END_SILENCE_S` can only arm after speech (ADR-066) | `test_silent_capture_is_abandoned_early`, `test_capture_with_speech_is_not_abandoned` |
 | FR-25a | An action the planner produces ONLY when conversation history is in the prompt is confirmed, never dispatched. The planner is asked without history first; `chat` there is never re-planned (ADR-065) | `test_bare_greeting_never_dispatches_from_history`, `test_history_reaches_the_planner_system` |
+| FR-25b | A pending confirm is armed only after its question has actually been spoken. If the TTS raises or is barged, no `_pending` is held and no 30 s window opens (ADR-069) | `test_failed_question_tts_does_not_arm_the_confirm` |
+| FR-25c | The 30 s confirm window's expiry drops the pending and does NOT touch the FSM: firing mid-answer must not close the mic gate (ADR-069) | `test_confirm_expiry_does_not_reset_a_live_capture` |
+| FR-5a | VAD end-of-speech is armed by the FSM's ACCEPTANCE of a trigger, never by wake detection on the audio thread. A rejected trigger leaves the listener untouched; with no VAD, arming is refused and warned once (ADR-071) | `test_wake_detection_alone_does_not_arm_the_listener`, `test_rejected_wake_never_arms`, `test_arming_without_a_vad_is_refused_and_logged_once` |
 | FR-8 | Wake word is NOT implemented in Phase 1 | Absence of an `openwakeword` dependency in the lockfile |
 
 ### 2.2 Speech-to-text
@@ -68,7 +72,7 @@ limitation to be lifted later.
 | :-- | :-- | :-- |
 | FR-10 | `faster-whisper` `small.en`, `language="en"` hardcoded, no detection pass, `beam_size=1`, hotwords-biased to the domain vocab (ADR-042; `large-v3-turbo` failed the latency target on this CPU) | Config asserted at startup; `language` is not `None` |
 | FR-11 | STT runs on CPU (`device="cpu"`, `compute_type="int8"`, `cpu_threads=8`). Measured p95 741 ms < 800 ms (ADR-042), so it stays on CPU — no GPU arm | Benchmark table in `progress.md` G6 |
-| FR-12 | VAD filtering enabled; empty transcript returns to IDLE silently | Silence input produces no turn and no speech |
+| FR-12 | VAD filtering enabled; empty transcript returns to IDLE silently. This holds in the no-STT degraded mode too: `_transcribe` does not perform the TRANSCRIBING->IDLE transition its caller already owns (audit H4, fixed 2026-08-29) | Silence input produces no turn and no speech; `test_no_stt_mode_returns_to_idle_silently` drives a full capture with `transcriber=None` and asserts no `IllegalTransition` and no error speech |
 | FR-13 | Transcript is capped at 500 tokens; longer input is refused, not truncated | Fixture with a 3000-char transcript returns `action=none` |
 
 ### 2.3 Reasoning and the action contract
@@ -176,17 +180,17 @@ nowhere else. See ADR-027 and threat T2.
 
 | ID | Requirement | Acceptance |
 | :-- | :-- | :-- |
-| FR-50 | SQLite at `~/.local/state/friday/memory.db`, WAL, `busy_timeout=5000`, file mode `0600`, directory `0700` | `stat` check in the startup self-test |
+| FR-50 | SQLite at `~/.local/state/friday/memory.db`, WAL, `busy_timeout=5000`, file mode `0600`, directory `0700`. **Amended 2026-08-29 (M-T2):** the `-wal`/`-shm` sidecars carry the same 0600 requirement — they hold preferences, notes and reminder text in flight — and the chmod runs immediately after connect, before any pragma | `stat` check in the startup self-test, **reading the modes before the DB is opened** so the check cannot pass by repairing what it is measuring; `test_wal_sidecars_are_not_world_readable`, `test_opening_repairs_a_loose_sidecar_left_by_a_crash`, `test_selftest_checks_the_sidecar_perms` |
 | FR-51 | One writer. All writes go through a single async queue/connection | Concurrency test: 100 parallel writes, zero `database is locked` |
 | FR-52 | Parameterized SQL only | Grep for f-string SQL returns zero |
-| FR-53 | Versioned migrations, forward-only, applied at startup | Fresh DB and an existing DB both reach the same schema version |
+| FR-53 | Versioned migrations, forward-only, applied at startup. **Amended 2026-08-29 (M-T3):** each migration and its version bump commit in ONE explicit transaction, and the DDL is idempotent (`IF NOT EXISTS`), so a crash mid-migration cannot become a `Restart=always` crash loop | Fresh DB and an existing DB both reach the same schema version; `test_migration_and_version_bump_are_one_transaction`, `test_reopening_after_a_lost_version_row_recovers`, `test_every_migration_creates_idempotently` |
 | FR-54 | Preferences carry `source`, `updated_at`, `expires_at`, `revision`. Keys are slugified with a curated alias map (ADR-035); a spoken preference is confirmed before it is stored, `source='user_confirmed'` (ADR-037) | Schema test; slugify/alias unit test; confirm-handshake test |
 | FR-55 | Preferences are injected as `key=value` data inside a fence, never as prose instructions | Prompt snapshot test |
 | FR-56 | User can list, export (JSON), delete one, and reset all preferences. `forget_preference` (voice) soft-expires; the CLI hard-deletes only with `--hard` / `reset --yes` (ADR-036) | Four CLI subcommands, each tested; soft-vs-hard test |
 | FR-57 | `thought`, raw prompts, raw transcripts, raw audio, raw key events, and unredacted tool payloads are never persisted | Schema has no column for them |
 | FR-57a | A debug transcript ring buffer may hold the last 20 turns **in memory only**, off by default, cleared on exit, and visibly indicated in the TUI while on | Test: enabling it creates no file; disabling clears it |
-| FR-58 | Audit rows: `request_id`, `tool_id`, redacted args, policy decision, outcome, duration, timestamp | One row per dispatch — **amended 2026-08-26 (ADR-067b): asserted by a cross-cutting contract test over REGISTRY + both confirm paths (voice + TUI) + web_search; previously only the eval runner checked a subset, and confirmed dispatches/searches wrote zero rows** |
-| FR-59 | Session summaries and audit rows are retention-capped (default 90 days) and size-capped (default 50 MB) with rotation; preferences never age out (ADR-038). **Amended 2026-08-27 (ADR-068b):** reminders in a terminal state (`fired`/`cancelled`) share the same 90-day cap; **active** reminders and **notes** are never pruned at any age | Retention job unit test: purges audit/summaries/terminal reminders, leaves preferences, notes, and active reminders |
+| FR-58 | Audit rows: `request_id`, `tool_id`, redacted args, policy decision, outcome, duration, timestamp | One row per dispatch — **amended 2026-08-26 (ADR-067b), MET 2026-08-29:** `tests/test_audit_contract.py` walks the schema and asserts exactly one row per executed dispatch across REGISTRY tools, both confirm paths, `cancel_reminder`, and every `web_search` outcome, and none for a declined confirm. Redaction is asserted too: clipboard text is recorded as a LENGTH and clipboard contents never at all |
+| FR-59 | Session summaries and audit rows are retention-capped (default 90 days) and size-capped (default 50 MB) with rotation; preferences never age out (ADR-038). **Amended 2026-08-27 (ADR-068b):** reminders in a terminal state (`fired`/`cancelled`) share the same 90-day cap; **active** reminders and **notes** are never pruned at any age | **MET 2026-08-29:** `test_retention_sweeps_terminal_reminders_only`, `test_retention_never_touches_notes_or_preferences`, `test_retention_still_sweeps_audit_and_summaries` |
 
 ### 2.7 Search
 
@@ -213,7 +217,7 @@ nowhere else. See ADR-027 and threat T2.
 | ID | Requirement | Acceptance |
 | :-- | :-- | :-- |
 | FR-80 | Systemd user units manage `friday-llm.service` (llama-server, ctx 8192, q8_0 KV, GPU) and `friday.service` (orchestrator daemon) with restart backoff | **MET (G9):** `systemctl --user status friday` active |
-| FR-81 | `friday --selftest` / `just selftest` executes 7 subsystem checks (LLM server, SearXNG, sm_120 GPU, DB 0600/0700 & schema, audio in/out, panic switch, loopback socket binding) and returns non-zero on any failure | **MET (G9):** `tests/test_selftest.py` 13/13; live `just selftest` [PASSED] |
+| FR-81 | `friday --selftest` / `just selftest` executes 8 subsystem checks (LLM server, SearXNG, sm_120 GPU, **LLM actually on GPU**, DB 0600/0700 & schema, audio in/out, panic switch, loopback socket binding) and returns non-zero on any failure. The DB check covers the `-wal`/`-shm` sidecars and reads them **before** opening the database, so it cannot pass by repairing what it measures | **MET (G9):** `tests/test_selftest.py`; live `just selftest` [PASSED] 8/8. Sidecar FAIL path proven by `test_selftest_checks_the_sidecar_perms` |
 | FR-82 | Structured JSON logging with size-based rotation (10 MB x 5) and path redaction (FR-43, stripping `/home/` to `~`) | **MET (G9):** `tests/test_logging.py` 4/4; log scrape test verified |
 | FR-83 | Tolerant startup ping (`wait_for_llm`) polls llama-server on boot to prevent crash loops while weights load | **MET (G9):** `tests/test_resilience.py`; cold-start startup verified |
 | FR-84 | Subsystem fault resilience: survives `kill -9` of llama-server and audio stream disconnects/sleep without orchestrator crash | **MET (G9):** `tests/test_resilience.py` 4/4; live kill -9 recovery verified |
@@ -350,14 +354,30 @@ on the executor, not on the model's text.
    `transcriber=None`, `vad=None`, speaker-say raising, verifier enabled,
    mic-open failing. Required outcomes: no `IllegalTransition` ever, silent or
    honestly-spoken failure (never success speech), FSM returns to IDLE.
+   **PARTIAL (2026-08-29):** `transcriber=None`
+   (`test_no_stt_mode_returns_to_idle_silently`), `vad=None`
+   (`test_arming_without_a_vad_is_refused_and_logged_once`), speaker-say raising
+   (`test_failed_question_tts_does_not_arm_the_confirm`,
+   `test_failed_speech_does_not_strand_the_fsm`) and verifier-enabled
+   (`test_speaker_verification_blocks_impostor`) are covered.
+   **Mic-open failure is NOT** — that is M-A8, still open: `daemon.py` discards
+   `recorder.open()`'s result, so a mic-less machine starts "successfully" and
+   every press silently no-ops.
 2. **Dual-trigger race** — interleave wake + PTT callbacks in both orders,
    including rejected triggers: listener must never stay armed after a reject,
    no orphaned capture-cap timer, tap-toggle never desyncs.
+   **MET (2026-08-29):** `tests/test_trigger_arming.py`.
 3. **Audit contract** — every executed dispatch (registry tools, both confirm
    paths, web_search) produces exactly one audit row; nothing else produces any.
+   **MET (2026-08-29):** `tests/test_audit_contract.py`, which walks
+   `PARAM_SCHEMA`/`REGISTRY` rather than a hand-written list, so a tool added
+   later without an audit row fails the suite.
 4. **TUI/daemon confirm parity** — the text UI resolves `PendingPreference`
    AND `PendingAction` identically to the voice daemon (execute-on-affirm,
    no-op-on-decline), asserted with an executor spy.
+   **MET (2026-08-29), and structurally:** `tests/test_tui_confirm.py` drives
+   the real Textual app headless, and both UIs now call one shared
+   `turn.resolve_pending`, so there is no second implementation left to drift.
 
 ---
 

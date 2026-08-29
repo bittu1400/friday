@@ -181,6 +181,41 @@ alternatives, CPU only: embedding latency, RAM, owner/non-owner
 separation on real samples, footprint. Pin weights (SHA256). Record in
 the G13 ADR (extends ADR-059).
 
+### OQ-36 — Should a wake trigger be refused outright when there is no VAD?
+**Status:** OPEN — needs data, raised 2026-08-29 while fixing M-A3.
+
+Without a VAD there is no end-of-speech and no ADR-066 no-speech bail-out, so
+every hands-free capture runs the full 15 s cap with Friday deaf throughout.
+ADR-071 takes the conservative half-step: `arm_end_of_speech` refuses and warns
+once, naming the consequence and the workaround (use PTT). It does **not**
+refuse the wake trigger itself, because that would silently remove hands-free
+operation on a degraded install, and nothing measures how often `webrtcvad`
+actually fails to load on this machine — the answer so far is "never observed".
+
+**What decides it:** the warning firing in a real session. If it does, refusing
+the trigger (wake logs "no VAD, PTT only" and does not open a capture) is
+strictly better than 15 s of deafness. If it never fires, this stays as is.
+**Blocks:** nothing. **Default if undecided:** keep ADR-071's behaviour.
+
+---
+
+### OQ-37 — Should a DECLINED confirm write an audit row?
+**Status:** OPEN — deliberately deferred 2026-08-29 (fix-phase Step 3).
+
+FR-58 says one row per **dispatch**, and a decline is not a dispatch, so
+`resolve_pending` writes nothing when the user says no — and the contract test
+asserts that. But "Friday proposed turning off Wi-Fi and I said no" is
+arguably the more interesting security event of the two, and it is currently
+invisible to `mine_habits` and to any later forensic read.
+
+**What decides it:** whether the audit log is a record of *what happened to the
+system* (dispatches only, current answer) or of *what was asked of it*
+(proposals too). The second is more useful and strictly more data at rest —
+which cuts against T7. **Blocks:** nothing. **Default if undecided:** dispatches
+only, as today.
+
+---
+
 ### OQ-32 — Which echo canceller actually works on this laptop? (BLOCKS hands-free barge-in)
 **Status:** OPEN — a full ADR-039/041 dependency drill. Raised 2026-08-25.
 
@@ -291,6 +326,10 @@ months.)_
   gets spoken, an ordinary long URL gets refused. A confirm asks honestly
   instead of guessing. This makes `clipboard_read` the first read-only tool
   behind a confirm — the gate is for disclosure, not reversibility.
+  **IMPLEMENTED 2026-08-29** (fix-phase Step 2), and slightly stronger than the
+  decision: the clipboard is not *read at all* until the user says yes, so a
+  declined confirm never fetches the selection, let alone speaks it.
+  `tests/test_clipboard_confirm.py`.
 
 - **OQ-35 — Retention policy for `notes` (and terminal-state reminders)?**
   ANSWERED 2026-08-27: **notes kept indefinitely, fired/cancelled reminders
@@ -298,6 +337,9 @@ months.)_
   than adding a second constant. Active reminders are never pruned regardless
   of age. Notes are user-authored content the user expects to still be there;
   terminal-state reminders are machine exhaust. Closes M-T9.
+  **IMPLEMENTED 2026-08-29** (fix-phase Step 6), `audit.sweep_retention`;
+  `tests/test_db_integrity.py` proves notes and active reminders survive at
+  100 days while fired/cancelled ones do not.
 
 - **OQ-29 — What re-triggers the 15-second empty-capture loop?** ANSWERED
   2026-08-25. Not ambient noise and not a wake false fire: a 90 s

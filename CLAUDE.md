@@ -8,27 +8,29 @@ Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
-**Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then two
-review passes (2026-08-24 desk review, 2026-08-25 first LIVE reality check +
-full-codebase audit)** that fixed real defects the build suite missed. `friday/` is a real text+voice assistant that launches apps,
-remembers preferences, hears you (toggle PTT **and** `hey_jarvis` wake word,
-ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web (G7: SearXNG loopback,
-sanitizer, `final.gbnf` grounding, injection 20/20, egress proof; ADR-045/046/047),
-converses naturally (G8: two-stage chat, `CHAT_SYSTEM`, RAM `Dialogue`, ADR-048),
-personalizes from mined habits (`friday/store/habits.py`, ADR-049), keeps
-cross-session memory (`friday/store/summarizer.py`, ADR-050), runs as hardened
-background user services (G9: `deploy/systemd/`, `friday/selftest.py`, ADR-051),
-and in **Phase 2** adds hands-free wake + AEC + VAD + barge-in (G10, ADR-055/060/061/062),
+**Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
+review passes; the fifth (the 2026-08-26 full-codebase audit) is HALF FIXED —
+Steps 1–6 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
+that launches apps, remembers preferences, hears you (toggle PTT **and**
+`hey_jarvis` wake word, ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web
+(G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
+egress proof; ADR-045/046/047), converses naturally (G8: two-stage chat,
+`CHAT_SYSTEM`, RAM `Dialogue`, ADR-048), personalizes from mined habits
+(`friday/store/habits.py`, ADR-049), keeps cross-session memory
+(`friday/store/summarizer.py`, ADR-050), runs as hardened background user
+services (G9: `deploy/systemd/`, `friday/selftest.py`, ADR-051), and in
+**Phase 2** adds hands-free wake + AEC + VAD + barge-in (G10, ADR-055/060/061/062),
 a proactive scheduler with SQLite reminders/timers, conversational DND, and
 briefings (G11, ADR-056), an action surface — system volume/brightness/media/wifi,
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **328 passed**, `just eval` **28/28 reg 0** (9.9 s on GPU), `just test-injection`
-**20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**, `just test-egress` loopback-only.
-(Verified 2026-08-25 evening with the LLM confirmed on GPU — see `llm_on_gpu`.)
+`uv run pytest` **390 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+**20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**,
+`just test-egress` loopback-only. (Verified 2026-08-29 with the LLM confirmed on
+GPU — see `llm_on_gpu`.)
 
-**Four review passes found defects the desk suite missed** — the pattern here
+**Five review passes found defects the desk suite missed** — the pattern here
 is that green tests do NOT prove a feature works, because the tests never
 exercised the broken path. (1) A post-G9 live review (2026-08-23) fixed 5:
 invariant-#1 `assert`→`raise` (survives `python -O`), systemd `Restart=always`,
@@ -39,24 +41,30 @@ enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
 that spoke success while doing nothing**. (3) The 2026-08-25 live sessions fixed
 13 more (see the session blocks in `progress.md`). (4) A full read-only codebase
 audit (**2026-08-26**, report: `Alpha-ox-analysis.md`) found **1 CRITICAL + 8
-HIGH + ~21 MEDIUM** on paths no test drives — headline: text-mode confirm of
-any action is broken (`PendingAction` AttributeError), confirmed dispatches and
-web searches write zero audit rows, and a failed confirm-question TTS can make
-the next "yeah" dispatch an unheard action. Decisions for the fix phase are in
-ADR-067; the ordered fix list is the `>>> START HERE <<<` block in
-`progress.md`. NOTE: `friday.service` is `Restart=always`, so `kill <pid>`
-does NOT stop the daemon — use `systemctl --user stop friday`. As of
-2026-08-25 all three units (`friday`, `friday-llm`, `friday-searxng`) are
-**running**, 0 restarts. Never run `just voice` while the service is up: two
-daemons fight over the mic and the PTT socket. Stop the service first.
+HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–6
+of that fix list**: C1 (text-mode confirm of any action was a silent no-op —
+both UIs now share one `turn.resolve_pending`, ADR-069), H1 (confirmed
+dispatches and web searches wrote zero audit rows), H2/H3/M-P1 (a confirm could
+be armed by a question nobody heard; a barged reply entered history and ate the
+user's next command), H4 (no-STT mode raised on every capture), H5/M-A2/M-A3
+(arm-on-detection race, cap-timer leak, silent no-VAD degradation, ADR-071), H6
+(four blocking call sites on the event loop), H7 (**`cancel_reminder` had never
+worked at all** — the schema required an id the planner cannot know, ADR-070),
+and M-T2/M-T3/M-T9 (WAL sidecar perms, migration atomicity, retention scope).
 
-**NEXT SESSION: execute the fix phase.** Read the `>>> START HERE <<<` block at
-the top of `progress.md` first, then `Alpha-ox-analysis.md` in full — every
-task cites finding IDs from it. It has the exact first commands and the
-ordered 12-step task list. On 2026-08-26 evening every doc was re-verified
-against the tree (61-point citation check + cross-doc sweep; corrections are
-inlined in the analysis file's appendix and the progress.md session block) —
-the plan is executable as written, do not re-audit. Short version:
+NOTE: `friday.service` is `Restart=always`, so `kill <pid>` does NOT stop the
+daemon — use `systemctl --user stop friday`. All three units (`friday`,
+`friday-llm`, `friday-searxng`) are **running**. Never run `just voice` while
+the service is up: two daemons fight over the mic and the PTT socket. Stop the
+service first.
+
+**NEXT SESSION: Steps 7–12.** Read the `>>> START HERE <<<` block at the top of
+`progress.md` first, then the **fix-status table at the bottom of
+`Alpha-ox-analysis.md`** — it is the fastest map of what is fixed and what is
+not, and it records three places the audit itself was wrong. Do not re-audit.
+**H8 is the one invariant-#7 violation still live: `FRIDAY_DEBUG=1` under
+systemd leaks raw transcripts to journald. Run debug in the foreground only
+until Step 11 lands.** Short version:
 
 ```bash
 just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
@@ -113,6 +121,18 @@ first time and fixed **seven more**, none of which the suite could see:
    the wake score is logged at fire time (ADR-066, OQ-33).
 
 Lessons that block repeats — every one of them paid for:
+- **Check the buggy code can be REACHED before fixing its logic.** The audit
+  described a wrong pick inside `cancel_reminder`; the branch was unreachable
+  and the tool had never worked at all. Fixing the logic alone would have
+  changed nothing a user could see.
+- **An audit can be right about the bug and wrong about the cause.** M-T2's
+  stated mechanism does not happen on this machine; the leak arrives by a
+  different door (an unclean shutdown's leftover WAL). Reproduce before fixing.
+- **Two implementations of one protocol IS the bug.** C1 was not a typo. The
+  durable fix was deleting the second copy, not patching it.
+- **The error path must not be able to fail worse than what it reports.**
+  `_say_now` raising inside `_fail_speak` stranded the FSM in ERROR and
+  rejected every later trigger — a total lockup from one dead audio device.
 - **A check that cannot fail is worthless.** `gpu_arch` passed through a GPU
   outage; `wake-bench` printed "Wake Hits: 0" whether the mic was live or dead;
   the launcher still reports ok for an app that never started. New checks need a
@@ -373,7 +393,7 @@ just prefs list|forget  # manage stored preferences
 | "Add streaming TTS now, it's an easy win" | ADR-020. Measure at G6 first. |
 | "Speaker verify is on, so impostors are blocked" | Only if a voiceprint is enrolled — it fails OPEN otherwise, and it is OFF by default (`FRIDAY_SPEAKER_VERIFY_ENABLE`). Enroll with `just enroll-voice` first. |
 | "Make the timer recurring by default / it fired twice so it loops" | Timers are strictly one-shot (marked `fired`). A repeated toast in tests means `notify-send` wasn't stubbed, not a reminder bug. |
-| "A green test suite proves the feature works" | Four times now, tests passed while the real path was broken (G13 enroll, `clipboard_set`, `file_open`, the CPU-only LLM). Exercise the actual path; see `docs/reality-check.md`. |
+| "A green test suite proves the feature works" | Five times now, tests passed while the real path was broken (G13 enroll, `clipboard_set`, `file_open`, the CPU-only LLM, and 328 green tests over a text UI whose every action confirm crashed). Exercise the actual path; see `docs/reality-check.md`. |
 | "The health check is green, so the system is healthy" | `gpu_arch` passed through an entire GPU outage — it asked "does a GPU exist", not "is the LLM using it". A check that cannot fail is worthless; write the FAIL-path test. |
 | "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
 | "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |
@@ -381,4 +401,9 @@ just prefs list|forget  # manage stored preferences
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
 | "Only poll the wake detector when we need it" | openWakeWord is a STREAMING model. Starving it leaves stale features and a stale score, and it re-fires the instant you resume — that was OQ-29. Feed it every frame; ignore the result instead. |
 | "Speech during playback means the user is interrupting" | On this hardware the AEC gives −5 to −10 dB, so it is usually Friday. Voice barge-in is off (ADR-064); PTT is the interrupt until OQ-32 lands. |
+| "The two UIs do the same thing, they just have their own copy of it" | That copy is the bug. The TUI's confirm was never migrated to `PendingAction` and crashed on every G12 action for months (C1). One `turn.resolve_pending`, both callers. |
+| "The audit says the cause is X, so fix X" | M-T2's stated mechanism does not reproduce here at all; the leak arrives by a different door. Reproduce the defect before fixing it, or you ship ceremony. |
+| "The function has an ordering bug, fix the ordering" | First check anything can reach it. `cancel_reminder`'s branch was unreachable — the validator required an id the planner cannot know — so it had never worked at all (ADR-070). |
+| "The confirm is armed, so the user was asked" | Only if the question was actually spoken. Arming before delivery meant a TTS failure left a `system_wifi{off}` pending with no timer, and an unrelated "yeah" dispatched it (ADR-069). |
+| "It's just a `notify-send`, it's fast" | It is `subprocess.run(timeout=2)` on the single event loop, in the path that fires while a turn is already running. While the loop blocks, Friday is deaf (H6). |
 | "History is in the prompt, so anaphora just works" | It also lets Friday's own suggestion become her own command — a bare "hey jarvis" dispatched `open_app{editor}` 4/4. Plan without history first; confirm anything only history could supply (ADR-065). |

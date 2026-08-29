@@ -147,6 +147,15 @@ something actionable during a PTT capture.
    outcome is an unwanted application launch. — FR-33
 2. `irreversible` requires **typed** confirmation, never spoken. A voice
    channel cannot confirm what a voice channel got wrong. — FR-34
+2a. A confirm is armed only by a question the user actually HEARD (ADR-069).
+   Arming before the question was spoken meant a TTS failure left a
+   `system_wifi{off}` pending with no timer, so an unrelated "yeah" minutes
+   later dispatched it; and a barge-in over the question made the user's real
+   command be read as the yes/no answer. — FR-25b, FR-7c
+2b. `clipboard_read` is confirm-gated for DISCLOSURE, not reversibility
+   (ADR-068a): reading the clipboard puts whatever the user last copied — a
+   password, a token, a recovery code — into the room as sound. The selection
+   is not even fetched until an affirmative. — `tests/test_clipboard_confirm.py`
 3. Confirmation displays tool name and salient args, 30 s timeout,
    defaults to cancel.
 4. Mic is open only during a deliberate PTT hold. No wake word in Phase 1
@@ -224,15 +233,23 @@ backup, or a synced folder.
 3. `0600` file / `0700` directory, checked by the self-test. — FR-50
 4. Retention 90 days, size cap 50 MB, rotation. — FR-59
 5. A test greps `friday.log` for `/home/` and fails on a hit. — FR-43
-6. **Gaps found by the 2026-08-26 audit** (`Alpha-ox-analysis.md` H8, M-T2),
-   fixes decided in ADR-067 (items g and i; Steps 6 and 11 of the fix plan):
-   the `no_disk` filter guards only the file handler, so `FRIDAY_DEBUG=1`
-   under systemd leaks raw transcripts to journald's persistent disk; and
-   SQLite `-wal`/`-shm` sidecars can be created before the `0600` chmod.
-   Controls being added: suppress `no_disk` records on any persistent sink
-   when running under journald; chmod before WAL pragma; selftest checks
-   sidecar perms. Treat these controls as NOT yet enforced until the
-   hardening phase lands.
+6. `0600` on the `-wal`/`-shm` sidecars, enforced on every open and checked
+   by the self-test BEFORE the database is opened (so the check cannot pass by
+   repairing what it measures). — FR-50, `test_selftest_checks_the_sidecar_perms`
+
+   *Landed 2026-08-29 (M-T2).* Note the audit's stated mechanism did not
+   reproduce here: `PRAGMA journal_mode=WAL` does not create the sidecars on
+   this machine — SQLite creates them at the first write, already after the
+   chmod. The reachable exposure is a WAL left behind by an **unclean**
+   shutdown, which `Restart=always` makes routine; measured pre-fix, a `-wal`
+   chmod-ed to `0644` after `kill -9` stayed `0644` across restarts forever.
+7. **Gap still open** (`Alpha-ox-analysis.md` H8; ADR-067 item i, Step 11 of
+   the fix plan): the `no_disk` filter guards only the file handler, so
+   `FRIDAY_DEBUG=1` under systemd leaks raw transcripts to journald's
+   persistent disk — a direct violation of invariant #7 on the documented
+   debug workflow. Control being added: suppress `no_disk` records on any
+   persistent sink when running under journald. Treat this as **NOT yet
+   enforced**; until Step 11 lands, run debug in the foreground only.
 
 ---
 
@@ -255,6 +272,16 @@ slow search exhausts RAM, pins all 24 cores, or leaves the FSM stuck.
    launches keep ADR-043's grace semantics). Step 8 of the fix plan.
 4. Thread counts pinned so whisper cannot take all 24 cores. — diagram 03
 5. `E_BUSY` and the panic file give the user a way out. — FR-36
+6. Blocking work is kept off the event loop, so a slow subsystem cannot make
+   Friday deaf: STT, TTS, speaker-verification inference, the sign-off LLM
+   round-trip, the per-turn SQLite digests, and `notify-send` all run in worker
+   threads. The last four were inline until 2026-08-29 (audit H6) — a 2 s
+   `notify-send` in the FR-5 rejection path stalled the very loop that had to
+   hear the user's next trigger. — `tests/test_event_loop_blocking.py`
+7. A capture-cap timer is cancelled before it is re-armed, so an orphaned
+   handle cannot end a later capture early (M-A2), and a rejected trigger
+   cannot leave the wake listener armed against someone else's capture
+   (H5/ADR-071). — `tests/test_trigger_arming.py`
 
 ---
 

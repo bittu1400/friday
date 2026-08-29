@@ -12,25 +12,34 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, then a
-**post-Phase-2 rigorous code+docs review (2026-08-24, part 2)** that fixed
-real defects the build suite missed (see the session block just below).
-All tasks for G0 through G13 (scaffolding, toolchain, eval, registry, persistence, voice out,
-voice in, search, conversation/memory, service resilience, wake word + AEC + VAD + barge-in,
-proactive turn arbiter + reminders/DND/briefings, action surface + dictation, and CPU speaker verification)
-implemented and verified.
-`uv run pytest` **328 passed**, `just eval` **28/28 (regressions 0)**,
+**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
+**2026-08-26 audit fix phase is HALF DONE — Steps 1–6 of 12 executed
+2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
+registry, persistence, voice out, voice in, search, conversation/memory,
+service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
+reminders/DND/briefings, action surface + dictation, and CPU speaker
+verification) implemented and verified.
+`uv run pytest` **390 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
-**NEXT SESSION starts with the 2026-08-26 fix-execution plan** — see the
-`>>> START HERE <<<` block below and `Alpha-ox-analysis.md`. The 2026-08-26
-audit (read-only) found 1 CRITICAL + 8 HIGH defects on paths no test drives;
-the ordered fix list lives in that START HERE block. `docs/reality-check.md`
-remains the manifest for live-voice verification after the fixes land.
-**Docs were re-verified against the tree on 2026-08-26 evening** (session
-block below): every citation checked, drift corrected, no code touched. The
-plan is executable as written.
+**Fixed 2026-08-29 (Steps 1–6):** the CRITICAL text-mode confirm break (C1) and
+six of the eight HIGHs — unaudited dispatches and searches (H1), the orphaned
+pending on a failed question (H2), barge-in eating the user's command and
+interrupted speech entering history (H3), the no-STT double transition (H4),
+the trigger-arm TOCTOU (H5), blocking work on the event loop (H6), and the
+wrong-reminder cancel (H7, which turned out to be an unreachable code path —
+`cancel_reminder` had **never** worked; ADR-070). Plus M-P1, M-A2, M-A3, M-T2,
+M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
+
+**NEXT SESSION continues with Steps 7–12** — see the `>>> START HERE <<<` block
+below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
+is now the fastest map of what is fixed and what is not. **H8 (the journald
+debug leak) is the one invariant-#7 violation still live** — until Step 11
+lands, run `FRIDAY_DEBUG=1` in the foreground only, never under systemd.
+`docs/reality-check.md` remains the manifest for live-voice verification; its
+header lists the rows that changed on 2026-08-29 and have never been checked by
+a human at a keyboard.
 
 ```
    G0 REPO         [x]
@@ -189,142 +198,389 @@ changed yet.**
 
 ---
 
-## >>> START HERE: NEXT SESSION (rewritten 2026-08-26 — FIX EXECUTION PHASE) <<<
+## SESSION 2026-08-29 — FIX PHASE, Steps 1–6 of 12 EXECUTED
 
-Read this whole block, then read `Alpha-ox-analysis.md` in full before touching
-anything. Every task below cites finding IDs from that file. Do not re-audit;
-do not reorder; fix in this sequence and paste evidence for each into this file.
-**No feature work and no Phase 3 until this list is done.**
+Half the ordered fix list from the 2026-08-26 audit is done. Every step is one
+commit: failing repro test first, fix, full gate, evidence here. No step was
+merged on a green suite alone — each defect's test was **verified failing
+against the pre-fix tree** (`git stash` the fix, run, restore), because the
+lesson this whole phase exists for is that a passing suite proved nothing four
+times running.
+
+### Baseline before touching anything
+```
+just selftest      -> [PASSED] all 8 checks
+uv run pytest -q   -> 328 passed
+just eval          -> 28/28 (100%), known-failing 0, regressions 0
+```
+
+### Where the numbers ended up
+```
+uv run pytest -q          -> 390 passed  (328 -> 390, +62 across 6 new files)
+just eval                 -> 28/28 (100%), regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
+just selftest             -> [PASSED] all 8 checks (llm_on_gpu PASS, 4710 MiB VRAM)
+tree                      -> 7,341 src lines / 57 modules / 61 test files
+```
+
+---
+
+### Step 1 — C1 (CRITICAL) + H4 — commit `63f4068`
+
+**C1.** The TUI's `_resolve_pending` assumed every held `pending` was a
+`PendingPreference` and called `confirm_preference`, which reads `pending.key`.
+G12 also stores `PendingAction` there, so answering "yes" to *any* text-mode
+action confirm raised AttributeError inside a Textual worker and did nothing at
+all — silently, forever. The voice path was migrated when Phase 2 landed; the
+text path never was.
+
+Fixed at the root rather than the symptom: confirm resolution now lives in one
+shared `turn.resolve_pending` that **both** the daemon and the TUI call. The
+per-UI copies are gone, so there is no second implementation left to drift
+(ADR-069). Side effect: `PendingAction` is now genuinely imported in
+`daemon.py`, retiring the F821 dead-annotation item from the audit's table.
+
+**H4.** `_transcribe` performed TRANSCRIBING->IDLE itself on the
+`transcriber=None` path and `_run_turn` did it again, so `_require` raised on
+every capture in the supported no-STT mode. Reproduced exactly as the audit
+described:
+```
+friday.audio.state.IllegalTransition: transcribing required, in idle
+  daemon.py:269 in _run_turn -> state.py:86 got_transcript -> state.py:112 _require
+```
+
+**Evidence.** `tests/test_tui_confirm.py` drives the REAL Textual app headless
+through `run_test()`, not a stand-in — the whole defect class here is "the test
+drove a path the user never takes". Pre-fix **4/4 failed**; post-fix 4/4 pass.
+The H4 test pre-fix **1/1 failed** with the traceback above. Suite 328 -> 333.
+
+### Step 2 — H2 + H3 + M-P1 + ADR-068a — commit `c4c1d5b`
+
+Four costumes, one defect: the confirm handshake did not know whether the user
+had heard anything. Fixed as one coherent change (ADR-069).
+
+- **H2** — `_pending` was assigned *before* the question was spoken. A raising
+  `speaker.say` left it set with **no confirm timer armed**, so an unrelated
+  "yeah" minutes later dispatched a held `system_wifi{off}` the user never
+  heard proposed.
+- **H3** — `_speak` swallowed `CancelledError` and returned normally, so a
+  barge-in over the question still opened the window and the user's real
+  command was eaten as the yes/no answer. The same silence let an interrupted
+  reply into `Dialogue` as if delivered — and history is what ADR-065 resolves
+  anaphora against.
+- **M-P1** — `_expire_confirm` force-reset the FSM; firing while the user was
+  CAPTURING the answer slammed the mic gate shut and the answer vanished with
+  no feedback. It no longer touches the FSM at all: dropping the pending IS the
+  cancellation.
+- **ADR-068a / OQ-34** — `clipboard_read` joined the confirm set, and went one
+  better than the decision required: the selection is not *fetched* until an
+  affirmative, so a declined confirm never reads it, let alone speaks it.
+
+`_speak` now returns delivered-or-not, checking both signals that mean cut off
+(`Speaker.say` returning False when `stop()` won; task cancellation when
+`_cancel_speak` won), and `_cancel_speak` records **which** task it cut so
+`_speak` never swallows a cancellation that is not its own.
+
+**Superseded turn tasks are neutralized by guards, not cancelled** — their work
+sits in `asyncio.to_thread`, which cannot be cancelled, so cancelling would buy
+the *appearance* of neutralization and cost a `CancelledError` to reap. The
+reasoning is in ADR-069.
+
+Also hardened `_say_now`, a hazard the audit did not list: with a raising
+speaker it raised again *inside* `_fail_speak`'s handler, killing the turn task
+mid-unwind and stranding the FSM in ERROR — rejecting every later trigger.
+
+**Evidence.** `tests/test_confirm_lifecycle.py` (7) pre-fix **6/7 failed** (the
+7th is the positive control: a completed reply DOES enter history).
+`tests/test_clipboard_confirm.py` (5) pre-fix **4/5 failed**. Suite 333 -> 345.
+
+### Step 3 — H1 + H7 (+ ADR-070, a new finding) — commit `4777d88`
+
+**H1.** FR-58 was enforced by nothing. Five call sites happened to write rows;
+the confirmed dispatches — wifi off, close the window, overwrite the clipboard
+— and *every* web search wrote none. Those are exactly the actions an audit
+exists for, and they were the invisible ones. Rows are now written by
+`turn.resolve_pending` (so both UIs get them from the one shared path) and on
+every `_do_web_search` outcome.
+
+What is recorded is deliberately narrow: `clipboard_set` records the **length**
+of the text and never the text; `clipboard_read` records that a confirmed
+read-aloud happened and never the contents; the search query is capped at 80
+chars before `redact_args` runs.
+
+**H7, and worse.** "Cancel my reminder" took `active[-1]` from a list ordered by
+`fire_at ASC`, so it cancelled the one firing FARTHEST in the future — the 3pm
+meeting instead of the pasta timer, announced with a bare "Cancelled."
+
+Fixing the ordering exposed that **the branch was unreachable**, which the audit
+did not catch. `PARAM_SCHEMA` declared `id` as required text and the validator
+rejects an empty string, so a plan without an id failed closed to `none`; and
+the planner cannot know an id, because they are `rem_<hex8>`, never spoken,
+never shown, never in the prompt. Every route ended uselessly.
+**`cancel_reminder` had never worked**, and no test drove the turn path — only
+`ReminderStore.cancel`, with ids the test had just created itself.
+
+So the param is deleted (ADR-070). The tool takes `{}`, cancels the most
+recently CREATED active reminder, and names it aloud ("Cancelled: check the
+pasta.") so a wrong pick is audible instead of silent. `plan.gbnf` is
+byte-identical — the grammar constrains action names and generic string pairs,
+not param keys — so the committed-grammar drift test is unaffected.
+
+**Evidence.** `tests/test_audit_contract.py` (22) walks `REGISTRY`/`PARAM_SCHEMA`
+rather than a hand-written list, so a tool added later without an audit row
+fails the suite. Pre-fix **10/22 failed**; the 12 already-audited registry
+dispatches passed throughout as positive controls. Suite 345 -> 367.
+
+### Step 4 — H6 — commit `e70952b`
+
+Four call sites ran blocking work on the single event loop, each hundreds of ms
+to seconds: speaker-verification ONNX inference, `generate_signoff_summary`'s
+full LLM round-trip, the habits + session digests (two SQLite reads per turn,
+one scanning 30 days of audit rows), and `notify-send` — in both the FR-5
+rejection path (which by definition fires while a turn is running, and can
+burst) and the scheduler's poll loop, where it delayed every later due reminder
+in the same tick. While the loop is blocked nothing is read from the PTT
+socket, no timer fires and no wake callback drains: Friday is simply deaf.
+
+`_reject_busy` became async so the notify is awaited rather than detached — a
+fire-and-forget task would outlive the test loop and, live, race the next
+trigger. The digest pair moved to `store.prompt_digests`: both UIs needed
+exactly it and both computed it inline, and putting it in the store layer lets
+each hand it to `to_thread` without the TUI importing the daemon. **The TUI's
+copy is fixed too** — blocking Textual's loop freezes the UI rather than the
+mic, but it is the same defect in the same code.
+
+**Evidence.** `tests/test_event_loop_blocking.py` (5) asserts the work ran on a
+thread other than the loop's — the only observable that separates
+`await to_thread(f)` from `f()`. Pre-fix **5/5 failed**. Suite 367 -> 372.
+
+### Step 5 — H5 + M-A2 + M-A3 — commit `61dbb95`
+
+**H5.** `WakeListener._on_frame` set `_awaiting_end` on the **audio thread** the
+instant a wake scored, before the loop had decided anything. `Daemon.on_wake`
+can reject as busy (FR-5), and on rejection the listener stayed armed — so VAD
+end-of-speech then ended whatever capture WAS running, including a PTT one,
+which ADR-044 says only the user's second tap may end. Barge-in captures were
+already armed *after* acceptance; the two paths disagreed and the wrong one was
+the default. Detection now only fires the callback; the daemon arms from
+`_start_capture` for wake, barge and ptt-barge alike (ADR-071).
+
+**M-A2.** `_arm_capture_cap` overwrote `_cap_timer` without cancelling it, so
+the orphan fired mid-next-capture. The confirm timer had exactly this
+discipline, with a comment explaining the hazard; the cap timer did not.
+
+**M-A3.** With `vad=None` an "armed" capture has neither end-of-speech nor the
+ADR-066 bail-out, so every hands-free capture ran the full 15 s cap with
+nothing in the logs. `arm_end_of_speech` refuses and warns once, naming the
+consequence and the workaround. This is a conservative half-step —
+**OQ-36** asks whether the wake trigger should be refused outright, and waits
+for the warning to actually fire in a real session before deciding.
+
+**Evidence.** `tests/test_trigger_arming.py` (8) includes the race the audit
+asked for — wake and PTT interleaved in both orders. Pre-fix **6/8 failed**;
+the two that passed are `test_rejected_wake_never_arms` (which passed for the
+wrong reason pre-fix, because the old code armed on the audio thread without
+going through `arm_end_of_speech` at all) and the `ptt_first` race case.
+Suite 372 -> 380.
+
+### Step 6 — M-T2 + M-T3 + ADR-068b — commit `b1396f0`
+
+**M-T2, with a correction to the audit.** The report says
+`PRAGMA journal_mode=WAL` creates the `-wal`/`-shm` sidecars before the chmod.
+**It does not on this machine.** Measured under `umask 000`: SQLite creates
+them at the first write transaction — which is `_migrate`, already after the
+chmod — and both come out `0600` with and without the reordering.
+
+The route that IS reachable is a leftover WAL. A clean close checkpoints it
+away, so one only survives an **unclean** shutdown — routine here, since
+`friday.service` is `Restart=always`. Measured directly:
+```
+$ kill -9 <pid holding the db>;  chmod 644 memory.db-wal
+pre-fix  reopen -> 0o644     (and stays 0644 for the life of the install)
+post-fix reopen -> 0o600
+```
+The reordering (chmod immediately after connect) stays anyway, because a
+security property should not depend on SQLite's lazy-creation timing.
+
+The selftest check now covers the sidecars **and reads the modes before opening
+the database**. Checking afterwards would report the state the check itself had
+just repaired — a check that cannot fail, the exact pattern `gpu_arch` was
+caught in.
+
+**M-T3.** `executescript` issues an implicit COMMIT before it runs and commits
+its own work, so DDL and version row landed as two transactions; a crash
+between them left tables created and the version unrecorded, and
+`Restart=always` re-ran `CREATE TABLE` and died on OperationalError forever.
+Migrations are now split with `sqlite3.complete_statement` (which understands
+semicolons inside string literals) and run inside ONE transaction with the
+version bump. The DDL gained `IF NOT EXISTS` as a second belt, with a test
+asserting every migration keeps it.
+
+**ADR-068b / M-T9.** Retention also sweeps `fired`/`cancelled` reminders past
+the same 90-day window. Notes, preferences and **active** reminders are never
+pruned at any age.
+
+**Evidence.** `tests/test_db_integrity.py` (10), pre-fix **6/10 failed**. Two
+tests were rewritten mid-step after they were caught passing vacuously: the
+sidecar test now asserts the sidecars actually exist before checking modes, and
+the selftest test proves the FAIL path rather than only the PASS.
+Suite 380 -> 390.
+
+---
+
+### What this session learned (beyond the fixes)
+
+1. **Audit findings can be right about the bug and wrong about the cause.**
+   M-T2's stated mechanism does not happen here; the leak is real but arrives
+   by a different door. A fix written to the stated cause alone would have been
+   ceremonial.
+2. **Check that the buggy code can be REACHED before fixing its logic.** H7
+   described a wrong pick inside a branch the validator made unreachable.
+   `cancel_reminder` had never worked at all, and the audit — which read the
+   function carefully — did not notice, because it did not ask who could call
+   it with what.
+3. **Two implementations of one protocol is the bug.** C1 was not a typo. The
+   durable fix was deleting the second copy, not adding an `isinstance` branch
+   to it.
+4. **A test that cannot fail passes review easily.** Two written this session
+   passed for environmental reasons (no sidecars existed; the check repaired
+   what it measured) and had to be rewritten. Both were caught only by running
+   them against the pre-fix tree — which is why that step is not optional.
+5. **The error path must not be able to fail worse than what it reports.**
+   `_say_now` raising inside `_fail_speak` stranded the FSM in ERROR and
+   rejected every later trigger — a total lockup, reachable from one dead audio
+   device, listed in no audit.
+
+### Docs updated in this session (all in the same commits or this block)
+
+`adr.md` (+ADR-069, ADR-070, ADR-071; ADR-067 and ADR-068 statuses),
+`spec.md` (FR-7c, FR-12, FR-25b, FR-25c, FR-5a, FR-50, FR-53, FR-58, FR-59,
+FR-81, §5.4 suite status), `architecture.md` (module map, §3 audit note,
+§5 threading, §6 failure table), `threat-model.md` (T4 controls 2a/2b,
+T7 controls 6/7, T8 controls 6/7), `open-questions.md` (+OQ-36, OQ-37;
+OQ-34/35 marked implemented), `docs/reality-check.md` (header note, A6, A13),
+`diagrams/01-turn-lifecycle.md` (CONFIRMING + SPEAKING semantics),
+`Alpha-ox-analysis.md` (fix-status table + corrections the execution found),
+`CLAUDE.md` (status, temptations table).
+
+---
+
+## >>> START HERE: NEXT SESSION (rewritten 2026-08-29 — FIX PHASE, Steps 7–12) <<<
+
+**Steps 1–6 are DONE** (see the 2026-08-29 session block just above for what
+changed and why). Steps 7–12 are unchanged from the 2026-08-26 plan except
+where this block says otherwise. Read the fix-status table at the bottom of
+`Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
+what is not. Do **not** re-audit; the findings are still accurate apart from
+the three corrections recorded there.
+
+**No feature work and no Phase 3 until Steps 7–12 are done.**
 
 ### First commands, in order
 ```bash
-just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: restart friday-llm first.
-uv run pytest -q && just eval       # expect 328 passed, 28/28 reg 0 — the baseline you must not drop
+just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
+uv run pytest -q && just eval       # expect 390 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
 
-### THE ORDERED FIX LIST (execute top to bottom; each step = code + tests + evidence here)
+**Method that worked and is not optional:** write the repro test first, then
+`git stash push <the source files>` and run it to prove it FAILS against the
+pre-fix tree, then restore and fix. Two tests this session passed vacuously and
+were only caught that way.
 
-**Step 1 — C1 + H4: the two user-visible breaks.**
-- C1: mirror the daemon's `isinstance(pending, PendingPreference|PendingAction)`
-  branch in `friday/ui/tui.py:_resolve_pending` (:171-189); fix the
-  `PendingPreference | None` annotation at tui.py:68. Add a TUI-parity test
-  asserting a confirmed PendingAction executes (spy on executor) and a declined
-  one does not.
-- H4: delete the `state.got_transcript(nonempty=False)` call from
-  `_transcribe`'s transcriber-None path (daemon.py:403-406); the caller at :269
-  owns the transition. Test: drive a full capture with `transcriber=None` —
-  no `IllegalTransition`, silent return to IDLE (FR-12).
+### THE REMAINING FIX LIST
 
-**Step 2 — confirm-lifecycle commit: H2 + H3 + M-P1 together (one coherent fix).**
-Redesign the pending-confirm handshake so that ALL of these hold:
-- `_pending` is set only after the question speak succeeds (H2);
-- barge-in during the question drops `_pending`, disarms the window, and the
-  barged utterance is treated as a fresh command, not an answer (H3);
-- `_speak` reports completed-vs-cancelled; interrupted speech is NOT added to
-  dialogue history (H3 second half); the superseded turn task is joined or
-  neutralized so only one turn task mutates shared state;
-- `_expire_confirm` never resets a CAPTURING state — let the answer finish
-  (M-P1); resolve then finds no pending and treats it as fresh.
-Tests for each of the four behaviors, including the TTS-raises case.
-- **ADR-068a (OQ-34, answered 2026-08-27):** `clipboard_read` joins the confirm
-  set — return a `PendingAction("clipboard_read", …)` from `turn.py` instead of
-  speaking the contents inline (`turn.py:549`), and speak them from
-  `_resolve_confirm` only on an affirmative. Test: declined confirm speaks no
-  clipboard characters at all. Doing this here (not Step 12) means the Step 1
-  TUI-parity and Step 3 audit-contract tests cover it for free.
-
-**Step 3 — audit coverage: H1 (+ enables deleting dead habits branch).**
-- One `audit.arecord` per confirmed dispatch in `daemon.py:_resolve_confirm`,
-  mirroring the `_plan_and_act` tail (turn.py:264-272).
-- Audit web_search attempts (query redacted/capped) in `turn.py:_do_web_search`.
-- NEW contract test: walk REGISTRY + confirm paths; assert EVERY executed
-  dispatch produces exactly one audit row (FR-58, amended in spec.md today).
-  This makes the `habits.describe_action` web_search branch reachable again —
-  keep it.
-
-**Step 4 — H6: get blocking work off the event loop (four mechanical sites).**
-`asyncio.to_thread` around: speaker verify (daemon.py:277-279),
-generate_signoff_summary (daemon.py:328-333), notifier.notify
-(daemon.py:150 / scheduler.py:73 — or create_subprocess_exec),
-mine_habits/get_recent_session_summaries (daemon.py:339-345).
-
-**Step 5 — trigger-arm discipline: H5 + M-A2 + M-A3 (one seam, one commit).**
-- H5: rejected wake/PTT must disarm the listener's `_awaiting_end` (pass the
-  accept/reject outcome back, or disarm from the reject path).
-- M-A2: `_arm_capture_cap` disarms any existing handle first (mirror
-  `_disarm_confirm` discipline).
-- M-A3: if VAD is None, refuse to arm end-of-speech captures — log once,
-  captures stay PTT-only; never silently resurrect the 15 s cap.
-Race test: fire wake+PTT callbacks interleaved both orders; no stuck armed
-state, no orphaned cap timer.
-
-**Step 6 — DB integrity: M-T2 + M-T3.**
-- M-T2: chmod(0o600) immediately after connect, BEFORE the WAL pragma;
-  selftest additionally checks `-wal`/`-shm` perms when present.
-- M-T3: wrap each migration + version bump in one explicit transaction;
-  add IF NOT EXISTS to migration DDL; test the partial-migration recovery path.
-- **ADR-068b (OQ-35, answered 2026-08-27), closes M-T9:** extend `audit.py`'s
-  retention sweep (:76-84) to reminders in state `fired`/`cancelled` older than
-  the same 90-day window. Notes and **active** reminders are never pruned at any
-  age. Test: a 100-day-old fired reminder is swept, a 100-day-old active one and
-  a 100-day-old note both survive.
-
-**Step 7 — M-A1: guard the PortAudio callback.**
-Wrap `_on_frame` bodies (wake.py, capture.py): count consecutive failures,
-degrade loudly past N (disable detector + ERROR log with taxonomy code), never
-let an exception escape into sounddevice. Test proves the FAIL path (feed a
-non-10/20/30 ms frame → detector disabled loudly, stream alive).
+**Step 7 — M-A1: guard the PortAudio callbacks.**
+Wrap `_on_frame` bodies (`wake.py`, `capture.py`): count consecutive failures,
+degrade loudly past N (disable the detector + ERROR log with a taxonomy code),
+never let an exception escape into sounddevice — python-sounddevice prints to
+stderr and simply stops calling back, so wake/VAD/barge die while the service
+looks healthy. Test must prove the FAIL path (feed a non-10/20/30 ms frame ->
+detector disabled loudly, stream alive). Note the audit's correction: the
+`capture.py` callback only gate-checks and copies, it does not touch ONNX/VAD —
+but it is equally unguarded, so wrap both.
 
 **Step 8 — M-T1 decision execution (ADR-067d).**
 Honor `spec.timeout_s`: non-GUI tools get `wait_for(timeout_s)` + process-group
-kill on expiry; GUI-launch tools keep the 0.4 s grace semantics (ADR-043).
-Fix executor docstring. Delete-or-honor decision is MADE — do not reopen.
+kill on expiry; GUI-launch tools keep the 0.4 s grace semantics (ADR-043). Fix
+the executor docstring, which currently claims a process-group kill that does
+not exist. The delete-or-honor decision is MADE — do not reopen. This also
+closes `threat-model.md` T8 control 3's "NOT yet enforced" marker and
+`architecture.md` §3's dead-config note.
 
 **Step 9 — LLM client edges: M-L1 + M-L2.**
-Catch bare TimeoutError → LlamaTimeout; catch HTTPError before URLError, never
-retry code ≥ 400, report server errors distinctly from unreachable.
+Catch bare `TimeoutError` -> `LlamaTimeout` (today it escapes `_plan`'s narrow
+handlers and crashes the turn, leaving TUI input disabled forever); catch
+`HTTPError` **before** `URLError` (it is a subclass), never retry code >= 400,
+and report a server error distinctly from unreachable.
 
 **Step 10 — make the cannot-fail checks able to fail: M-L3, M-L4, M-L9.**
-gpu_arch WARN/FAIL on unparsable output; socket-bind check flags any
-non-loopback local address incl. IPv6 + tcp6 fallback; audio_devices FAILs
-when device enumeration raises; llm_on_gpu stops downgrading surprises to WARN.
-Each new FAIL path gets a test that proves it fails (session rule).
+`gpu_arch` WARN/FAIL on unparsable output; the socket-bind check flags any
+non-loopback local address including IPv6 + a `/proc/net/tcp6` fallback;
+`audio_devices` FAILs when device enumeration raises; `llm_on_gpu` stops
+downgrading surprises to WARN. Each new FAIL path gets a test that proves it
+fails. **Partly started:** `check_database` was fixed in Step 6 (it reads perms
+before opening the DB, so it can no longer pass by repairing what it measures);
+its "creates the DB it claims to verify" half is still open.
+Closes `threat-model.md` T6 control 4.
 
-**Step 11 — H8: close the journald debug-leak.**
+**Step 11 — H8: close the journald debug leak.**
 Suppress `no_disk` records on stderr when running under journald
 (`JOURNAL_STREAM` env detect); log one warning at startup when DEBUG+journald.
-Test: enabling DEBUG creates no file AND no_disk records are dropped from any
-persistent sink (extends the FR-57a test).
+Test: enabling DEBUG creates no file AND `no_disk` records are dropped from any
+persistent sink (extends the FR-57a test). This is the last invariant-#7
+violation still live; `threat-model.md` T7 control 7 marks it NOT enforced.
 
-**Step 12 — dead-code sweep (one commit, list in Alpha-ox-analysis.md table).**
-RiskTier, NOT_YET_WIRED branch (+ its test), scheduler dnd param,
-PendingAction.description, ToolResult.code, E_SCHEMA/E_TOOL_TIMEOUT/
-E_TOOL_FAILED (or adopt them — but stop the string-literal E_BUSY at
-daemon.py:147), awrite/aquery, vestigial sd.stop(), stale registry docstring,
-wake threshold param. Run full suite after; eval must stay 28/28.
+**Step 12 — dead-code sweep (one commit).**
+The audit's table, minus two items already retired this session (the
+`PendingAction` F821 annotation is now a real import; the
+`habits.describe_action` web_search branch is reachable and tested — KEEP it).
+Remaining: `RiskTier` + its `import os`, the `NOT_YET_WIRED` branch (+ its
+test), the scheduler `dnd` param, `PendingAction.description`, `ToolResult.code`,
+`E_SCHEMA`/`E_TOOL_TIMEOUT`/`E_TOOL_FAILED` (or adopt them — but stop the
+string-literal `E_BUSY` in `daemon.py`), `awrite`/`aquery`, the vestigial
+`sd.stop()`, the stale registry docstring, the `create_detector(threshold=…)`
+param, `preferences.source='user_typed'`, and `_Probe.reset()` in
+`scripts/wake_bench.py`. Run the full suite after; eval must stay 28/28.
 
-**Remaining MEDIUM/LOW items** (M-A4..A8, M-P2..P4, M-T4..T9, M-L5..L10, all
-LOWs) are triaged in Alpha-ox-analysis.md and may be batched AFTER steps 1-12,
-but M-P2/M-P3 (proactive speech vs FSM, scheduler stall) should be next in line
-— they are the G11-era debt most likely to bite live. OQ-34 and OQ-35 were
-**answered 2026-08-27** (ADR-068); their fixes are folded into Steps 2 and 6
-above, so nothing in this list is blocked on a user decision any more.
+### After Steps 7–12
+Then, in this order:
+1. **M-P2 / M-P3** — proactive speech bypasses the FSM entirely (concurrent
+   unsynchronized `speaker.say`, and Friday can transcribe her own voice
+   because the FSM reads IDLE during proactive playback); the scheduler
+   busy-waits <=30 s for idle inside its poll loop and `mark_fired` precedes
+   delivery, so a failed delivery loses the reminder permanently. These are the
+   G11-era debt most likely to bite live.
+2. **M-A8** — `recorder.open()`'s result is discarded, so a mic-less machine
+   starts "successfully" and every press silently no-ops. This is the one hole
+   left in spec.md §5.4's degraded-capability matrix.
+3. The rest of the MEDIUM/LOW tail, triaged in `Alpha-ox-analysis.md`.
+4. **The live-voice pass.** `docs/reality-check.md` is the manifest. Its header
+   now says which rows changed on 2026-08-29 and need a human at a keyboard:
+   every typed confirm row (C1's blast radius — fixed, but *never verified by a
+   person*), `clipboard_read`'s new confirm, `cancel_reminder` (which per
+   ADR-070 has never worked and is being exercised for the first time), and
+   "a barged reply does not enter history".
+5. ADR-066 live confirmation, OQ-33 threshold-from-data, OQ-32 AEC drill,
+   launcher failure detection (related to M-T1/H1 — fold into Step 8).
 
-### Still queued from the previous session (unchanged priority)
-After the fix list: ADR-066 live confirmation, OQ-33 threshold-from-data,
-the live-voice rows of docs/reality-check.md, OQ-32 AEC drill, launcher
-failure detection (task 5 of the 2026-08-25 plan — related to M-T1/H1, fold in
-here rather than separately).
+### Open questions raised this session (neither blocks anything)
+- **OQ-36** — refuse the wake trigger outright when there is no VAD? Waiting
+  for ADR-071's warning to fire in a real session before deciding.
+- **OQ-37** — should a DECLINED confirm write an audit row? Currently no
+  (FR-58 says one row per dispatch, and a decline is not one), but "Friday
+  proposed wifi-off and I said no" is arguably the more interesting event.
 
 ### Definition of done for this phase (applies to EVERY step)
 ```
-   [ ] the named finding's repro/test exists and fails before the fix
+   [ ] the named finding's repro/test exists and FAILS before the fix
+       (git stash the source, run, restore — not optional, see above)
    [ ] uv run pytest green; just eval 28/28 reg 0; injection 20/20; selftest 8/8
    [ ] evidence pasted into progress.md under the step number
-   [ ] no doc/diagram left contradicting the code (architecture.md §3.3 was
-       pre-corrected today to describe CURRENT behavior until Step 8 lands)
+   [ ] no doc/diagram left contradicting the code, in the SAME commit
+   [ ] a new decision has an ADR; a new unknown has an OQ entry
 ```
 
 ---

@@ -42,10 +42,13 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
      config.py              typed config, fixed paths, panic switch, wake/AEC/VAD/speaker constants
      errors.py              Outcome enum + error taxonomy codes (spec §4)
      turn.py                one turn: utterance -> plan -> execute -> outcome
-                            (TurnResult); execute-first (ADR-009)
+                            (TurnResult); execute-first (ADR-009). Also owns
+                            `resolve_pending`, the ONE confirm resolver both
+                            UIs call (ADR-069) — it was two copies until the
+                            TUI's crashed on every G12 action (audit C1)
      dialogue.py            in-RAM session dialogue ring buffer (ADR-048)
      logging_config.py      structured JSON logging, 10MB x 5 rotation, redaction (FR-43)
-     selftest.py            unified 7-subsystem sanity & health check CLI (G9)
+     selftest.py            unified 8-subsystem sanity & health check CLI (G9)
      prefs_cli.py           `just prefs` — list/export/forget/reset
      ptt_cli.py             `friday-ptt toggle|press|release|cancel` client
      speaker_enroll.py      `just enroll-voice` — interactive 10-utterance profiler (G13)
@@ -91,10 +94,16 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        speaker.py           SpeakerVerifier using sherpa-onnx 3D-Speaker CAM++ (G13)
 
      store/
-       db.py                connection, WAL, single-writer (FR-50..53)
+       __init__.py          `prompt_digests` — the habits + session digests both
+                            UIs hand to a worker thread (H6)
+       db.py                connection, WAL, single-writer (FR-50..53);
+                            0600 on the DB AND its -wal/-shm sidecars;
+                            migrations are transactional + idempotent
        migrations/          001_init.sql, 002_reminders.sql, 003_notes.sql (forward only)
        prefs.py             slug+alias keys, CRUD, inert digest rendering
        audit.py             redacted dispatch records + retention sweep
+                            (audit, summaries, TERMINAL reminders; never notes,
+                            preferences, or active reminders — ADR-068b)
        habits.py            deterministic habit pattern mining (ADR-049)
        summarizer.py        session dialogue distillation into summary (ADR-050)
        reminders.py         SQLite reminder & timer store (G11)
@@ -102,6 +111,7 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
 
      ui/
        tui.py               textual app, mode indicator, confirm prompt
+                            (delegates resolution to turn.resolve_pending)
        templates.py         outcome -> speech strings
 
    deploy/
@@ -177,9 +187,11 @@ Guarantees (as actually implemented 2026-08-26; see ADR-067d):
   tools) is decided in ADR-067d and lands in the hardening phase
 - never retried for `reversible` or `irreversible` risk classes
 - returns a typed `Outcome`, never raises to the caller
-- audit rows are written by the CALLERS (`turn.py` dispatch tail and confirm
-  paths), not by the executor itself — and until the 2026-08-26 hardening
-  phase (ADR-067b) the confirm paths and web_search wrote none
+- audit rows are written by the CALLERS (`turn.py` dispatch tail and
+  `turn.resolve_pending`), not by the executor itself. Until the hardening
+  phase (ADR-067b, landed 2026-08-29) the confirm paths and web_search wrote
+  none; `tests/test_audit_contract.py` now walks the schema and asserts
+  exactly one row per executed dispatch
 
 ---
 
@@ -240,9 +252,19 @@ by a lock.
      +-- retention task           (periodic, low priority)
 ```
 
-CPU-bound work (`whisper`, `kokoro`) runs in a thread pool via
-`asyncio.to_thread`, sized explicitly. The audio callback allocates
-nothing and never touches the database.
+CPU-bound and otherwise blocking work runs in a thread pool via
+`asyncio.to_thread`: `whisper`, `kokoro`, speaker-verification ONNX inference,
+`generate_signoff_summary`'s LLM round-trip, `store.prompt_digests`' SQLite
+reads, and `notify-send`. The last four were inline on the loop until
+2026-08-29 (audit H6) — while the loop is blocked nothing is read from the PTT
+socket, no timer fires and no wake callback drains, so Friday is simply deaf
+for the duration. `tests/test_event_loop_blocking.py` asserts each runs on a
+thread other than the loop's, which is the only observable that separates
+`await to_thread(f)` from `f()`.
+
+The audio callback allocates nothing and never touches the database. It also
+does not mutate capture state: since ADR-071 it scores, it may fire `on_wake`,
+and arming VAD end-of-speech is the loop's job, after the FSM has accepted.
 
 Backpressure:
 
@@ -267,7 +289,9 @@ Backpressure:
 | DB locked | `sqlite3.OperationalError` | one retry after `busy_timeout`, then `E_DB_LOCKED` |
 | Model emits garbage | validator | `action=none`, `E_SCHEMA`, log the raw output ONLY to the debug ring buffer |
 | Turn hangs | per-stage timeout | cancel the task, release the FSM to IDLE |
-| User walks away mid-confirm | 30 s timeout | cancel silently |
+| User walks away mid-confirm | 30 s timeout | drop the pending; the FSM is NOT touched, so a capture already in flight finishes and is read as a fresh command (ADR-069) |
+| Confirm question never reaches the speaker (TTS raises, or barge-in) | `_speak` returns not-delivered | no pending is armed and no window opens — an undelivered question is not a question (ADR-069) |
+| Crash mid-migration | version and schema move in one transaction | next start re-applies idempotently; no `Restart=always` crash loop (FR-53) |
 | Everything | panic file `~/.local/state/friday/DISABLED` | all dispatch refused; checked before every execute |
 
 **Restart is always safe.** No in-memory state is authoritative. Anything

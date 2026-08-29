@@ -373,3 +373,63 @@ PolicyRejected raise ban.py:53→:54; awrite/aquery span :104-108. Also noted:
 `llm_on_gpu` has one genuine FAIL path (running-without-VRAM); Step 10 targets
 its surprise-downgrade-to-WARN behavior, not that FAIL. No severity changed;
 no fix step reordered.
+
+---
+
+## Fix status — updated 2026-08-29 (Steps 1–6 executed)
+
+This report is a snapshot of 2026-08-26 and is **not** rewritten as fixes land.
+Use this table for what is done; use `progress.md`'s START HERE block for what
+is next. Test names are the proof, and every one of them was verified failing
+before its fix.
+
+| Finding | Status | Where |
+| :-- | :-- | :-- |
+| C1 TUI confirm crashes | FIXED — one shared `turn.resolve_pending` for both UIs | `tests/test_tui_confirm.py`, ADR-069 |
+| H1 unaudited dispatches + searches | FIXED — schema-walking contract test | `tests/test_audit_contract.py` |
+| H2 orphaned `_pending` on TTS failure | FIXED — arming requires delivery | `tests/test_confirm_lifecycle.py`, ADR-069 |
+| H3 barge-in eats the command; interrupted speech in history | FIXED — `_speak` reports delivered-or-not | `tests/test_confirm_lifecycle.py`, ADR-069 |
+| H4 double FSM transition in no-STT mode | FIXED — caller owns the transition | `test_no_stt_mode_returns_to_idle_silently` |
+| H5 trigger-arm TOCTOU | FIXED — acceptance arms, detection does not | `tests/test_trigger_arming.py`, ADR-071 |
+| H6 blocking work on the event loop | FIXED — four sites threaded (five, with the TUI's copy) | `tests/test_event_loop_blocking.py` |
+| H7 cancel picks the wrong reminder | FIXED — **and the branch turned out to be unreachable**; see ADR-070 | `tests/test_audit_contract.py` |
+| H8 journald debug leak | **OPEN** — Step 11 | threat-model T7 control 7 |
+| M-P1 expiry resets a live capture | FIXED — expiry never touches the FSM | `test_confirm_expiry_does_not_reset_a_live_capture` |
+| M-A2 cap-timer leak on re-arm | FIXED | `test_rearming_the_cap_cancels_the_previous_handle` |
+| M-A3 `vad=None` resurrects the 15 s cap | FIXED (conservative half-step) — refuse + warn once; OQ-36 raised | `test_arming_without_a_vad_is_refused_and_logged_once` |
+| M-T2 WAL sidecar perms | FIXED — **stated mechanism did not reproduce**; see below | `tests/test_db_integrity.py` |
+| M-T3 partial-migration crash loop | FIXED — one transaction + idempotent DDL | `tests/test_db_integrity.py` |
+| M-T9 reminders never pruned | FIXED (ADR-068b) | `test_retention_sweeps_terminal_reminders_only` |
+| M-L9 (part) `check_database` cannot fail on perms | FIXED — perms read BEFORE the DB is opened | `test_selftest_checks_the_sidecar_perms` |
+| M-A1, M-T1, M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 7–12 and the triage tail | progress.md |
+
+### Corrections this execution pass found in the report itself
+
+1. **M-T2's mechanism is wrong for this machine.** The report says
+   `PRAGMA journal_mode=WAL` creates the sidecars before the `chmod`. Measured
+   2026-08-29 under `umask 000`: it does not — SQLite creates `-wal`/`-shm` at
+   the first *write transaction*, which is `_migrate`, already after the chmod.
+   Both sidecars come out `0600` with and without the reordering. The reachable
+   exposure is a WAL left by an **unclean** shutdown (routine here, given
+   `Restart=always`): pre-fix, a `-wal` chmod-ed to `0644` after `kill -9`
+   stayed `0644` across every subsequent restart. The fix is right; the stated
+   cause was not.
+
+2. **H7 understated the damage.** The wrong-reminder pick was real, but the
+   branch containing it was **unreachable**: `PARAM_SCHEMA["cancel_reminder"]`
+   required a non-empty `id`, and reminder ids (`rem_<hex8>`) are never spoken,
+   shown, or put in the prompt — so the planner could not supply one. Every
+   route ended in "No active timer to cancel." or "I didn't understand."
+   `cancel_reminder` had never worked at all. Deleting the param is ADR-070.
+   Worth noting for future audits: the report checked the *ordering* bug inside
+   the function without checking whether the function could be reached.
+
+3. **A `_say_now` hazard the report did not list.** With a raising speaker
+   (H2's premise), `_fail_speak` called `_say_now`, which raised again *inside*
+   the exception handler — killing the turn task mid-unwind and stranding the
+   FSM in ERROR, so every later trigger was rejected. Fixed with H2 in Step 2.
+
+4. **The dead-code table shrank by two.** `PendingAction` is now genuinely
+   imported in `daemon.py` (retiring the F821 annotation item), and
+   `habits.describe_action`'s `web_search` branch is reachable now that search
+   writes audit rows — it is kept and tested, as ADR-067b directed.

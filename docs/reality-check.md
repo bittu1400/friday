@@ -14,16 +14,24 @@ Paste anything that fails — with the exact command/utterance and what happened
 into `progress.md` under a new dated session block. A row that cannot be
 verified (no mic, tool missing) is marked `SKIP (reason)`, never silently ticked.
 
-> **2026-08-26 audit note (Alpha-ox-analysis.md C1):** every *typed* path
-> through a confirm-first row (A5, wifi-off, window-close, clipboard_set) is
-> currently BROKEN in text mode — the TUI confirm raises on `PendingAction`,
-> so "yes" does nothing. Voice-path rows are unaffected. Re-verify typed rows
-> only AFTER the hardening phase lands (progress.md START HERE, Step 1).
+> **2026-08-29 update — C1 is FIXED, and the typed confirm rows are now the
+> priority.** Every *typed* path through a confirm-first row (A5, wifi-off,
+> window-close, clipboard_set, and now clipboard_read) was BROKEN in text mode:
+> the TUI confirm raised on `PendingAction`, so "yes" did nothing. Both UIs now
+> resolve through one shared `turn.resolve_pending` (ADR-069) and headless
+> Textual tests drive the real app. **None of those rows has been verified by a
+> human at a keyboard yet** — that is exactly the "green suite, broken feature"
+> trap this file exists for, so tick them by actually typing them.
+>
+> Also changed 2026-08-29 and needing a live pass: `clipboard_read` now asks
+> before it reads (ADR-068a), `cancel_reminder` takes no params and cancels the
+> most recently created reminder by name (ADR-070), and a barged reply no
+> longer enters history (ADR-069).
 
 Derived from the action schema (`friday/llm/schema.py`), the turn router
 (`friday/turn.py`), the daemon intercepts (`friday/daemon.py`), and the tool
 registry (`friday/tools/registry.py`); re-verified against the code on
-2026-08-25. If code and this file disagree, one of them is a bug — find out
+2026-08-29 (fix-phase Steps 1-6). If code and this file disagree, one of them is a bug — find out
 which before ticking. See section F at the bottom for what is verified today.
 
 ---
@@ -128,11 +136,17 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "remind me in 10 minutes to check the pasta" | "Okay, I'll remind you to check the pasta in 10 minutes." |
 | (mumble the duration / it mishears) | asks again with an example, sets NOTHING |
 | "what timers do I have" | lists active ones (or "no active timers") |
-| "cancel that timer" | cancels latest active (or by id) |
+| "cancel that timer" | cancels the most recently CREATED active one, and NAMES it: "Cancelled: check the pasta." |
 
 - [ ] When it fires: one desktop notification **and** one spoken "Reminder: …"
 - [ ] It fires **exactly once** — timers are one-shot, NOT recurring
 - [ ] A garbled duration never becomes a silent default timer (it asks)
+- [ ] **Set a short timer AND a long reminder, then say "cancel my timer".** The
+      one you set LAST must die and be named aloud. Before 2026-08-29 this
+      cancelled the one firing farthest in the future (audit H7) — and in fact
+      could not cancel anything at all, because the schema required an `id` the
+      planner has no way to know (ADR-070). Verify with `just prefs`-adjacent
+      inspection or by waiting: the survivor must still fire.
 
 ### A7. Do-Not-Disturb (conversational)
 | Say | Expect |
@@ -299,7 +313,26 @@ changed — a row here that disagrees with the code is itself a defect.
 
 ---
 
-## F. Status of this manifest as of 2026-08-25
+## F. Status of this manifest as of 2026-08-29
+
+**Changed by the fix phase (Steps 1–6) and NOT yet verified by a human:**
+- **Every typed confirm row.** They were broken in text mode for the whole of
+  Phase 2 (audit C1) and are now fixed and covered by headless Textual tests.
+  A headless test is not a person typing "yes" — tick these by hand.
+- **A13 `clipboard_read`** now asks first and does not read the selection at
+  all until you say yes (ADR-068a).
+- **A6 `cancel_reminder`** takes no params and cancels the most recently
+  *created* reminder, naming it aloud (ADR-070). Per that ADR it had never
+  worked at any point before, so this is its first real exercise.
+- **A15 barge-in**: an interrupted reply no longer enters dialogue history, and
+  barging over a confirm question no longer eats your next command (ADR-069).
+  Check the second one deliberately: ask for something that confirms, talk over
+  the question, then give a completely different command — it must run, not be
+  answered with "Okay, cancelled."
+
+**Still true, from 2026-08-25:**
+
+## F-prev. Status of this manifest as of 2026-08-25
 
 **Verified (text mode, real `run_turn`, dry-run):** A1 apps, A2 YouTube,
 A3 search (incl. local-mode refusal), A4 chat, A5/A6/A7 routing, A9 system

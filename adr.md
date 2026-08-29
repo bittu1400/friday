@@ -2156,7 +2156,8 @@ ordering rationale); weakening FR-57/FR-58 to match current code instead of
 fixing code to match the spec; deferring C1 because text mode is "rarely used"
 (it is the same defect class that made four prior sessions necessary).
 
-**Status:** Accepted 2026-08-26. Implementation pending (next session).
+**Status:** Accepted 2026-08-26. **Steps 1-6 implemented 2026-08-29** (ADR-069,
+ADR-070, ADR-071; evidence in progress.md). Steps 7-12 pending.
 
 ---
 
@@ -2203,7 +2204,11 @@ from "reads current clipboard" to "asks to confirm, then reads it". Both land
 in the fix phase — (a) with Step 2's confirm-lifecycle commit, (b) with Step 6's
 DB work — not as separate steps.
 
-**Status:** Accepted 2026-08-27. Implementation pending (fix phase).
+**Status:** Accepted 2026-08-27. **Both parts implemented 2026-08-29** — (a)
+with Step 2 (`turn.resolve_pending`'s `clipboard_read` branch; the selection is
+not fetched at all until an affirmative, which is stronger than the ADR
+promised), (b) with Step 6 (`audit.sweep_retention`). Tests:
+`tests/test_clipboard_confirm.py`, `tests/test_db_integrity.py`.
 
 ---
 

@@ -105,12 +105,20 @@ turn the user has already stopped caring about.
    CAPTURING     15 s hard stop
    TRANSCRIBING   5 s   -> ERROR "I didn't catch that"
    PLANNING      10 s   -> ERROR "I'm having trouble thinking"
-   CONFIRMING    30 s   -> cancel, back to IDLE, say nothing
+   CONFIRMING    30 s   -> drop the pending, say nothing. The FSM is NOT
+                 reset: if the user is mid-answer the capture owns the machine
+                 and finishes normally, and with no pending held that utterance
+                 is simply a fresh command. Resetting here used to slam the mic
+                 gate shut mid-answer (ADR-069 / audit M-P1)
    EXECUTING     per-tool, from registry (open_app 5 s, web_search 8 s)
    GROUNDING     10 s   -> speak degraded answer from raw tool result
    SPEAKING      interruptible by PTT press (barge-in = cancel playback,
                  drop the turn, go to CAPTURING — the user is already holding
-                 the key to speak; FR-7, diagram 05, G6 daemon)
+                 the key to speak; FR-7, diagram 05, G6 daemon).
+                 An interrupted line counts as NOT DELIVERED: it does not enter
+                 dialogue history, and if it was a confirm question no pending
+                 is armed — the barged utterance is a command, never a yes/no
+                 (ADR-069 / audit H3)
 ```
 
 ## The two rules this diagram exists to enforce
