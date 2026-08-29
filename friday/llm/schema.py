@@ -67,7 +67,15 @@ PARAM_SCHEMA: Final = MappingProxyType(
             {"seconds": {"kind": "text"}, "message": {"kind": "text"}}
         ),
         "list_reminders": MappingProxyType({}),
-        "cancel_reminder": MappingProxyType({"id": {"kind": "text"}}),
+        # No params. `id` used to be declared here as required text, which made
+        # the tool unusable: reminder ids are `rem_<hex8>` and are never spoken
+        # or shown, so the planner could not know one — while the validator
+        # rejected an empty string, so `turn.py`'s "cancel the latest" branch
+        # was unreachable and every "cancel my timer" answered "No active timer
+        # to cancel." A param the model can never fill correctly is also
+        # exactly what invariant #2 forbids: an opaque id from a CLOSED set, or
+        # nothing. Found 2026-08-29 while fixing H7 (ADR-070).
+        "cancel_reminder": MappingProxyType({}),
         "set_dnd": MappingProxyType({}),
         "resume_dnd": MappingProxyType({}),
         # Phase 2 control params are CLOSED SETS, so they are declared as enums,

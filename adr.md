@@ -2292,3 +2292,50 @@ audit's other suggested fix for H2) — it fixes the raise but not the barge-in,
 and leaves two places that must agree about when a confirm is live. Keeping a
 thin TUI copy that "just adds an isinstance branch" — that is exactly the shape
 that produced C1.
+
+---
+
+## ADR-070 — `cancel_reminder` takes no params; "cancel my timer" means the one most recently created
+
+**Status:** Accepted (2026-08-29). Found while implementing fix-phase Step 3;
+not in the 2026-08-26 audit. Amends the G11 action schema (ADR-056).
+
+**Context.** H7 reported that `_do_cancel_reminder`'s no-id branch cancels
+`active[-1]` while `alist_active` orders by `fire_at ASC`, so "cancel my timer"
+killed the reminder firing farthest in the future — the 3pm meeting rather than
+the pasta timer. Fixing the ordering exposed something worse: **that branch was
+unreachable.** `PARAM_SCHEMA["cancel_reminder"]` declared `id` as required
+`text`, and the validator rejects an empty string (`validate.py:126-128`), so a
+plan without an id fails closed to `none` before `turn.py` is ever reached.
+
+And the planner cannot supply a real id. Ids are `rem_<hex8>`, generated in
+`reminders.py:34`; they are never spoken (`list_reminders` reads messages), never
+shown in the TUI, and never placed in the prompt. So every route through this
+tool ended somewhere useless: an invented id → `acancel` returns False → "No
+active timer to cancel.", or no id → `SchemaError` → "I didn't understand."
+`cancel_reminder` has never worked. No test drove the turn path — only
+`ReminderStore.cancel` was tested, with ids the test itself had just created.
+
+**Decision.** Delete the param. `cancel_reminder` takes `{}` and cancels the
+**most recently created** active reminder, chosen by `created_at`, and the
+spoken line names it ("Cancelled: check the pasta.") so a wrong pick is audible
+instead of silent.
+
+Most-recently-created is the right anchor because "cancel my timer" almost
+always refers to the one the user just set; soonest-to-fire and
+latest-to-fire both guess at intent from a number the user never stated.
+
+**Consequences.** `plan.gbnf` is byte-identical — the grammar constrains action
+names and generic string pairs, not param keys — so the committed-grammar drift
+test is unaffected and `just eval` stays 28/28. The prompt line drops its
+`{"id": text}`. This also removes a param the model could only ever hallucinate,
+which is what invariant #2 asks for: an opaque ID from a **closed** set, or no
+param at all. Naming a specific reminder ("cancel the pasta timer") is the
+natural extension and would match on the spoken message, never on an id; it is
+not built, because nothing has asked for it.
+
+**Rejected.** Adding an "optional param" kind to `PARAM_SCHEMA` — it introduces
+a schema feature to keep a field nothing can fill. Putting reminder ids into the
+prompt so the planner can cite one — that hands the model an identifier to
+fabricate and expands what a single turn can name; the deterministic pick is
+smaller and cannot be talked into cancelling the wrong thing.

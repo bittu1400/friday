@@ -46,7 +46,7 @@ addressed. params: {"key": text, "value": text}
   forget_preference    the user asks to forget a preference. params: {"key": text}
   set_reminder         the user asks to set a timer, alarm, or reminder (e.g. "remind me in 10 minutes to ...", "set a timer for 5 minutes"). Convert duration to integer seconds in "seconds" (e.g. 5 mins -> "300"). params: {"seconds": text, "message": text}
   list_reminders       the user asks what reminders or timers are active. params: {}
-  cancel_reminder      the user asks to cancel or remove a timer or reminder. params: {"id": text}
+  cancel_reminder      the user asks to cancel or remove a timer or reminder. params: {}
   set_dnd              the user asks for quiet, "do not disturb", "let's talk later", or "be quiet". params: {}
   resume_dnd           the user explicitly says "resume" or "disable quiet mode". params: {}
   system_volume        adjust or mute volume ("volume up", "turn it down", "mute", "unmute"). params: {"direction": "up" | "down" | "mute" | "unmute"}

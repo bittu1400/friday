@@ -206,7 +206,7 @@ async def _plan_and_act(
         return await _do_list_reminders(prefs)
 
     if plan.name == "cancel_reminder":
-        return await _do_cancel_reminder(params, prefs)
+        return await _do_cancel_reminder(params, prefs, audit, request_id)
 
     if plan.name == "set_dnd":
         return TurnResult("set_dnd", {}, "Quiet mode enabled. Let me know when you need me.", False)
@@ -258,7 +258,8 @@ async def _plan_and_act(
 
     if plan.name == "web_search":
         return await _do_web_search(
-            params.get("query", utterance), client, search_client, connected
+            params.get("query", utterance), client, search_client, connected,
+            audit=audit, request_id=request_id,
         )
 
     if plan.name in NOT_YET_WIRED:
@@ -291,12 +292,35 @@ async def _do_web_search(
     client: LlamaClient,
     search_client: SearchClient | None,
     connected: bool,
+    *,
+    audit: AuditLog | None = None,
+    request_id: str = "",
 ) -> TurnResult:
     """Query -> sanitize -> ground. NEVER dispatches (dispatched=False): the
     grounding turn is final.gbnf-locked (invariant #1) and there is no
     subprocess here. `query` is the model's own text, used ONLY as a SearXNG
-    query parameter (invariant #2 — not the youtube exception)."""
+    query parameter (invariant #2 — not the youtube exception).
+
+    Every outcome writes ONE audit row (FR-58 as amended by ADR-067b). A search
+    is the one action that reaches off this machine, and it was the only action
+    class writing no row at all (H1) — which also left
+    `habits.describe_action`'s `web_search` branch permanently unreachable,
+    since it mines the very table nothing was writing to. The query is the
+    model's text, so it is length-capped before it is stored; `redact_args`
+    then strips home paths as it does for every other row."""
+    # Capped, not redacted-away: the query IS the useful audit content, and it
+    # is already model-generated text over a first-party utterance.
+    q_audited = {"query": query[:80]}
+
+    async def _row(outcome: str) -> None:
+        if audit is not None:
+            await audit.arecord(
+                request_id=request_id, tool_id="web_search", params=q_audited,
+                policy_decision="allowed", outcome=outcome, duration_ms=0,
+            )
+
     if not connected:  # ADR-046: local mode refuses audibly
+        await _row("disabled")
         return TurnResult("web_search", {"query": query}, templates.SEARCH_LOCAL_MODE, False)
     sc = search_client or SearchClient(
         base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
@@ -305,6 +329,7 @@ async def _do_web_search(
         # SearchClient is sync; keep the turn loop's thread free.
         results = await asyncio.to_thread(sc.query, query)
     except SearchUnavailable:  # E_NET_DOWN — spoken fallback, never a raw exc
+        await _row("net_down")
         return TurnResult("web_search", {"query": query}, templates.SEARCH_UNAVAILABLE, False)
     bodies, sources = sanitize(
         results,
@@ -312,11 +337,13 @@ async def _do_web_search(
         max_tokens=config.SEARCH_MAX_TOKENS,
     )
     if not any(bodies):
+        await _row("not_found")
         return TurnResult(
             "web_search", {"query": query}, templates.SEARCH_NO_RESULTS, False,
             sources=tuple(sources),
         )
     answer = await asyncio.to_thread(grounding.ground, client, query, bodies)
+    await _row("ok")
     return TurnResult(
         "web_search", {"query": query}, answer, False, sources=tuple(sources)
     )
@@ -391,12 +418,23 @@ async def resolve_pending(
     if not is_affirmation(answer):
         return templates.CANCELLED_ACTION
 
+    # Every branch below EXECUTES, so every branch below audits (FR-58). These
+    # are the dangerous dispatches — wifi off, close the window, overwrite the
+    # clipboard, read a secret aloud — and until now they were the only ones
+    # that wrote NO audit row at all (H1). The audit existed for exactly these.
     if pending.tool_id == "clipboard_set":
         # Not a subprocess-registry tool: text goes to wl-copy on STDIN (see
         # tools/clipboard.py). Speak the real outcome — never a blanket "done".
         from .tools.clipboard import set_clipboard
 
         ok = await asyncio.to_thread(set_clipboard, pending.params.get("text", ""))
+        # The text itself is the user's own data and may be a secret — record
+        # its length, never its content (FR-26/FR-57).
+        await _audit_confirmed(
+            audit, request_id, "clipboard_set",
+            {"chars": str(len(pending.params.get("text", "")))},
+            "ok" if ok else "error",
+        )
         return "Copied to your clipboard." if ok else "Clipboard unavailable."
 
     if pending.tool_id == "clipboard_read":
@@ -405,6 +443,10 @@ async def resolve_pending(
         from .tools.clipboard import read_clipboard
 
         raw = await asyncio.to_thread(read_clipboard)
+        outcome = "not_found" if raw is None else ("ok" if raw.split() else "empty")
+        # Contents are never audited — the row records that a read-aloud was
+        # confirmed and happened, which is the fact worth keeping.
+        await _audit_confirmed(audit, request_id, "clipboard_read", {}, outcome)
         if raw is None:
             return "Clipboard unavailable."
         txt = " ".join(raw.split())
@@ -417,7 +459,37 @@ async def resolve_pending(
         log.warning("confirm resolved unknown pending tool %s", pending.tool_id)
         return templates.ACTION_UNAVAILABLE
     res = await executor.execute(spec, pending.params, request_id, dry_run=dry_run)
+    dispatched = res.outcome not in (Outcome.DENIED, Outcome.DISABLED, Outcome.NOT_FOUND)
+    await _audit_confirmed(
+        audit, request_id, pending.tool_id, pending.params,
+        res.outcome.value,
+        policy_decision="allowed" if dispatched else res.outcome.value,
+        duration_ms=res.duration_ms,
+    )
     return templates.render(res.outcome, res.display)
+
+
+async def _audit_confirmed(
+    audit: AuditLog | None,
+    request_id: str,
+    tool_id: str,
+    params: dict[str, str],
+    outcome: str,
+    *,
+    policy_decision: str = "allowed",
+    duration_ms: int = 0,
+) -> None:
+    """One row per confirmed dispatch (FR-58). Mirrors `_plan_and_act`'s tail."""
+    if audit is None:
+        return
+    await audit.arecord(
+        request_id=request_id,
+        tool_id=tool_id,
+        params=params,
+        policy_decision=policy_decision,
+        outcome=outcome,
+        duration_ms=duration_ms,
+    )
 
 
 async def _do_forget(
@@ -546,23 +618,37 @@ async def _do_list_reminders(prefs: PrefStore | None) -> TurnResult:
     return TurnResult("list_reminders", {}, spoken, False)
 
 
-async def _do_cancel_reminder(params: dict[str, str], prefs: PrefStore | None) -> TurnResult:
+async def _do_cancel_reminder(
+    params: dict[str, str],
+    prefs: PrefStore | None,
+    audit: AuditLog | None = None,
+    request_id: str = "",
+) -> TurnResult:
     db = prefs._db if prefs else None
     if db is None:
         return TurnResult("cancel_reminder", params, "Memory unavailable.", False)
 
     from .store.reminders import ReminderStore
 
+    # "Cancel my reminder" means the one just set — the most recently CREATED,
+    # not the one firing farthest in the future. `alist_active` orders by
+    # fire_at ASC, so the old `active[-1]` picked the latest fire time: with a
+    # pasta timer and a 3pm meeting reminder outstanding, "cancel my timer"
+    # killed the meeting and said only "Cancelled." (audit H7).
+    #
+    # There is no id branch any more (ADR-070): ids are never spoken or shown,
+    # so the planner could not supply one, and the required-`id` schema made
+    # this whole function unreachable.
     store = ReminderStore(db)
-    rid = params.get("id", "").strip()
-    if rid:
-        ok = await store.acancel(rid)
-    else:
-        # Cancel latest active
-        active = await store.alist_active()
-        ok = await store.acancel(active[-1].id) if active else False
-
-    spoken = "Cancelled." if ok else "No active timer to cancel."
+    active = await store.alist_active()
+    if not active:
+        return TurnResult("cancel_reminder", params, "No active timer to cancel.", False)
+    target = max(active, key=lambda r: r.created_at)
+    ok = await store.acancel(target.id)
+    if ok:  # a dispatch, so a row (FR-58)
+        await _audit_confirmed(audit, request_id, "cancel_reminder", {}, "ok")
+    # Say WHICH one, so a wrong pick is audible instead of silent.
+    spoken = f"Cancelled: {target.message}." if ok else "No active timer to cancel."
     return TurnResult("cancel_reminder", params, spoken, ok)
 
 
