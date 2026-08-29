@@ -20,6 +20,7 @@ untrusted data at G4, so it uses plan.gbnf.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,8 @@ from .tools import executor
 from .tools.registry import NOT_YET_WIRED, REGISTRY
 from .tools.search import SearchClient, SearchResult, SearchUnavailable, sanitize
 from .ui import templates
+
+log = logging.getLogger("friday.turn")
 
 _PLAN_GRAMMAR = (Path(schema.__file__).parent / "grammars" / "plan.gbnf").read_text()
 
@@ -341,6 +344,57 @@ async def confirm_preference(
             duration_ms=0,
         )
     return templates.remembered(pending.key, pending.value)
+
+
+async def resolve_pending(
+    pending: PendingPreference | PendingAction | None,
+    answer: str,
+    *,
+    prefs: PrefStore | None,
+    audit: AuditLog | None,
+    request_id: str,
+    dry_run: bool = False,
+) -> str:
+    """Resolve a confirm-first handshake for EITHER pending type, from EITHER UI.
+
+    Both the voice daemon and the TUI route here so the two can never drift
+    apart again. C1 of the 2026-08-26 audit was exactly that drift: the TUI
+    still assumed `pending` was always a `PendingPreference` and called
+    `confirm_preference` unconditionally, so every G12 `PendingAction` confirm
+    ("Are you sure you want to overwrite your clipboard?") raised
+    AttributeError on `pending.key` and did nothing at all. The voice path had
+    been migrated; the text path never was. One resolver, one behaviour.
+
+    Deterministic (ADR-037): no second model turn, so no injection surface and
+    one-turn-in-flight holds. Anything that is not an explicit affirmation
+    cancels — fail safe. Execute FIRST, then speak (ADR-009): every branch
+    returns the line only after the side effect has actually happened.
+    """
+    if pending is None:  # defensive: nothing was held
+        return templates.CANCELLED_ACTION
+
+    if isinstance(pending, PendingPreference):
+        if is_affirmation(answer):
+            return await confirm_preference(pending, prefs, audit, request_id=request_id)
+        return templates.cancelled_preference()
+
+    if not is_affirmation(answer):
+        return templates.CANCELLED_ACTION
+
+    if pending.tool_id == "clipboard_set":
+        # Not a subprocess-registry tool: text goes to wl-copy on STDIN (see
+        # tools/clipboard.py). Speak the real outcome — never a blanket "done".
+        from .tools.clipboard import set_clipboard
+
+        ok = await asyncio.to_thread(set_clipboard, pending.params.get("text", ""))
+        return "Copied to your clipboard." if ok else "Clipboard unavailable."
+
+    spec = REGISTRY.get(pending.tool_id)
+    if spec is None:
+        log.warning("confirm resolved unknown pending tool %s", pending.tool_id)
+        return templates.ACTION_UNAVAILABLE
+    res = await executor.execute(spec, pending.params, request_id, dry_run=dry_run)
+    return templates.render(res.outcome, res.display)
 
 
 async def _do_forget(

@@ -41,6 +41,16 @@ def cancelled_preference() -> str:
     return "Okay, I won't remember that."
 
 
+# The confirm-first handshake for an ACTION (ADR-037 extended to G12's
+# reversible-but-disruptive tools, ADR-057). Same rule as a preference:
+# anything that is not an explicit yes cancels, and the line is a fixed
+# template, never the LLM.
+CANCELLED_ACTION = "Okay, cancelled."
+# A held pending whose tool is not in the registry any more. Fail honestly —
+# never a blanket "done" (ADR-009).
+ACTION_UNAVAILABLE = "I couldn't do that."
+
+
 def forgotten(key: str) -> str:
     return f"Okay, I've forgotten your {key}."
 

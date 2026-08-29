@@ -11,6 +11,7 @@ import threading
 import pytest
 
 from friday import daemon as daemon_mod
+from friday import turn as turn_mod
 from friday.audio.state import State
 from friday.audio.stt import Transcript
 from friday.daemon import Daemon
@@ -174,7 +175,9 @@ def test_confirm_handshake_yes_writes(monkeypatch):
     async def fake_confirm(p, prefs, audit, *, request_id):
         confirmed["key"] = p.key
         return "Okay, I'll remember that."
-    monkeypatch.setattr(daemon_mod, "confirm_preference", fake_confirm)
+    # Both UIs resolve a confirm through turn.resolve_pending (audit C1 fix),
+    # so the preference write is patched where it is now looked up.
+    monkeypatch.setattr(turn_mod, "confirm_preference", fake_confirm)
 
     d = _daemon()
 
@@ -208,7 +211,9 @@ def test_confirm_timer_not_orphaned_by_answer_press(monkeypatch):
 
     async def fake_confirm(p, prefs, audit, *, request_id):
         return "Okay."
-    monkeypatch.setattr(daemon_mod, "confirm_preference", fake_confirm)
+    # Both UIs resolve a confirm through turn.resolve_pending (audit C1 fix),
+    # so the preference write is patched where it is now looked up.
+    monkeypatch.setattr(turn_mod, "confirm_preference", fake_confirm)
 
     d = _daemon()
 
@@ -294,6 +299,28 @@ def test_toggle_barge_in_during_speaking(monkeypatch):
         await d._turn_task
 
     asyncio.run(go())
+
+
+def test_no_stt_mode_returns_to_idle_silently(monkeypatch):
+    """H4 (audit 2026-08-26): `--no-voice` / no-STT is a SUPPORTED degraded mode.
+
+    `_transcribe` used to perform TRANSCRIBING -> IDLE itself and `_run_turn`
+    did it again at :269, so `_require(TRANSCRIBING)` raised IllegalTransition
+    on EVERY capture and Friday spoke "Something went wrong." for what FR-12
+    mandates be a silent return to IDLE. No fixture drove `transcriber=None`
+    end to end, so 328 green tests never saw it.
+    """
+    _plan(monkeypatch, TurnResult("open_app", {}, "must not be spoken", True))
+    d = _daemon(transcriber=None)
+
+    async def go():
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+
+    asyncio.run(go())
+    assert d._speaker.said == []  # FR-12: silent, and NOT the error line
+    assert d.state.state is State.IDLE
 
 
 def test_release_without_capture_is_ignored():

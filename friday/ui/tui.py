@@ -2,11 +2,17 @@
 see the outcome (architecture.md §2).
 
 G4 adds the confirm-first preference handshake (ADR-037). When a turn
-returns a `pending` preference, the input switches to a yes/no prompt; the
-next line is matched deterministically (no second model turn — FR-5 holds),
-and only an explicit yes writes. Everything else cancels. This is the
-"confirm prompt" architecture.md §3.1 anticipated; it is NOT the guard for
-an irreversible tool (Phase 1 ships none — FR-33).
+returns a `pending`, the input switches to a yes/no prompt; the next line is
+matched deterministically (no second model turn — FR-5 holds), and only an
+explicit yes proceeds. Everything else cancels. This is the "confirm prompt"
+architecture.md §3.1 anticipated. It is NOT a guard for an irreversible tool
+— there are none, and destructive classes stay permanently banned (FR-33,
+ADR-057) — it is the reversibility confirm for G12's disruptive actions.
+
+G12 made `pending` two-typed (`PendingPreference` OR `PendingAction`), and
+resolution now lives in `turn.resolve_pending`, shared with the voice daemon.
+It is shared on purpose: when the two UIs each had their own copy, the TUI's
+was never migrated and every text-mode action confirm crashed (audit C1).
 
 One turn in flight at a time: the input is disabled while a turn runs.
 """
@@ -25,8 +31,7 @@ from ..llm.client import LlamaClient
 from ..store.audit import AuditLog
 from ..store.prefs import PendingPreference, PrefStore
 from ..tools.search import SearchClient
-from ..turn import confirm_preference, is_affirmation, run_turn
-from ..ui import templates
+from ..turn import PendingAction, resolve_pending, run_turn
 
 
 def render_sources(sources) -> str:  # noqa: ANN001 - list[SearchResult]
@@ -65,7 +70,8 @@ class FridayTUI(App):
         self._search = SearchClient(
             base_url=config.SEARXNG_URL, timeout_s=config.SEARCH_TIMEOUT_S
         )
-        self._pending: PendingPreference | None = None
+        # Both kinds: G4 preferences AND the G12 action confirms (ADR-057).
+        self._pending: PendingPreference | PendingAction | None = None
         self._session_id = uuid.uuid4().hex
         self._dialogue = Dialogue()  # in-session context, RAM-only (invariant #7)
         self._voice = "muted" if speaker is None else getattr(speaker, "voice", "on")
@@ -175,12 +181,14 @@ class FridayTUI(App):
         if pending is None:  # defensive
             self._reenable()
             return
-        if is_affirmation(answer):
-            spoken = await confirm_preference(
-                pending, self._prefs, self._audit, request_id=uuid.uuid4().hex
-            )
-        else:
-            spoken = templates.cancelled_preference()
+        # Shared with the voice daemon so text mode and voice mode resolve a
+        # confirm identically (audit C1: this branch used to assume every
+        # pending was a preference and crashed on every G12 action).
+        spoken = await resolve_pending(
+            pending, answer,
+            prefs=self._prefs, audit=self._audit,
+            request_id=uuid.uuid4().hex, dry_run=self._dry_run,
+        )
         log.write(f"[bold green]friday[/] {spoken}")
         if self._speaker is not None:  # voice the confirm follow-up too (ADR-040)
             import asyncio

@@ -35,7 +35,7 @@ from .proactive import notifier
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore
 from .tools.search import SearchClient
-from .turn import confirm_preference, is_affirmation, run_turn
+from .turn import PendingAction, resolve_pending, run_turn
 
 log = logging.getLogger("friday.daemon")
 
@@ -402,7 +402,11 @@ class Daemon:
 
     async def _transcribe(self, pcm) -> str | None:  # noqa: ANN001
         if self._transcriber is None:
-            self.state.got_transcript(nonempty=False)
+            # No transition here: `_run_turn` owns TRANSCRIBING -> IDLE for
+            # every empty transcript (:269). Doing it in both places raised
+            # IllegalTransition on EVERY capture in the supported no-STT mode,
+            # so Friday said "Something went wrong." where FR-12 mandates a
+            # silent return to IDLE (audit H4).
             return ""
         try:
             t = await asyncio.wait_for(
@@ -442,42 +446,13 @@ class Daemon:
         pending, self._pending = self._pending, None
         self._disarm_confirm()
         self._disarm_capture_cap()
-        from .store.prefs import PendingPreference
-        from .turn import PendingAction
-
-        if isinstance(pending, PendingPreference):
-            if is_affirmation(text):
-                spoken = await confirm_preference(
-                    pending, self._prefs, self._audit, request_id=rid
-                )
-            else:
-                spoken = "Okay, I won't."  # anything but yes cancels the write
-        elif isinstance(pending, PendingAction):
-            if is_affirmation(text):
-                if pending.tool_id == "clipboard_set":
-                    # Not a subprocess-registry tool: text goes to wl-copy on
-                    # STDIN (see tools/clipboard.py). Speak the real outcome —
-                    # never a blanket "done" (ADR-009).
-                    from .tools.clipboard import set_clipboard
-                    text_val = pending.params.get("text", "")
-                    ok = await asyncio.to_thread(set_clipboard, text_val)
-                    spoken = "Copied to your clipboard." if ok else "Clipboard unavailable."
-                else:
-                    from .tools.registry import REGISTRY
-                    from .tools import executor
-                    from .ui import templates
-                    spec = REGISTRY.get(pending.tool_id)
-                    if spec is not None:
-                        res = await executor.execute(spec, pending.params, request_id=rid, dry_run=self._dry_run)
-                        spoken = templates.render(res.outcome, res.display)
-                    else:
-                        # Unknown pending tool: fail honestly, do not claim success.
-                        log.warning("confirm resolved unknown pending tool %s", pending.tool_id)
-                        spoken = "I couldn't do that."
-            else:
-                spoken = "Okay, cancelled."
-        else:
-            spoken = "Cancelled."
+        # Shared with the TUI (turn.resolve_pending) so the two UIs cannot
+        # drift apart again — audit finding C1 was exactly that drift.
+        spoken = await resolve_pending(
+            pending, text,
+            prefs=self._prefs, audit=self._audit,
+            request_id=rid, dry_run=self._dry_run,
+        )
         self.state.got_plan(will_speak=True)
         await self._speak(spoken)
 
