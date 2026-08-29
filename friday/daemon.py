@@ -39,6 +39,8 @@ from .turn import PendingAction, resolve_pending, run_turn
 
 log = logging.getLogger("friday.daemon")
 
+
+
 # Per-stage timeouts (diagram 01). Latency targets live in diagram 05; these
 # are the hard aborts, deliberately larger — a slow turn should finish late,
 # not fail.
@@ -136,7 +138,7 @@ class Daemon:
 
     # --- Hands-free Wake & Barge events (G10) -----------------------------
 
-    def _reject_busy(self, source: str) -> None:
+    async def _reject_busy(self, source: str) -> None:
         """One turn in flight (FR-5): the trigger is rejected, never queued.
 
         FR-5 says reject; it does not say do it silently. With tap-toggle PTT
@@ -149,8 +151,11 @@ class Daemon:
         self.rejected += 1
         log.info("E_BUSY: %s ignored in %s", source, self.state.state.value)
         # Module-qualified so tests can stub notifier.notify (a real notify-send
-        # in the suite is how the phantom "pasta" toasts happened).
-        notifier.notify(
+        # in the suite is how the phantom "pasta" toasts happened). Off the loop
+        # (H6): `notify-send` can block for up to 2 s, and this path fires while
+        # a turn is already running — exactly when the loop must stay free to
+        # hear the user's next trigger.
+        await notifier.anotify(
             "Friday is busy",
             "Still finishing the last request — that one didn't register.",
             urgency="low",
@@ -161,7 +166,7 @@ class Daemon:
         if self.state.begin_capture():
             self._start_capture("wake")
         else:
-            self._reject_busy("wake")
+            await self._reject_busy("wake")
 
     async def on_speech_end(self) -> None:
         """VAD detected trailing silence during capture: finish capture."""
@@ -214,7 +219,7 @@ class Daemon:
         if self.state.begin_capture():
             self._start_capture("ptt")
         else:
-            self._reject_busy("press")  # FR-5: busy, rejected not queued
+            await self._reject_busy("press")  # FR-5: busy, rejected not queued
 
     def _start_capture(self, source: str = "unknown") -> None:
         # Name the trigger. Three sources can open a capture (wake, barge-in,
@@ -288,7 +293,12 @@ class Daemon:
                 return
 
             if self._speaker_verifier is not None:
-                matched, score = self._speaker_verifier.verify(pcm)
+                # ONNX embedding inference — hundreds of ms. Inline it and the
+                # loop is deaf for that whole span, every turn (H6). STT and TTS
+                # were already threaded; this was not.
+                matched, score = await asyncio.to_thread(
+                    self._speaker_verifier.verify, pcm
+                )
                 if not matched:
                     log.info("Impostor detected (similarity %.3f < threshold); turn dropped", score)
                     self.state.reset()
@@ -339,7 +349,11 @@ class Daemon:
 
             # Voice sign-off close summary ("goodnight", "bye")
             if is_signoff_phrase(text):
-                spoken = generate_signoff_summary(self._dialogue.render(), self._client)
+                # A full synchronous LLM round-trip (H6). The sibling call in
+                # `close()` was already wrapped; this one was not.
+                spoken = await asyncio.to_thread(
+                    generate_signoff_summary, self._dialogue.render(), self._client
+                )
                 self.state.got_plan(will_speak=True)
                 if await self._speak(spoken):  # ADR-069: heard, or not history
                     self._dialogue.add(text, spoken)
@@ -350,12 +364,13 @@ class Daemon:
             habits_digest = ""
             summaries_digest = ""
             if db is not None:
-                from .store.habits import mine_habits, render_habits_digest
-                from .store.summarizer import get_recent_session_summaries, render_summaries_digest
-                habits = mine_habits(db)
-                habits_digest = render_habits_digest(habits)
-                summaries = get_recent_session_summaries(db, limit=2)
-                summaries_digest = render_summaries_digest(summaries)
+                # Two synchronous SQLite reads per turn, one of which scans 30
+                # days of audit rows (H6). Threaded like every other blocking
+                # store call.
+                from .store import prompt_digests
+                habits_digest, summaries_digest = await asyncio.to_thread(
+                    prompt_digests, db
+                )
 
             result = await asyncio.wait_for(
                 run_turn(

@@ -138,12 +138,13 @@ class FridayTUI(App):
         habits_digest = ""
         summaries_digest = ""
         if db is not None:
-            from ..store.habits import mine_habits, render_habits_digest
-            from ..store.summarizer import get_recent_session_summaries, render_summaries_digest
-            habits = mine_habits(db)
-            habits_digest = render_habits_digest(habits)
-            summaries = get_recent_session_summaries(db, limit=2)
-            summaries_digest = render_summaries_digest(summaries)
+            # Same SQLite reads the daemon threads (H6). Blocking Textual's loop
+            # freezes the UI rather than the mic, but it is the same defect.
+            import asyncio
+
+            from ..store import prompt_digests
+
+            habits_digest, summaries_digest = await asyncio.to_thread(prompt_digests, db)
 
         result = await run_turn(
             text,

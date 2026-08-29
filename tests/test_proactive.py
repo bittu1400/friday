@@ -13,12 +13,21 @@ def _no_desktop_notifications(monkeypatch):
     """The Scheduler shells out to `notify-send` for real. Under test that pops
     actual desktop notifications on the developer's machine (a running suite
     once spammed real 'pasta is ready' toasts). Stub it everywhere the tests
-    can reach it so pytest has no side effect on the desktop."""
-    import friday.proactive.scheduler as sched_mod
-    import friday.proactive.notifier as notifier_mod
+    can reach it so pytest has no side effect on the desktop.
 
-    monkeypatch.setattr(sched_mod, "notify", lambda *a, **k: True)
+    Stubbing `notifier.notify` alone is enough now that the scheduler goes
+    through `anotify`, which resolves `notify` through the module namespace at
+    call time (H6) — but the scheduler's own imported name is stubbed too, so a
+    future direct call cannot slip past."""
+    import friday.proactive.notifier as notifier_mod
+    import friday.proactive.scheduler as sched_mod
+
     monkeypatch.setattr(notifier_mod, "notify", lambda *a, **k: True)
+
+    async def _anotify(*a, **k):
+        return True
+
+    monkeypatch.setattr(sched_mod, "anotify", _anotify)
 
 
 @pytest.fixture

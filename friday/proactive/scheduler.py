@@ -14,7 +14,7 @@ from typing import Any
 
 from friday.store.reminders import Reminder, ReminderStore
 from .dnd import DndManager
-from .notifier import notify
+from .notifier import anotify
 
 log = logging.getLogger(__name__)
 
@@ -69,8 +69,10 @@ class Scheduler:
             await self._store.amark_fired(rem.id)
             log.info("Reminder triggered: %s (%s)", rem.id, rem.message)
 
-            # Send desktop notification
-            notify(f"Friday {rem.kind.capitalize()}", rem.message)
+            # Send desktop notification, off the loop (H6): a blocking
+            # `notify-send` here delayed every later due reminder in the same
+            # burst by up to 2 s each.
+            await anotify(f"Friday {rem.kind.capitalize()}", rem.message)
 
             # Enqueue proactive speech event
             # Per user decision (2026-08-24): Timers & reminders fire anyway during DND

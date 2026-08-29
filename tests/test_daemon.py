@@ -592,7 +592,7 @@ def test_rejected_trigger_tells_the_user(monkeypatch):
     sent: list[tuple[str, str]] = []
     monkeypatch.setattr(
         daemon_mod.notifier, "notify",
-        lambda title, message, **k: sent.append((title, message)) or True,
+        lambda title, message, *a, **k: sent.append((title, message)) or True,
     )
     _plan(monkeypatch, TurnResult("none", {}, "(no action)", False))
     d = _daemon()
@@ -613,7 +613,7 @@ def test_accepted_trigger_does_not_notify(monkeypatch):
     sent: list[tuple[str, str]] = []
     monkeypatch.setattr(
         daemon_mod.notifier, "notify",
-        lambda title, message, **k: sent.append((title, message)) or True,
+        lambda title, message, *a, **k: sent.append((title, message)) or True,
     )
     _plan(monkeypatch, TurnResult("none", {}, "(no action)", False))
     d = _daemon()
