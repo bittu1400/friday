@@ -229,6 +229,15 @@ nowhere else. See ADR-027 and threat T2.
 | FR-82 | Structured JSON logging with size-based rotation (10 MB x 5) and path redaction (FR-43, stripping `/home/` to `~`) | **MET (G9):** `tests/test_logging.py` 4/4; log scrape test verified |
 | FR-83 | Tolerant startup ping (`wait_for_llm`) polls llama-server on boot to prevent crash loops while weights load | **MET (G9):** `tests/test_resilience.py`; cold-start startup verified |
 | FR-84 | Subsystem fault resilience: survives `kill -9` of llama-server and audio stream disconnects/sleep without orchestrator crash | **MET (G9):** `tests/test_resilience.py` 4/4; live kill -9 recovery verified |
+| FR-85 | A spoken affirmation is normalised (trailing punctuation stripped) before matching, and the accepted set covers natural spoken forms. A non-answer to a live confirm cancels the pending AND is then routed as an ordinary command | ADR-075 · **NOT YET IMPLEMENTED** (D1) |
+| FR-86 | `action_audit.request_id` is a UUID and the write is a plain `INSERT`; audit rows survive daemon restarts | ADR-076 · **NOT YET IMPLEMENTED** (D2) |
+| FR-87 | A turn may end in a **clarify question**: Friday asks, sets nothing, holds no pending. A `set_reminder` duration not grounded in the transcript is discarded and clarified, never guessed | ADR-077 · **NOT YET IMPLEMENTED** (D5) |
+| FR-88 | `get_time` answers time/date from the machine clock via an outcome template; the model never supplies the string | ADR-078 · **NOT YET IMPLEMENTED** (D7) |
+| FR-89 | Model-authored speech (briefings, sign-off summaries) is rejected and replaced by the fixed line when empty, a bare identifier, or non-prose | ADR-079 · **NOT YET IMPLEMENTED** (D6) |
+| FR-90 | `file_open` normalises the alias, verifies the path exists before dispatch, and uses a per-alias opener (`config` → `foot -e micro`; `notes`/`todo` → VS Code) | ADR-081 · **NOT YET IMPLEMENTED** (D4, D10) |
+| FR-91 | Dictation: spoken commands win over Whisper punctuation, are matched only when standalone, support a `literal <word>` escape, auto-capitalise after sentence end, and provide `scratch that` / `new paragraph` | ADR-082 · **NOT YET IMPLEMENTED** |
+| FR-92 | The Wayland typer passes `--` before user text, and dictation typing runs off the event loop | ADR-082 · **NOT YET IMPLEMENTED** (D11, D12 — audit H6's class, escaped) |
+| FR-93 | An utterance that is not clearly imperative is routed to a confirm rather than dispatched | ADR-083 · **NOT YET IMPLEMENTED** (D8) |
 
 ---
 
@@ -236,7 +245,7 @@ nowhere else. See ADR-027 and threat T2.
 
 | ID | Requirement | Target | Hard fail |
 | :-- | :-- | :-- | :-- |
-| NFR-1 | TTFA, end of speech to first audio | p50 1.4 s | p95 > 4.5 s |
+| NFR-1 | TTFA, end of speech to first audio | **p50 2.2 s** (re-baselined 2026-08-29 from n=77 live turns, ADR-080; the old 1.4 s was met by **0 of 77**) | **p95 > 3.6 s**, excluding `web_search` turns (network + grounding) |
 | NFR-2 | Text mode round trip, p95 | 1.2 s | 3.5 s |
 | NFR-3 | Peak VRAM under normal desktop load | <= 6.5 GB | 7.65 GB |
 | NFR-4 | Total Friday RSS | <= 3.5 GB | 6 GB |

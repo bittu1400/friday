@@ -96,6 +96,13 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "play a video" / "open mpv" | mpv launches | |
 | "open VLC" | VLC launches | |
 
+- [x] **Four of five launch and appear on screen — verified by the user
+      2026-08-29:** Brave, foot, VS Code, VLC.
+- [ ] **mpv does NOT open. `'Play a video'` → `youtube_search` (audit v28),
+      never `open_app{video}`.** That is OQ-30, open since 2026-08-23 and now
+      ANSWERED: YouTube stays the default, with a VLC/mpv fallback when the
+      network is down. `open VLC` does reach `open_app`, so a bare app name
+      still works. Re-run this row once OQ-30's fallback lands.
 - [ ] All five launch and the spoken line matches what opened
 - [ ] A single-instance app already running still reports success, not "That
       didn't work." (ADR-043 amendment — exit code is not a launch verdict)
@@ -154,6 +161,11 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "what timers do I have" | lists active ones (or "no active timers") |
 | "cancel that timer" | cancels the most recently CREATED active one, and NAMES it: "Cancelled: check the pasta." |
 
+- [ ] **Reminders fired reliably LIVE 2026-08-29** — four fired, and the user's
+      verdict was *"by far, this worked the best"*. **Deliberately NOT ticked:**
+      the precise claim below (one notification AND one spoken line, exactly
+      once) was not separately confirmed, and a vague "it worked" is not the
+      evidence this file asks for.
 - [ ] When it fires: one desktop notification **and** one spoken "Reminder: …"
 - [ ] It fires **exactly once** — timers are one-shot, NOT recurring
 - [ ] **FAILS LIVE 2026-08-29 (D5).** A garbled duration never becomes a silent
@@ -185,6 +197,11 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | any normal command afterward | DND clears, command runs |
 | "resume" / "disable quiet mode" | "Quiet mode disabled…" |
 
+- [x] **Any normal command clears DND and Friday speaks — this is SPECIFIED
+      behaviour** (decided 2026-08-24, re-confirmed by the user 2026-08-29
+      after it surprised them mid-run: *"Were you not in quiet mode? Why did
+      you speak?"*). If you are talking to her, you are not being disturbed.
+      Documented here so it stops surprising people.
 - [ ] Timers/reminders still fire during DND (user decision 2026-08-24)
 
 ### A8. Sign-off summary
@@ -258,10 +275,17 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "open my config" | opens ~/.config/hypr/hyprland.conf |
 | "open my todo" | opens ~/todo.md |
 
-- [x] **`my notes` and `my config` dispatched `ok` LIVE 2026-08-29** (audit v32,
-      v33). *Whether the RIGHT file opened is still unchecked — ADR-043 means
-      `ok` is the spawn, not the window, and opening the wrong file was the
-      2026-08-25 defect.*
+- [x] **`my notes` and `my config` opened the RIGHT targets — confirmed by the
+      user 2026-08-29** (audit v32, v33). The 2026-08-25 wrong-file defect has
+      not recurred.
+- [ ] **D10: `~/notes.md` and `~/todo.md` DO NOT EXIST.** "open my notes" gave
+      an empty unsaved VS Code buffer and Friday reported success — the same
+      family as "the launch returned ok, so the app opened". ADR-081 creates
+      both files and makes `file_open` verify the path before dispatching.
+- [ ] **Per-alias opener (ADR-081):** `config` will open in `foot -e micro`,
+      `notes`/`todo` in VS Code. Decided on the exit path — a voice-opened file
+      you cannot leave hands-free is a trap. (`micro` and `vim` are installed;
+      `nvim`/`helix`/`nano` are not.)
 - [ ] **`open my todo` is REFUSED — D4, live 2026-08-29.** Whisper transcribes
       it `to-do`; `registry.py:231` substring-matches `"todo" in "my to-do"`
       → False → `PolicyRejected`, spoken *"I'm not allowed to do that."*
@@ -307,7 +331,18 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | (then speak sentences) | text typed verbatim into the focused window; "period"/"comma"/"new line" become punctuation |
 | "stop dictation" | "Dictation mode disabled." |
 
-- [ ] While dictating, speech is typed, NOT sent to the planner
+- [x] **While dictating, speech is typed, NOT sent to the planner — VERIFIED
+      LIVE 2026-08-29.** The user's verdict: *"it typed. It was amazing."*
+      The plumbing is right.
+- [ ] **Punctuation and formatting need work (ADR-082).** Six concrete gaps:
+      no `literal` escape ("during that period" becomes "during that."),
+      Whisper's own punctuation double-applies and every chunk ends with a `.`,
+      commands match mid-phrase ("create new line" left "create" dangling and
+      put the next comma at the start of the line), no capitalisation after an
+      inserted `.`, no state across chunks, and no editing commands.
+- [ ] **D11/D12 in the typing path:** `wtype` argv lacks a `--` guard, and
+      `handle_transcript` runs `subprocess.run(timeout=3)` **on the event
+      loop** — Friday is deaf for every dictated chunk.
 - [ ] A planner-routed phrasing (e.g. "dictation on") also actually toggles the mode
 
 ### A15. Voice I/O plumbing
@@ -474,6 +509,9 @@ those rows DO pass (a decline is what the system does for everything).
 | D7 | MED | "what time is it" answered from the web, wrongly | no local-time action exists |
 | D8 | MED | questions and negations dispatch state changes | no imperative gate |
 | D9 | LOW | outcome templates speak raw enum values | templates |
+| D10 | MED | `file_open` reports success on a file that does not exist | `~/notes.md`, `~/todo.md` were never created |
+| D11 | MED | `wtype` argv has no `--` guard; text starting with `-` parses as a flag | `friday/tools/typer.py:25` |
+| D12 | MED | dictation types on the event loop (`subprocess.run(timeout=3)`) — audit H6's class, escaped | `friday/daemon.py:337` |
 
 **D3 makes A15's hands-free rows fail outright.** All three wake-initiated
 captures ran the full 15 s cap; one contained no speech at all and the ADR-066

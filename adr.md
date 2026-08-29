@@ -2523,6 +2523,319 @@ that was ADR-067(d)'s explicitly closed question. Killing a launch at
 
 ---
 
+## ADR-075 — A spoken "yes" is normalised and widened; a non-answer cancels AND then runs
+
+**Status:** Accepted 2026-08-29 (night), after the live-voice pass. Amends
+ADR-069. Closes OQ-40. Fixes D1 (CRITICAL). **Not yet implemented.**
+
+**Context.** `is_affirmation` (`friday/turn.py:47-53`) compared
+`text.strip().casefold()` against a frozenset of ten bare tokens. Whisper
+punctuates every utterance, so `"Yes."` and `"Yes!"` were not affirmations, and
+ADR-069's fail-safe ("anything that is not an explicit affirmation cancels")
+turned every spoken confirm into a decline. Proven from `action_audit`: bare
+`Yes` → `allowed/ok`; `Yes.`/`Yes!` → `declined`, six times, across
+`clipboard_read`, `clipboard_set`, `system_wifi{off}` and `hypr_window{close}`.
+`nmcli` and `wl-paste` confirmed nothing had happened. **Every confirm-gated
+capability had been unreachable by voice for the whole of Phase 2.** A grep for
+a punctuated affirmation across `tests/` returns 0 hits — which is exactly why
+five review passes and a typed pass all missed it.
+
+**Decisions.**
+
+(a) *Normalise before matching.* Strip surrounding whitespace and trailing
+punctuation before the set lookup. This alone fixes every case observed live.
+
+(b) *Widen the accepted set* to natural spoken forms — "go ahead", "do it",
+"please do", "confirm", "yeah do it" — alongside the existing ten.
+**The user was shown the tradeoff and chose to widen:** each added phrase is
+another way to approve a destructive action by accident. Recorded here because
+that risk is now owned, not overlooked.
+
+(c) *A non-answer cancels the pending AND is then routed as a fresh command.*
+Today it cancels and is swallowed; during the live pass "Open a terminal" was
+eaten by a live preference confirm and the terminal never opened. The pending is
+dropped first, then the same text goes through the normal planner path. **No
+second model turn is introduced**, so ADR-037 and one-turn-in-flight (FR-5) are
+untouched — it is the text already in hand, re-routed.
+
+**Consequences.** (b) and (c) loosen the same gate from two directions: a wider
+affirm vocabulary, and non-answers that now *do something* instead of stopping.
+The safety property that must survive is unchanged — **a destructive action
+still requires an explicit affirmative** — but the decline path is no longer the
+only outcome, so the tests must cover: punctuated yes, widened phrases,
+an explicit no, and a non-answer that is a valid command (which must dispatch).
+
+**The failing test must use realistic STT output.** Bare `yes` passes today and
+proves nothing.
+
+---
+
+## ADR-076 — Audit rows get a UUID and a plain INSERT
+
+**Status:** Accepted 2026-08-29 (night). Closes OQ-41. Fixes D2 (HIGH).
+**Not yet implemented.**
+
+**Context.** `friday/store/audit.py:56` wrote `INSERT OR REPLACE INTO
+action_audit`, keyed on `request_id`, and `friday/daemon.py:136,288` generated
+that id as `v{seq}` with `seq` reset to 0 on every daemon start. Every restart
+therefore overwrote the previous run's low-numbered rows. Proven live: run 2's
+`v3` replaced run 1's `v3` `web_search` row, which simply vanished while its
+siblings (v21, v22, v55) survived.
+
+**Decision.** `request_id` becomes a UUID, and the write becomes a plain
+`INSERT`. A collision is then impossible in practice and would raise loudly
+rather than destroy a row.
+
+**Why this is an ADR and not a patch.** FR-58 promises one row per resolved
+action, `mine_habits` reads that table, and the live-pass verification of every
+other defect depends on reading it across daemon restarts. An audit log that
+silently eats its own history is not an audit log. **This is Step 1 of the fix
+list, ahead of the CRITICAL**, because verifying D1 means restarting the daemon
+and reading these rows.
+
+**Rejected.** Keeping `v{n}` with a per-boot prefix (readable, but still a
+composite key to get wrong) and plain-INSERT-with-`v{n}` (a restart would make
+every write fail until the counter passed the old high-water mark).
+
+**Consequence.** The `v{n}` id is still useful *within* a session for
+correlating a log line to a row, so keep emitting it in the debug log; it stops
+being the database key.
+
+---
+
+## ADR-077 — The clarify turn: a third outcome besides acting and answering
+
+**Status:** Accepted 2026-08-29 (night). Closes OQ-43; carries the "may ask"
+half of OQ-30. **Not yet implemented — this is a new mechanism, not a repair.**
+
+**Context.** `set_reminder`'s `seconds` is `{"kind": "text"}`
+(`friday/llm/schema.py:72`) — free text the model fills in. Live evidence:
+`'suited timer for uhh... umm...'` became a 60-second timer and `'remind me to
+call my mom later'` became a 3600-second one, both dispatched, both spoken as
+though the user had said so. `docs/reality-check.md` A6 has always promised
+that a garbled duration *asks* and sets nothing. **No ask path exists anywhere
+in the codebase** — the only question Friday can pose is a yes/no confirm.
+
+**Decision.** Add a clarify outcome: Friday speaks a question, sets nothing, and
+holds no pending action. The next utterance is an ordinary turn.
+
+- It is **not** a confirm. Nothing is held, nothing is armed, there is no
+  30-second window and no yes/no parsing.
+- It is **not** a second model turn on the same input (ADR-037 stands).
+- A duration is required to be **grounded in the transcript**: if the words the
+  user said contain no duration, the model's number is discarded and the
+  clarify line is spoken instead.
+
+**Why a duration cannot be a closed enum.** ADR-058's answer to the 2026-08-25
+brightness defect was to make loose params enums. A duration is a number, not a
+vocabulary, so the same fix does not apply; grounding plus a bounded range is
+the equivalent control.
+
+**Also uses this.** OQ-30's fallback ("if YouTube can't work, ask whether to use
+mpv or VLC") needs exactly this mechanism, so the two land together or not at
+all.
+
+---
+
+## ADR-078 — Local facts come from the machine, never from the web
+
+**Status:** Accepted 2026-08-29 (night). Closes OQ-42. Fixes D7.
+**Not yet implemented.**
+
+**Context.** "What time is it?" has no action in the closed enum, so the planner
+reached for `web_search` and answered from a scraped page — *"The current time
+is 05:00:05 P.M. UTC-7 as of 08/28/2026"* when the real local time was 20:29.
+No invariant broke (a search turn cannot act, invariant #1), but Friday stated a
+wrong fact with total confidence while the machine's own clock sat unused.
+
+**Decision.** Add a `get_time` action to the closed enum, covering time and
+date. **Code reads the clock; an outcome template speaks it. The model never
+supplies the time string** (invariant #2, ADR-009) — it selects the action and
+nothing more.
+
+**Consequence.** The general principle, worth stating because it will recur: a
+fact the machine already knows must not be fetched from the internet. Battery,
+disk, uptime and network state are the same shape if they are ever added.
+
+---
+
+## ADR-079 — A floor on spoken model output
+
+**Status:** Accepted 2026-08-29 (night). Closes OQ-44. Fixes D6.
+**Not yet implemented.**
+
+**Context.** Friday spoke the literal string `String.Empty`. It is nowhere in
+the repo; it came from the model through
+`friday/proactive/briefing.py:57-62`, which speaks `distill_dialogue`'s raw
+output. Her own stored session summary records the incident. Startup briefings
+and sign-off summaries are the two places raw model text reaches the speaker by
+design — they are not direct-action templates, so ADR-009 never covered them.
+
+**Decision.** Before speaking model-authored text, reject output that is empty,
+a bare identifier (no whitespace, or CamelCase/dotted-identifier shaped), or
+otherwise non-prose, and fall back to the existing fixed line
+("Goodnight. Systems standing by." / "Friday is online and ready.").
+
+**Rejected.** Dropping LLM summaries entirely in favour of fixed templates plus
+real data. The summaries are genuinely good — rows 1-6 of `session_summaries`
+read well — and the failure was a degenerate output, not the feature.
+
+---
+
+## ADR-080 — TTFA targets re-baselined from measurement
+
+**Status:** Accepted 2026-08-29 (night). Closes OQ-45. Amends NFR-1.
+
+**Context.** NFR-1 has always said p50 1.4 s / p95 fail at 4.5 s. The live pass
+measured 77 real turns with `llm_on_gpu` confirmed PASS:
+
+```
+n=77  min=1689  p50=2172  p90=3613  p95=4900  max=8674  mean=2483  (ms)
+```
+
+**Zero of 77 turns met the p50 target**, and the observed floor is 1689 ms. The
+target has never been met and nothing has ever reported it as failing.
+
+**Decision.** Re-baseline NFR-1 to the measured distribution — p50 target
+2200 ms, p95 hard fail 3600 ms — and **exclude `web_search` turns from the hard
+fail**, since they carry a network round-trip plus a grounding turn (three of
+the four breaches were searches; the fourth, a 4900 ms `action=none`, is not
+excused and is worth a look).
+
+**Note the clock this measures.** `_capture_end` is set at end-of-capture, so
+for a PTT turn that is the second tap, and STT time is inside the figure. Any
+future comparison must use the same definition.
+
+**Consequence.** A target that reflects reality can be regressed against. The
+old one measured nothing, which is worse than having none.
+
+---
+
+## ADR-081 — `file_open`: per-alias opener, and the file must exist
+
+**Status:** Accepted 2026-08-29 (night). Fixes D4 and D10.
+**Not yet implemented.**
+
+**Context.** Three defects in one tool, all found live:
+
+- `open my todo` was refused. `friday/tools/registry.py:231` substring-matches
+  the alias, Whisper writes `to-do`, and `"todo" in "my to-do"` is False.
+- `~/notes.md` and `~/todo.md` **do not exist**. `open my notes` launched VS
+  Code on a missing path, the user got an empty unsaved buffer, and Friday
+  reported success — the same family as "the launch returned ok, so the app
+  opened".
+- All three aliases opened in VS Code.
+
+**Decisions.**
+
+(a) *Normalise the alias before matching* so STT spelling variants (`to-do`,
+`to do`) reach the `todo` key. Keep failing closed on a genuine miss — that
+behaviour is correct and is manifest A11.
+
+(b) *Check the path exists before dispatching*, and speak a real outcome if it
+does not, rather than opening an editor on nothing.
+
+(c) *Create `~/notes.md` and `~/todo.md`.* They were placeholders agreed
+2026-08-24 and never made.
+
+(d) *Per-alias opener.* `config` opens in `foot -e micro`; `notes` and `todo`
+open in VS Code. The user chose this after the tradeoff was laid out: the
+deciding factor for a voice-opened file is the **exit path** — `micro` is
+ctrl-s/ctrl-q, while a modal editor after a hands-busy voice open is the worst
+combination. `nvim` and `helix` are not installed and adopting one would need
+the CLAUDE.md §7 dependency drill.
+
+**Consequence.** `FILE_REGISTRY` grows from `alias -> path` to
+`alias -> (path, opener)`, and `_build_file_argv` stops reaching for
+`APPS["editor"]` unconditionally. Invariant #3 is unaffected — still an argv
+list, still no interpolation.
+
+---
+
+## ADR-082 — Dictation formatting: spoken commands win, standalone-safe, with an escape
+
+**Status:** Accepted 2026-08-29 (night). **Not yet implemented.**
+
+**Context.** Dictation types correctly — the user's verdict was "it was
+amazing" — but `format_dictation` (`friday/audio/dictation.py`) is a
+six-entry regex list and the formatting is the thin part. Observed and read
+from the code:
+
+1. **No literal escape.** "during that period" becomes "during that."
+2. **Whisper already punctuates**, so spoken commas and Whisper's commas both
+   land, and every capture ends with a `.` whether or not the sentence is done.
+3. **Commands match mid-phrase.** "create new line" fired `\bnew line\b`, left
+   "create" dangling, and put the following comma at the start of the next line.
+4. **No capitalisation** after an inserted `.`.
+5. **No state across chunks** — each capture is independent and a space is
+   appended unconditionally, including before a newline.
+6. **No editing commands**, so one misheard word means reaching for the mouse.
+
+**Decisions.**
+
+(a) *Spoken commands win, then strip Whisper's chunk-final period.* That
+trailing `.` is an artefact of chunking, not intent. Whisper's mid-sentence
+commas are kept — they are usually right.
+
+(b) *Commands must stand alone in the chunk* to be treated as commands. This is
+what fixes the "create new line" case, and it makes ordinary prose safe.
+
+(c) *A `literal <word>` escape* for the remaining ambiguity — "literal period"
+types the word.
+
+(d) *Two editing commands: `scratch that` and `new paragraph`.* `scratch that`
+backspaces the last typed chunk, whose length is known. Deliberately stopping
+short of "delete last word" / "all caps" — each addition is more surface for a
+false trigger to type garbage into a focused window.
+
+(e) *Auto-capitalise* after `.`/`?`/`!` and at the start of a chunk that follows
+a sentence-final one, which requires keeping a small amount of state between
+chunks.
+
+**Two defects in the typing path fixed alongside.**
+- **D11:** `friday/tools/typer.py:25` runs `[wtype, text]`; text beginning with
+  `-` is parsed as a flag. Needs a `--` separator.
+- **D12:** `friday/daemon.py:337` calls `handle_transcript` **directly on the
+  event loop**, and it runs `subprocess.run(timeout=3.0)`. Every other blocking
+  call in that file goes through `asyncio.to_thread` (8 sites). This is audit
+  H6's class, escaped: Friday is deaf for the duration of every dictated chunk.
+
+---
+
+## ADR-083 — Ambiguous phrasing confirms rather than dispatches
+
+**Status:** Accepted 2026-08-29 (night). Fixes D8. **Not yet implemented.**
+
+**Context.** Three live examples of an utterance that was not a command
+producing a dispatched action:
+
+```
+'what am I currently open terminal, I mean workspace, workspaces'
+      -> hypr_workspace{workspace:1} dispatched   (a QUESTION switched workspace)
+"Don't off the Wi-Fi"
+      -> system_wifi{state:on}       dispatched   (a NEGATION dispatched)
+'remove the full screen like make it half off'
+      -> hypr_window{focus_left}     dispatched   (wrong action entirely)
+```
+
+**Decision.** When the utterance is not clearly imperative, route it through the
+existing confirm rather than dispatching — the ADR-065 pattern, reused. An
+ambiguous phrasing then costs one "yes" instead of an unwanted action.
+
+**Rejected.** A prompt-level instruction to prefer `none` for questions and
+negations: CLAUDE.md is explicit that a prompt is not a control, and that is the
+same reasoning that rejects prompt-based injection defence (ADR-008). Also
+rejected for now: read-only query actions ("what workspace am I on" deserves an
+answer) — a good idea, but it addresses only the question case and not
+negations, so it is noted for later rather than done here.
+
+**Related.** A bare "yes" after a lapsed confirm was planned as `chat` and
+Friday invented *"Window unfocused and restored."* — a chat turn describing an
+action that never happened. Nothing dispatched, so no invariant broke, but it
+belongs to the same family and should be checked while this lands.
+
+---
+
 ## ADR-074 — The Hyprland tools speak Lua, and a parameter SELECTS a dispatcher constant rather than being formatted into one
 
 **Date:** 2026-08-29. **Status:** Accepted. Closes OQ-38. Second audited

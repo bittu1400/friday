@@ -39,7 +39,12 @@ before measurement found the real one.
 **If nobody decides:** hands-free stays unusable and PTT is the only trigger.
 
 ### OQ-40 — What counts as a spoken "yes", and what should a non-answer do?
-**Decider:** USER · **Blocks:** D1 (CRITICAL) · **Status:** OPEN
+**Decider:** USER · **Blocks:** D1 (CRITICAL) · **Status:** **ANSWERED 2026-08-29 → ADR-075**
+
+**Answer:** normalise punctuation **and widen** the phrase set ("go ahead", "do
+it", "please do", "confirm"); a non-answer cancels the pending **and is then run
+as a fresh command**. The user was shown that both halves loosen the same gate
+and chose them anyway — that risk is recorded in ADR-075, not overlooked.
 
 Two questions. The first is narrow: `is_affirmation` (`friday/turn.py:47-53`)
 matches bare tokens, so Whisper's `"Yes."` is not an affirmation and every
@@ -60,7 +65,10 @@ keep the fail-safe cancel — and leave the second half open. That is the smalle
 change and it does not weaken invariant #10.
 
 ### OQ-41 — What should `request_id` be, and should the audit write be `INSERT OR REPLACE`?
-**Decider:** USER (architectural — needs an ADR) · **Blocks:** D2 · **Status:** OPEN
+**Decider:** USER (architectural) · **Blocks:** D2 · **Status:** **ANSWERED 2026-08-29 → ADR-076**
+
+**Answer:** UUID plus a plain `INSERT`. The readable `v{n}` stays in the debug
+log for correlation; it stops being the database key.
 
 `friday/store/audit.py:56` writes `INSERT OR REPLACE INTO action_audit` keyed
 on `request_id`, and `friday/daemon.py:136,288` generate that id as `v{seq}`
@@ -77,7 +85,10 @@ restarts, which is why it is an ADR and not a patch.
 primary evidence channel for verifying every other fix.
 
 ### OQ-42 — Should Friday have a local-time action?
-**Decider:** USER · **Blocks:** D7 · **Status:** OPEN
+**Decider:** USER · **Blocks:** D7 · **Status:** **ANSWERED 2026-08-29 → ADR-078**
+
+**Answer:** yes, add `get_time`. Code reads the clock, a template speaks it, the
+model never supplies the string.
 
 "What time is it?" routes to `web_search` and answers from a scraped page —
 live evidence: *"05:00:05 P.M. UTC-7 as of 08/28/2026"* when the real local
@@ -91,7 +102,10 @@ string — code reads the clock, the template speaks it.
 **If nobody decides:** it keeps answering wrongly from the web.
 
 ### OQ-43 — What happens when no duration is stated?
-**Decider:** USER · **Blocks:** D5 · **Status:** OPEN
+**Decider:** USER · **Blocks:** D5 · **Status:** **ANSWERED 2026-08-29 → ADR-077**
+
+**Answer:** ask again and set nothing. This needs a new **clarify turn**
+mechanism — the only question Friday can pose today is a yes/no confirm.
 
 `set_reminder`'s `seconds` is `{"kind": "text"}` (`friday/llm/schema.py:72`) —
 free text the model fills in. Live: `'suited timer for uhh... umm...'` became a
@@ -107,7 +121,10 @@ number and not a vocabulary. What is the rule — a bounded numeric with a
 **If nobody decides:** garbled speech keeps becoming real timers.
 
 ### OQ-44 — Should spoken model output have a sanity floor?
-**Decider:** USER · **Blocks:** D6 · **Status:** OPEN
+**Decider:** USER · **Blocks:** D6 · **Status:** **ANSWERED 2026-08-29 → ADR-079**
+
+**Answer:** floor plus the existing fixed fallback. LLM summaries are kept —
+they are good; the failure was a degenerate output, not the feature.
 
 Friday spoke the literal string `String.Empty` (her own stored session summary
 records it). It came from the model via
@@ -121,8 +138,11 @@ empty, a bare identifier, or non-prose — and fall back to the fixed line?
 programming artefact.
 
 ### OQ-45 — Is the 1400 ms TTFA target still the target?
-**Decider:** USER · **Blocks:** nothing today; it decides whether optimisation
-work is scheduled · **Status:** OPEN
+**Decider:** USER · **Blocks:** nothing today · **Status:** **ANSWERED
+2026-08-29 → ADR-080**
+
+**Answer:** re-baseline to the measurement — p50 2200 ms, p95 hard fail
+3600 ms — and exclude `web_search` turns from the hard fail.
 
 Measured live with `llm_on_gpu` PASS, n=77:
 
@@ -380,15 +400,20 @@ overlap, the threshold is the wrong lever and the answer is a second-stage
 check (speaker verification, G13, already built but off by default).
 
 ### OQ-30 — Should "play a video" open mpv or search YouTube?
-**Status:** OPEN — one-line prompt change either way. Raised 2026-08-25.
+**Decider:** USER · **Status:** **ANSWERED 2026-08-29 (live pass)**
 
-`"play a video"` routes to `youtube_search {'query': 'play a video'}`, not
-`open_app {'app': 'video'}` (mpv). Both readings are defensible: the prompt
-tells the planner that playback requests are `youtube_search`, and mpv with no
-file argument opens an empty player. `"open mpv"` unambiguously reaches mpv.
-Reproduced on a healthy GPU, so it is a genuine routing choice, not a
-CPU-degraded artefact. Needs the user's intent, then a prompt tweak and an eval
-fixture.
+**Answer:** YouTube stays the default. When it cannot work — e.g. the network
+is down — fall back to VLC or mpv, and Friday **may ask** which at that point.
+
+**This is why mpv never opened during the live pass:** `'Play a video'` →
+`youtube_search{"query": "play a video"}` (audit v28), never `open_app{video}`.
+`open VLC` did reach `open_app`, so a bare app name still works.
+
+**Two constraints on implementing it, both from ADR-043 and the live pass:**
+the launch is fire-and-forget, so Friday **cannot** detect that YouTube failed
+to load — the only honest pre-dispatch signal is network state (`nmcli`). And
+the "may ask" half needs the clarify turn of **ADR-077**, so it lands with that
+work or not at all.
 
 ### OQ-31 — Wake-word feedback: is a busy toast the right channel?
 **Status:** PROVISIONALLY ANSWERED 2026-08-25 — revisit after live use.

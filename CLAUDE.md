@@ -11,10 +11,11 @@ remember preferences, and search the web through a local proxy.
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
 review passes AND the live-voice pass. The 2026-08-26 audit is FULLY FIXED (all
 12 steps executed 2026-08-29, plus ADR-073/074 from Step 9's real-path run).
-The LIVE-VOICE PASS then ran on 2026-08-29 (night) and found 9 MORE defects —
-1 CRITICAL, 2 HIGH, 5 MEDIUM, 1 LOW — none of which came from the audit and
+The LIVE-VOICE PASS then ran on 2026-08-29 (night) and found 12 MORE defects —
+1 CRITICAL, 2 HIGH, 8 MEDIUM, 1 LOW — none of which came from the audit and
 none of which any test could see. NO CODE HAS BEEN CHANGED YET; the next
-session's whole job is the 9-defect fix list.** The critical one:
+session's whole job is the 12-defect fix list, and every decision it needs is
+already made: ADR-075…ADR-083, FR-85…FR-93, NFR-1 re-baselined.** The critical one:
 **`is_affirmation` (`friday/turn.py:47-53`) matches bare tokens and Whisper
 punctuates, so EVERY spoken "yes" has been recorded as a DECLINE** — no
 confirm-gated capability has ever worked by voice. Also: **hands-free is
@@ -91,8 +92,9 @@ service first.
 
 **NEXT SESSION: the 9-defect fix list from the live-voice pass.**
 Read `progress.md`'s `>>> START HERE <<<` block first — it carries the ordered
-fix list and the seven questions (OQ-39…OQ-45) to put to the user **in one
-batch before any code is written** (working agreement §2). Step 1 is D2, the
+fix list. **All 19 questions were asked and answered on 2026-08-29 — do not
+re-ask.** Only OQ-39 remains open and it is a MEASUREMENT (the webrtcvad
+voiced-fraction probe), not an opinion. Step 1 is D2, the
 audit-overwrite, *ahead of* the CRITICAL: verifying D1 means restarting the
 daemon and reading `action_audit`, and until D2 is fixed each restart destroys
 the previous run's proof. Fix the evidence channel before you use it.
@@ -504,6 +506,7 @@ just prefs list|forget  # manage stored preferences
 | "A sibling call site uses the same broken thing, but the ticket didn't mention it" | `registry.py` recorded in a comment that Hyprland 0.56 broke `hyprctl dispatch` — and `hypr_workspace`/`hypr_window`, which use the same form, were left broken and announcing success (ADR-074). Knowing a breakage and not grepping for its siblings is how it survives. |
 | "The argv test passes, so the tool works" | `test_hypr_tools_argv` asserted `["hyprctl","dispatch","workspace","3"]` for months. That argv is exactly what the code built and exactly what the compositor rejected. A test that asserts the argv the code builds proves only that the code builds it. |
 | "Escape the value into the command string carefully" | Don't build the string. `_LUA_DISPATCH` maps a closed param to one of sixteen import-time constants, so there is no interpolation to escape (ADR-074, stricter than ADR-027 because a workspace is one of ten values and a search query is not). |
+| "It's just a `notify-send`/`wtype`, it's fast" | `subprocess.run(timeout=3)` on the event loop is deafness, and H6 did NOT catch them all: dictation still types on the loop (`daemon.py:337`) while 8 sibling calls use `to_thread`. Grep for the class, not the ticket. |
 | "The confirm works — I typed yes and it went through" | A typed pass is not a spoken pass. `is_affirmation` matched bare tokens; Whisper writes `Yes.`; so every SPOKEN confirm in Phase 2 declined while every typed one passed. The one character never in a fixture was the full stop. Test with realistic STT output, punctuation and all. |
 | "The audit table is the evidence, so I can trust it" | Not across restarts. `request_id` is a per-run `v{n}` counter and the write is `INSERT OR REPLACE`, so run 2's `v3` silently ate run 1's `v3`. Fix the evidence channel before you use it to verify anything. |
 | "Wake fired, so hands-free works" | Firing is not capturing. On 2026-08-29 all three wake captures ran the full 15 s cap and ADR-066's 3 s bail-out never fired — including on a capture with zero speech in it. Check what the capture DID, not that the detector triggered. |

@@ -399,6 +399,72 @@ PTT turn that is the second tap, and the STT time is inside the figure.
 - **D-e. No code changed at all this session.** The pass was a verification job;
   mixing fixes into it would have made the evidence untrustworthy.
 
+### The user answered all 19 questions the same night — decisions recorded
+
+Asked in four batches at the user's request ("ask me all there is — later I
+will forget"). Every answer is written into an ADR the same turn; the ADR is
+the record, this is the index.
+
+**The four observational answers (only the user could supply these):**
+
+- **Apps:** Brave, foot, VS Code, VLC all appeared. **mpv did NOT** — YouTube
+  opened instead. Cause found immediately in the tree: `'Play a video'` →
+  `youtube_search` (audit v28), never `open_app{video}`. That is **OQ-30**,
+  open since 2026-08-23 and never decided. Now answered.
+- **`file_open`:** both `my notes` and `my config` opened the right targets in
+  VS Code — but notes was **empty**, which led straight to D10 below.
+- **Dictation: it typed, and the user's verdict was "it was amazing".** The
+  plumbing is right; the formatter is the thin part.
+- **Timers:** "by far, this worked the best." *Not* recorded as a full tick —
+  the manifest's precise claim (one notification AND one spoken line, exactly
+  once) was not separately confirmed, so that row stays open.
+
+**Three MORE defects found while answering, all read from the code:**
+
+- **D10 — `file_open` reports success for a file that does not exist.**
+  `~/notes.md` and `~/todo.md` were never created (placeholders agreed
+  2026-08-24). VS Code opened an unsaved empty buffer and Friday said it
+  worked. Same family as "the launch returned ok, so the app opened."
+- **D11 — `friday/tools/typer.py:25` runs `[wtype, text]`.** Text beginning
+  with `-` is parsed as a flag. Needs a `--` separator.
+- **D12 — `friday/daemon.py:337` calls `handle_transcript` directly on the
+  event loop**, and it runs `subprocess.run(timeout=3.0)`. Every other blocking
+  call in that file goes through `asyncio.to_thread` (8 sites, lines 306, 361,
+  378, 462, 543, 586, 640). **This is audit H6's class, escaped the fix** —
+  Friday is deaf for the duration of every dictated chunk.
+
+**Decisions, each with its ADR:**
+
+| Question | Answer | ADR |
+| :-- | :-- | :-- |
+| OQ-40 spoken "yes" | normalise **and widen**; a non-answer cancels **and then runs** | ADR-075 |
+| OQ-41 audit identity | UUID + plain `INSERT` | ADR-076 |
+| OQ-43 garbled duration | ask again, set nothing — a new **clarify turn** | ADR-077 |
+| OQ-42 local time | add `get_time`; code reads the clock | ADR-078 |
+| OQ-44 spoken model output | floor + fixed fallback; keep the summaries | ADR-079 |
+| OQ-45 TTFA | re-baseline to measurement, exclude search from the hard fail | ADR-080 |
+| OQ-30 "play a video" | YouTube default, fall back to VLC/mpv, may ask | OQ-30 closed |
+| D4/D10 `file_open` | normalise alias, check existence, create the files, **per-alias opener** — `config` → `foot -e micro`, notes/todo → VS Code | ADR-081 |
+| dictation | spoken commands win, standalone-only, `literal` escape, `scratch that` + `new paragraph`, auto-capitalise | ADR-082 |
+| D8 ambiguous phrasing | confirm instead of dispatch (reuse ADR-065's pattern) | ADR-083 |
+| A7 quiet mode | keep clearing on any command — specified behaviour, just document it | no change |
+| speaker verification | **not yet** — finish the fix list first; a false rejection would muddy the evidence | no change |
+| `friday.service` | leave it stopped | no change |
+
+**Two tradeoffs the user accepted with the risk stated, recorded so they are
+owned rather than forgotten:**
+
+1. **ADR-075(b)+(c) loosen the same gate from two directions** — a wider affirm
+   vocabulary, and non-answers that now *do something*. The invariant that must
+   survive is that a destructive action still needs an explicit affirmative.
+2. **OQ-30's fallback cannot be built as stated without a signal that does not
+   exist.** The launch is fire-and-forget (ADR-043), so Friday cannot know
+   YouTube failed to load; the only honest pre-dispatch signal is network state
+   via `nmcli`. The "may ask" half needs ADR-077's clarify turn.
+
+**`micro` and `vim` are installed; `nvim`, `helix` and `nano` are not.** The
+per-alias opener choice was made against that fact, not a preference.
+
 ### State left behind
 
 - `friday.service` is **STOPPED** (the pass required the foreground daemon).
@@ -1673,92 +1739,99 @@ way. `/tmp` is tmpfs on this machine — verified with `findmnt -no FSTYPE /tmp`
 
 ---
 
-### ASK THE USER FIRST — batched, before a line of code (working agreement §2)
+### EVERY DECISION IS ALREADY MADE — do not re-ask
 
-Seven decisions belong to the user and all of them are knowable now. Asking
-them mid-implementation is the failure §2 exists to prevent. Each is written up
-in `open-questions.md`.
+All 19 questions were put to the user on 2026-08-29 and answered the same
+night. **Nine ADRs (075-083) carry the decisions and their reasoning**, and
+FR-85…FR-93 carry the requirements. NFR-1 is re-baselined (ADR-080).
+**Only ONE question is still open: OQ-39, and it is a MEASUREMENT, not an
+opinion** — run the probe before touching the VAD.
 
-1. **OQ-40 — what counts as a spoken "yes", and what should a non-answer do?**
-   Two questions in one, and the second is the interesting half: today ANY
-   non-affirmation cancels (ADR-069, fail safe). During the pass the user said
-   `Open a terminal` while a preference confirm was live and it was swallowed as
-   a decline. Should a clearly-new command run instead of cancelling — and if
-   so, how is "clearly a new command" decided without a second model turn?
-2. **OQ-41 — `request_id` scheme, and `INSERT OR REPLACE` vs `INSERT`.**
-   Architectural: it decides whether the audit log can be trusted across
-   restarts. Needs an ADR once answered.
-3. **OQ-42 — should there be a local-time action?** Friday currently answers
-   "what time is it" from a scraped web page, wrongly, with the machine clock
-   right there.
-4. **OQ-43 — what should happen when no duration is stated?** The manifest
-   promises "it asks"; there is no ask path anywhere in the codebase, so this
-   is a new mechanism, not a bug fix.
-5. **OQ-44 — a floor on spoken model output.** Friday said the literal
-   `String.Empty`. Briefings and sign-off summaries speak raw model text by
-   design.
-6. **OQ-45 — the TTFA target.** 1400 ms p50 was met by **0 of 77** turns; the
-   observed floor is 1689 ms and p50 is 2172 ms. Either the target moves or
-   something gets optimised; that is the user's call, not a default.
-7. **OQ-39 — the VAD measurement (MEASURE, not USER).** No opinion needed, but
-   it must be run before any VAD code is touched.
+Read ADR-075…ADR-083 before starting. Each one names its defect, its evidence,
+and what was rejected.
 
 ---
 
-### THE FIX LIST — 9 defects, in this order, and why this order
+### THE FIX LIST — 12 defects, in this order, and why this order
 
 **Every step: write the failing test FIRST, then `git stash push <source>` and
-watch it fail against the pre-fix tree.** Two tests passed vacuously in the fix
-phase and were only caught that way.
+watch it fail against the pre-fix tree.** Two tests passed vacuously during the
+fix phase and were only caught that way.
 
-**Step 1 — D2: stop the audit log eating itself.** `friday/store/audit.py:56`
-is `INSERT OR REPLACE`, keyed on a `request_id` that `friday/daemon.py:136,288`
-resets to `v1` on every daemon start. **This is first, ahead of the CRITICAL,
-on purpose:** verifying the D1 fix means restarting the daemon repeatedly and
-reading the audit table, and until this is fixed each restart destroys the
-previous run's proof. Fix the evidence channel before you use it. Answer OQ-41
-first; write the ADR.
+**Step 1 — D2: stop the audit log eating itself. → ADR-076, FR-86.**
+UUID `request_id`, plain `INSERT`. **First, ahead of the CRITICAL, on purpose:**
+verifying D1 means restarting the daemon and reading `action_audit`, and until
+this lands each restart destroys the previous run's proof. Fix the evidence
+channel before you use it. Keep emitting `v{n}` in the debug log for
+correlation; it just stops being the key.
 
-**Step 2 — D1 (CRITICAL): spoken affirmations.** `friday/turn.py:47-53`.
-Whatever OQ-40 decides, the minimum is that STT punctuation must not turn a yes
-into a no. The failing test must use a *realistic STT transcript* — `"Yes."`,
-`"Yes!"`, `"Yeah."` — because the existing fixtures in
-`tests/test_clipboard_confirm.py`, `test_confirm_lifecycle.py`,
-`test_audit_contract.py`, `test_memory_turn.py` and `test_tui_confirm.py` all
-feed bare tokens and all pass today. **Fix `is_affirmation` once, where both
-UIs already route (ADR-069's one resolver) — do not patch a caller.**
+**Step 2 — D1 (CRITICAL): spoken affirmations. → ADR-075, FR-85.**
+`friday/turn.py:47-53`. Normalise trailing punctuation, widen the phrase set,
+and make a non-answer cancel the pending **and then run as a fresh command**.
+Fix it once in the shared resolver (ADR-069) — do not patch a caller.
+**The failing test must use realistic STT output** (`"Yes."`, `"Yes!"`,
+`"Yeah."`); a grep across `tests/` for a punctuated affirmation returns 0 hits
+today, which is why this survived five reviews.
 
-**Step 3 — D3: hands-free capture never ends.** MEASURE FIRST (OQ-39): a probe
-that prints the `webrtcvad` voiced-fraction on live mic frames at
-aggressiveness 0-3, through the same AEC path
-(`friday/audio/wake.py:_on_frame`). Only then decide. Do not assume the cause
-is the aggressiveness constant; the same code worked on 2026-08-25. Suspect the
-frames themselves as much as the threshold.
+**Step 3 — D3: hands-free capture never ends. → OQ-39 FIRST.**
+Run the probe: `webrtcvad` voiced-fraction on live mic frames at aggressiveness
+0-3, through the same AEC path as `friday/audio/wake.py:_on_frame`, in this
+room. **Then** decide. The same code worked on 2026-08-25, so suspect the
+frames as much as the threshold. Do not write a fix before the number exists.
 
-**Step 4 — D4: `open my todo`.** `friday/tools/registry.py:231`. Normalise the
-alias before the substring match so STT's `to-do` reaches the `todo` key.
-Keep failing closed on a genuine miss — that behaviour is correct and is
-manifest A11.
+**Step 4 — D11 + D12: the typing path. → ADR-082, FR-92.**
+Two small, certain fixes with no open questions: `--` separator in
+`friday/tools/typer.py:25`, and move `handle_transcript`
+(`friday/daemon.py:337`) off the event loop into `asyncio.to_thread` like the
+other 8 call sites. **D12 is audit H6's class escaping the fix** — while it
+runs, Friday is deaf.
 
-**Step 5 — D5: garbled durations.** Needs OQ-43 answered — it is a new
-mechanism (an ask path), not a repair. `friday/llm/schema.py:72`.
+**Step 5 — D4 + D10: `file_open`. → ADR-081, FR-90.**
+Normalise the alias so STT's `to-do` reaches `todo`; check the path exists
+before dispatch; **create `~/notes.md` and `~/todo.md`** (they do not exist);
+per-alias opener — `config` → `foot -e micro`, `notes`/`todo` → VS Code. Keep
+failing closed on a genuine miss (manifest A11).
 
-**Step 6 — D7: local time.** Needs OQ-42. If yes, it is a new action in the
-closed enum plus a template; the model must never supply the time string.
+**Step 6 — D5: garbled durations. → ADR-077, FR-87.**
+This is a **new mechanism**, not a repair: the clarify turn. Friday asks, sets
+nothing, holds no pending — it is not a confirm and introduces no second model
+turn. The duration must be **grounded in the transcript** or it is discarded.
+OQ-30's "may ask" fallback rides on the same mechanism.
 
-**Step 7 — D6: degenerate spoken model output.** Needs OQ-44.
-`friday/proactive/briefing.py:57-62`.
+**Step 7 — D7: local time. → ADR-078, FR-88.**
+`get_time` in the closed enum; code reads the clock, the template speaks it.
 
-**Step 8 — D8: questions and negations dispatch.** The hardest one and
-deliberately last, because a naive imperative-gate will break legitimate
-phrasings. Evidence rows: `v11` (a question switched workspace), `v83` (a
-negation dispatched), `v95` (wrong action entirely). Consider it alongside
-OQ-28, which is the same family.
+**Step 8 — D6: degenerate spoken output. → ADR-079, FR-89.**
+Floor in `friday/proactive/briefing.py:57-62`, fall back to the fixed line.
+Keep the LLM summaries — they are good.
 
-**Step 9 — D9: templates speak raw enum values.** `"Window focus_left."`,
-`"Launching file my notes."` Cosmetic, one file, do it last.
+**Step 9 — dictation formatting. → ADR-082, FR-91.**
+The user's verdict was "it was amazing", so this is polish on something that
+works. Spoken commands win over Whisper's punctuation, strip Whisper's
+chunk-final period, match commands only when **standalone** (that is what
+mangled "create new line"), add a `literal <word>` escape, auto-capitalise
+after sentence end, and add exactly two editing commands: `scratch that` and
+`new paragraph`.
 
----
+**Step 10 — D8: ambiguous phrasing. → ADR-083, FR-93.**
+Route a non-imperative to a confirm rather than dispatching, reusing ADR-065's
+pattern. Deliberately near-last: a naive gate breaks legitimate phrasings.
+Check the related fabrication while here — a bare "yes" after a lapsed confirm
+was planned as `chat` and Friday invented *"Window unfocused and restored."*
+
+**Step 11 — OQ-30: the YouTube/mpv fallback.**
+YouTube stays default. Fallback to VLC/mpv when the network is down — and note
+the constraint: the launch is fire-and-forget (ADR-043), so **`nmcli` state
+before dispatch is the only honest signal**; Friday cannot detect that a page
+failed to load. Needs Step 6's clarify turn for the "may ask" half.
+
+**Step 12 — D9: templates speak raw enum values.**
+`"Window focus_left."`, `"Launching file my notes."` Cosmetic, one file, last.
+
+**Not in the fix list, by decision:** speaker-verification enrollment (finish
+the fix list first — a false rejection would muddy exactly the evidence you
+need), and A7 quiet-mode behaviour (specified and correct; it only needed
+documenting).
 
 ### THEN RE-RUN THE BLOCKED MANIFEST ROWS
 
