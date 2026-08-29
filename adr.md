@@ -1055,7 +1055,8 @@ later turn.
 
 ## ADR-038 — Retention purges logs only; preferences never age out (OQ-21)
 
-**Context.** The retention job caps at 90 days / 50 MB (`config.toml
+**Context.** The retention job caps at 90 days / 50 MB (`FRIDAY_RETENTION_DAYS`;
+the `config.toml
 [memory]`). Audit rows and session summaries are logs; preferences are
 user data with their own lifecycle.
 

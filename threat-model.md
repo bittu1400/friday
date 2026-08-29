@@ -232,7 +232,9 @@ backup, or a synced folder.
 **Controls**
 1. `thought` is never persisted, only in-memory. — ADR-011, FR-26
 2. Redaction filter on every log record; the schema has no column for raw
-   payloads. — `obs/log.py`, FR-57
+   payloads. — `friday/logging_config.py` (`RedactingJsonFormatter` +
+   `NoDiskFilter`; the module was called `obs/log.py` in the pre-G0 sketch and
+   has never existed under that name), FR-57
 3. `0600` file / `0700` directory, checked by the self-test. — FR-50
 4. Retention 90 days, size cap 50 MB, rotation. — FR-59
 5. A test greps `friday.log` for `/home/` and fails on a hit. — FR-43

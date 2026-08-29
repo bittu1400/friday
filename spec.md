@@ -414,8 +414,61 @@ on the executor, not on the model's text.
 
 ## 6. Configuration
 
-`~/.local/state/friday/config.toml`, mode `0600`. Every value has a code
-default; the file overrides. No secrets live here in Phase 1.
+> **NOT IMPLEMENTED — corrected 2026-08-29.** There is no `config.toml` and
+> nothing reads TOML: `friday/config.py` holds every default as a typed module
+> constant and each overridable one reads an **environment variable**
+> (`FRIDAY_VOICE`, `FRIDAY_STT_MODEL`, `FRIDAY_WAKE_THRESHOLD`,
+> `FRIDAY_RETENTION_DAYS`, `FRIDAY_SEARCH_TIMEOUT_S`, …). Nothing in
+> `~/.local/state/friday/` but `friday.log`, `memory.db` and its WAL sidecars.
+> The block below is the ORIGINAL DESIGN, kept because it is still the intended
+> shape if a file ever lands — but it is not what runs, and several of its
+> values disagree with the code (`[llm] timeout_s = 10` versus a 20 s planning
+> budget and a 30 s client timeout). **`friday/config.py` is the source of
+> truth.** Nobody had noticed because the env vars work and nobody went looking
+> for the file.
+
+### 6.1 What actually configures Friday: environment variables
+
+Generated from `friday/config.py` on 2026-08-29 and verified against it. A
+**flag** is presence-only — the value is ignored, only whether the variable is
+set at all. Defaults are the code constants.
+
+| Variable | Sets | Default | Kind |
+| :-- | :-- | :-- | :-- |
+| `FRIDAY_DISABLED` | the panic switch (with `~/.local/state/friday/DISABLED`) | unset | flag |
+| `FRIDAY_LLAMA_URL` | `LLAMA_BASE_URL` | `http://127.0.0.1:8080` | value |
+| `FRIDAY_SEARXNG_URL` | `SEARXNG_URL` | `http://127.0.0.1:8888` | value |
+| `FRIDAY_SEARCH_TIMEOUT_S` | `SEARCH_TIMEOUT_S` (FR-64) | `8.0` | value |
+| `FRIDAY_SEARCH_LOCAL` | forces local mode; `web_search` refuses (ADR-046) | unset = connected | flag |
+| `FRIDAY_LOG_FILE` | `LOG_FILE` | `$STATE_DIR/friday.log` | value |
+| `FRIDAY_LOG_MAX_BYTES` | rotation size | `10485760` (10 MB) | value |
+| `FRIDAY_LOG_BACKUP_COUNT` | rotation count | `5` | value |
+| `FRIDAY_RETENTION_DAYS` | `RETENTION_DAYS` (FR-59) | `90` | value |
+| `FRIDAY_VOICE` | Kokoro voice | `af_bella` | value |
+| `FRIDAY_TTS_THREADS` | Kokoro threads | `8` | value |
+| `FRIDAY_STT_MODEL` | whisper model | `small.en` | value |
+| `FRIDAY_STT_COMPUTE` | whisper compute type | `int8` | value |
+| `FRIDAY_STT_THREADS` | whisper threads | `8` | value |
+| `FRIDAY_STT_BEAM` | whisper beam size | `1` | value |
+| `FRIDAY_STT_HOTWORDS` | the hotword bias string | the app/tool vocabulary | value |
+| `FRIDAY_DEBUG` | echo `heard=` / `spoken=` to the console. **Suppressed under journald** (FR-57b) | unset | flag-ish |
+| `FRIDAY_PTT_DEBOUNCE_S` | `PTT_DEBOUNCE_S` (ADR-044) | `0.4` | value |
+| `FRIDAY_WAKE_DISABLE` | turns the wake word OFF (PTT only) | unset = wake on | flag |
+| `FRIDAY_WAKE_THRESHOLD` | `WAKE_THRESHOLD` (OQ-33 will set this from data) | `0.5` | value |
+| `FRIDAY_BARGE_VAD_ENABLE` | turns voice barge-in ON — **off by default** (ADR-064, blocked on OQ-32) | unset = off | flag |
+| `FRIDAY_AEC_DISABLE` | turns the echo canceller OFF | unset = AEC on | flag |
+| `FRIDAY_SPEAKER_VERIFY_ENABLE` | turns speaker verification ON. **Fails OPEN with no voiceprint enrolled** | unset = off | flag |
+| `FRIDAY_SPEAKER_THRESHOLD` | cosine similarity floor | `0.75` | value |
+
+Note the deliberate asymmetry: safety-relevant features default ON and their
+variable *disables* them (`FRIDAY_AEC_DISABLE`, `FRIDAY_WAKE_DISABLE`), while
+features that are not trustworthy yet default OFF and their variable *enables*
+them (`FRIDAY_BARGE_VAD_ENABLE`, `FRIDAY_SPEAKER_VERIFY_ENABLE`).
+
+### 6.2 The original design, for reference
+
+`~/.local/state/friday/config.toml`, mode `0600` — *as designed*. Every value
+has a code default; the file would override. No secrets live here in Phase 1.
 
 ```toml
 [llm]

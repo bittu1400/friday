@@ -387,9 +387,15 @@ not being ready yet (retry the health ping, do not crash-loop).
 
 ```
    no vector database         50 preferences fit in a prompt
-   no embedding model         nothing to embed at this scale
+   no TEXT embedding model    nothing to embed at this scale.  (G13 DOES run a
+                              512-dim VOICE embedding for speaker verification,
+                              ADR-059 — what is absent is semantic text
+                              retrieval, not embeddings as such)
    no ORM                     six tables, parameterized SQL is clearer
    no message queue           one user, one turn at a time
+   no ORM migration tool      forward-only numbered SQL, applied in ONE
+                              transaction (M-T3): a half-applied migration
+                              crash-looped the daemon
    no docker for the app      systemd user units are the native answer
    no web UI                  textual TUI, per the mandate
    no plugin system           every capability is a reviewed code change

@@ -49,9 +49,36 @@ assumed.
 | :-- | :-- | :-- |
 | STT | `faster-whisper` **`small.en`**, `device=cpu`, `compute_type=int8`, `cpu_threads=8`, `beam_size=1`, hotwords-biased, VAD — **NO torch** (CTranslate2). p95 741 ms measured | ADR-004, **ADR-042** |
 | TTS | **Kokoro-82M** via `kokoro-onnx` (ONNX Runtime, `CPUExecutionProvider`, fp32 model, 8 threads), one female en-US voice — **NO torch** | ADR-005, ADR-039 |
-| Capture | `sounddevice` (PortAudio), preallocated 15 s ring buffer, mic gate | architecture §2, §5 |
-| Echo handling | half-duplex boolean mic gate — **no** acoustic echo cancellation | ADR-014 |
+| Capture | `sounddevice` (PortAudio), preallocated 15 s ring buffer, mic gate. Both callbacks run behind one `CallbackGuard` — nothing may escape into PortAudio, which answers an exception by never calling back again | architecture §2, §5, M-A1 |
+| Echo handling | **Phase 1: half-duplex boolean mic gate only.** Phase 2 (G10) added a real WebRTC APM echo canceller on top — the gate did not go away | ADR-014, **ADR-060** |
+| Wake word | **openWakeWord** `hey_jarvis_v0.1.onnx` (CPU, streaming — it must be fed EVERY frame or it returns a stale score, OQ-29) | ADR-055, ADR-061 |
+| VAD | **WebRTC VAD** + a `SpeechGate` debounce state machine (20 ms frames). Arms end-of-speech only on FSM acceptance, never on wake detection | ADR-062, **ADR-071** |
+| Speaker verification | **3D-Speaker CAM++** via `sherpa-onnx` (CPU, 512-dim voiceprint, 10-utterance enrolment). OFF by default and it fails **OPEN** with no voiceprint enrolled | ADR-059, ADR-063 |
 | torch wheel | **None — the venv is torch-free.** STT is CTranslate2, TTS is onnxruntime; neither needs torch (ADR-039 rejected the PyTorch Kokoro path) | ADR-018, ADR-039 |
+
+### Pinned Python dependencies (the whole runtime set)
+
+Every runtime dependency, its **distribution** name — which is not always the
+import name — and the version installed on this machine. `pyproject.toml` is the
+source of truth for the floors; this table is what is actually resolved.
+
+| Distribution | Version | Imported as | For |
+| :-- | :-- | :-- | :-- |
+| `faster-whisper` | 1.2.1 | `faster_whisper` | STT (pulls `ctranslate2` 4.8.1, **not** torch) |
+| `kokoro-onnx` | 0.6.1 | `kokoro_onnx` | TTS (pulls `onnxruntime` 1.29.0) |
+| `openwakeword` | 0.4.0 | `openwakeword` | wake word |
+| `webrtcvad-wheels` | 2.0.14 | **`webrtcvad`** | VAD — note the name mismatch: `uv add webrtcvad` gets you a source package that needs a compiler |
+| `pywebrtc-audio` | 0.1.0 | **`pywebrtc_audio`** | WebRTC APM echo canceller (underscores, not the hyphen-to-nothing you might guess) |
+| `sherpa-onnx` | 1.13.6 | `sherpa_onnx` | speaker verification |
+| `sounddevice` | 0.5.6 | `sounddevice` | PortAudio capture + playback |
+| `soundfile` | ≥0.14.0 | `soundfile` | WAV I/O for enrolment and `just say` |
+| `textual` | 8.2.8 | `textual` | the text-mode TUI |
+| dev: `pytest` | ≥8 | — | the suite; the G2 eval harness itself is stdlib-only |
+
+**No torch, no CUDA wheels, no LangChain, no agent framework.** The LLM is
+reached over HTTP with `urllib` from the stdlib — there is no OpenAI client
+either. Every addition to this table goes through CLAUDE.md rule 7 (enumerate,
+`--dry-run` the footprint, benchmark on THIS laptop, pin, ADR).
 
 Enforcement: only `llama-server` touches CUDA. The original FR-71 hazard
 was a CUDA torch pulled in by the PyTorch Kokoro runtime; ADR-039's
@@ -83,7 +110,7 @@ stays CPU — no GPU arm, ADR-018 remains closed.
 | :-- | :-- | :-- |
 | Interface | `textual` TUI + background voice daemon — no web UI | architecture §9 |
 | Activation | **PTT** = Presentation key (`XF86Presentation`), toggle on/off (0.4 s debounce) via Hyprland `bind` -> `friday-ptt` -> unix socket. No evdev. | ADR-013, **ADR-044** |
-| Wake word | **none** in Phase 1 | ADR-012 |
+| Wake word | **none in Phase 1** — Phase 2 (G10) added `hey_jarvis`; both triggers are live and PTT is still the interrupt, because voice barge-in is OFF by default (ADR-064) | ADR-012, **ADR-055** |
 
 PTT path locked at **G6**: bind path (evdev not needed). Copilot key leaked Super
 modifier; Presentation key (`XF86Presentation`) is clean and drives toggle (ADR-044).
@@ -106,7 +133,7 @@ dispatch an action (ADR-008).
 
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
-| Logging | Structured JSON lines to `friday.log`, `10 MB x 5` rotation, `/home/` redacted | ADR-051, FR-43 |
+| Logging | Structured JSON lines to `friday.log`, `10 MB x 5` rotation, `/home/` redacted. `no_disk` records (transcripts, raw model output) are dropped from the log file **and from stderr when stderr is journald** — under systemd `FRIDAY_DEBUG` shows nothing, by design (H8) | ADR-051, FR-43, **FR-57b** |
 | Systemd Units | `friday-llm.service`, `friday.service`, `friday-searxng.service` | ADR-051, architecture §8 |
 | Self-Test | `just selftest` / `friday --selftest` (8 checks: LLM, search, GPU arch, **LLM actually on GPU**, DB perms/schema incl. WAL sidecars, audio, panic, binds) | ADR-051 |
 
@@ -123,13 +150,22 @@ editing code plus an eval fixture, never by config.
    browser     brave      the browser, default for "browser" / "the web"
    terminal    foot       the terminal, default for "terminal" / "shell"
    editor      code       the editor
-   video       mpv        media, default for "play a video"
+   video       mpv        media, default for "play a video".  argv carries
+                          --idle=yes --force-window=yes: bare `mpv` prints its
+                          version and exits 0, so the launch "succeeded" with
+                          no window (found live 2026-08-25)
    vlc         vlc        media, second player, named only
 ```
 
-Five entries. Plus `youtube_search` — the single audited exception where a
-model-supplied string (the query) reaches an argv element, under the five
-constraints in ADR-027. Excluded: firefox, kitty (removed 2026-08-22),
+Five entries. Plus `youtube_search` — still **the single** audited exception
+where a model-supplied string (the query) reaches an argv element, under the
+five constraints in ADR-027.
+
+The Hyprland tools' argv element is a **Lua expression** since Hyprland 0.56
+(`hl.dsp.focus{workspace=2}`), but that is deliberately *not* a second
+exception: no parameter is formatted into it — a closed-set param selects one of
+sixteen constants built at import from code-owned literals, so there is nothing
+to escape and nothing to inject into (ADR-074). Excluded: firefox, kitty (removed 2026-08-22),
 file managers, Spotify, a general `open_url`.
 
 Owner: **ADR-032** (supersedes ADR-026), ADR-027.
@@ -138,10 +174,15 @@ Owner: **ADR-032** (supersedes ADR-026), ADR-027.
 
 ## Deliberately absent
 
-No vector DB, no embedding model, no ORM, no message queue, no Docker for
-the app, no web UI, no plugin system, no retry middleware, no
+No vector DB, no **text** embedding model, no ORM, no message queue, no Docker
+for the app, no web UI, no plugin system, no retry middleware, no
 LangChain/agent framework. Each absence is a decision (architecture §9);
 adding any requires an ADR that names the problem it solves.
+
+*"No embedding model" needs the qualifier since G13:* speaker verification runs
+a 512-dim **voice** embedding (3D-Speaker CAM++ on CPU, ADR-059/063). What is
+absent is semantic text embedding and the retrieval stack that comes with it —
+memory is SQLite rows and a RAM dialogue buffer, not a vector index.
 
 ---
 
