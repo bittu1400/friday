@@ -13,13 +13,13 @@ Rules:
    this is a single-machine project. Paste it.
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
-**2026-08-26 audit fix phase is PAST HALF — Steps 1–7 of 12 executed
+**2026-08-26 audit fix phase is PAST HALF — Steps 1–8 of 12 executed
 2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
 registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **398 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **402 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -31,16 +31,18 @@ the trigger-arm TOCTOU (H5), blocking work on the event loop (H6), the
 wrong-reminder cancel (H7, which turned out to be an unreachable code path —
 `cancel_reminder` had **never** worked; ADR-070), and the journald debug leak
 (H8 — the documented debug workflow wrote every transcript to
-`/var/log/journal`). Plus M-P1, M-A2, M-A3, M-T2,
+`/var/log/journal`). Plus M-A1, M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION continues with Steps 8–12** — see the `>>> START HERE <<<` block
+**NEXT SESSION continues with Steps 9–12** — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
 is now the fastest map of what is fixed and what is not. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
 too when `JOURNAL_STREAM` says stderr is journald, so `FRIDAY_DEBUG=1` is safe
 under systemd (it shows nothing there; foreground is where transcripts appear).
-Everything left in the list is robustness.
+Everything left in the list is robustness — and Step 8 (M-A1) is done too:
+both PortAudio callbacks now run through one `CallbackGuard`, so an audio
+callback can no longer die quietly and leave a healthy-looking deaf assistant.
 `docs/reality-check.md` remains the manifest for live-voice verification; its
 header lists the rows that changed on 2026-08-29 and have never been checked by
 a human at a keyboard.
@@ -199,6 +201,85 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (later still) — FIX PHASE, Step 8 of 12: M-A1, the callbacks that could die quietly
+
+**The failure this closes is the house pattern, again.** sounddevice runs the
+audio callback on a PortAudio thread; anything that escapes it is caught by
+python-sounddevice, printed to stderr, and then **it stops calling back**. The
+stream object stays open. `just selftest`'s `audio_devices` check still passes.
+Wake, VAD, barge-in and capture are dead for the rest of the process, and
+nothing anywhere says so. One malformed frame could have cost a whole session.
+
+### The fix
+One `CallbackGuard` (`friday/audio/guard.py`, ~45 lines) used by **both**
+callbacks — not a copy in each, because "two implementations of one protocol IS
+the bug" is written at the top of `CLAUDE.md` in this project's own blood (C1).
+It swallows, counts **consecutive** failures (one bad frame in an hour is
+noise; five in a row is a dead audio path), and on crossing the limit logs
+`E_AUDIO_DEAD` once at ERROR.
+
+- **wake** (`wake.py._sd_callback`): `on_disable` sets `self.detector = None`.
+  The stream stays open — PTT still works, a running capture still finishes —
+  but nothing pretends the wake word is being listened for.
+- **capture** (`capture.py`): the closure `_cb` became a real method
+  `_sd_callback` (testable without audio hardware) and the guard runs with
+  `stop_calling=False`. Its callback only gate-checks and copies, so there is
+  nothing to disable; it keeps running and says once that it is degraded.
+
+### Decisions taken to the user rather than defaulted (working agreement §1)
+Both were asked before a line was written, and both came back as the
+recommended option:
+- **D1 — the taxonomy code is `E_AUDIO_DEAD`**, one code covering both
+  surfaces, named after the consequence rather than the mechanism. Added to
+  `spec.md` §4 and `friday/errors.py`. It is the only code in the taxonomy with
+  **no spoken template**: it changes no turn's outcome and cannot be explained
+  to the user mid-turn, so it is logged and never spoken.
+- **D2 — a degraded capture callback stays alive** (log ERROR, keep copying)
+  rather than flipping a daemon-visible flag or closing the stream. A broken
+  capture already yields empty audio, which routes to `E_STT_EMPTY` and
+  silence; the louder options add state the daemon and selftest would both have
+  to learn for a failure never yet observed on this machine.
+
+Neither is architectural enough for its own ADR — they execute ADR-067(i)
+("fail-soft degradation must be loud"), which had already decided the shape.
+Note one conflict resolved in passing: ADR-067(i) says WARNING, the Step 8 plan
+says ERROR. ERROR wins here, and the ADR's WARNING still stands for its own
+case — refusing to *arm* a feature is a smaller event than a callback that has
+died. Recorded so the next reader does not think one of them is a typo.
+
+### Tests — verified failing against the pre-fix tree
+`git stash push friday/audio/wake.py friday/audio/capture.py` (leaving the new
+guard module in place, so the failure is the *wiring*, not a missing import):
+
+```
+tests/test_callback_guard.py::test_a_raising_detector_never_escapes_into_sounddevice
+    pre-fix: E   ValueError: cannot reshape array of size 321 into shape (1,320)
+             ^ the exception escaping into sounddevice — the defect itself
+tests/test_callback_guard.py::test_the_capture_callback_swallows_and_keeps_copying   FAIL -> PASS
+tests/test_callback_guard.py::test_a_transient_failure_does_not_disable_anything     FAIL -> PASS
+tests/test_callback_guard.py::test_guard_counts_consecutively_and_calls_on_disable_once  PASS
+```
+
+The repro is the real mechanism, not a synthetic raise: a detector that raises
+on a frame it cannot reshape, which is exactly what openWakeWord does when
+handed a non-10/20/30 ms buffer.
+
+### Gate
+```
+uv run pytest -q          -> 402 passed  (398 -> 402, +4)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
+```
+
+### Docs changed in the same commit
+`spec.md` (**FR-6a**, `E_AUDIO_DEAD` in §4 with its no-template note, §5.4's
+degraded matrix gains the raising-callback row), `architecture.md` §5 (the
+callback paragraph now says it cannot die quietly, and why),
+`Alpha-ox-analysis.md` (M-A1 -> FIXED), `CLAUDE.md`, and this file.
 
 ---
 
@@ -595,21 +676,21 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 8–12) <<<
+## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 9–12) <<<
 
-**Steps 1–7 are DONE** (see the two 2026-08-29 session blocks just above for
-what changed and why). Steps 8–12 are unchanged from the 2026-08-26 plan except
+**Steps 1–8 are DONE** (see the three 2026-08-29 session blocks just above for
+what changed and why). Steps 9–12 are unchanged from the 2026-08-26 plan except
 where this block says otherwise. Read the fix-status table at the bottom of
 `Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
 what is not. Do **not** re-audit; the findings are still accurate apart from
 the three corrections recorded there.
 
-**No feature work and no Phase 3 until Steps 8–12 are done.**
+**No feature work and no Phase 3 until Steps 9–12 are done.**
 
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 398 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 402 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
@@ -619,7 +700,7 @@ Never two daemons. Never trust "Friday said it worked" — ask the system.
 pre-fix tree, then restore and fix. Two tests this session passed vacuously and
 were only caught that way.
 
-### THE REMAINING FIX LIST — Steps 8–12 (audit order, H8 already taken)
+### THE REMAINING FIX LIST — Steps 9–12 (audit order, H8 already taken)
 
 > **Ordering decision, 2026-08-29 — now spent.** The audit's plan had H8 at
 > Step 11. Put to the user; answer: pull it forward to Step 7, because it was
@@ -636,15 +717,13 @@ post-fix. Spec FR-57b added; threat-model T7 control 7 no longer says "NOT yet
 enforced"; the "run debug in the foreground only" mitigation is deleted from
 `CLAUDE.md`, `threat-model.md` and this block.
 
-**Step 8 (was 7) — M-A1: guard the PortAudio callbacks.**
-Wrap `_on_frame` bodies (`wake.py`, `capture.py`): count consecutive failures,
-degrade loudly past N (disable the detector + ERROR log with a taxonomy code),
-never let an exception escape into sounddevice — python-sounddevice prints to
-stderr and simply stops calling back, so wake/VAD/barge die while the service
-looks healthy. Test must prove the FAIL path (feed a non-10/20/30 ms frame ->
-detector disabled loudly, stream alive). Note the audit's own correction: the
-`capture.py` callback only gate-checks and copies, it does not touch ONNX/VAD —
-but it is equally unguarded, so wrap both.
+**Step 8 (was 7) — M-A1: guard the PortAudio callbacks. DONE 2026-08-29.**
+One `CallbackGuard` (`friday/audio/guard.py`) on both `_sd_callback`s: swallow,
+count consecutive failures, past the limit log `E_AUDIO_DEAD` once at ERROR and
+disable the wake detector (capture keeps running degraded — user decision D2).
+Repro is the real mechanism, a detector raising on a non-20 ms frame, and it
+was verified escaping into sounddevice pre-fix. Spec FR-6a + `E_AUDIO_DEAD` in
+§4; architecture §5 updated.
 
 **Step 9 (was 8) — M-T1 decision execution (ADR-067d).**
 Honor `spec.timeout_s`: non-GUI tools get `wait_for(timeout_s)` + process-group

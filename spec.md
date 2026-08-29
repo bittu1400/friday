@@ -56,6 +56,7 @@ limitation to be lifted later.
 | FR-4 | Capture is hard-capped at 15 s | A held key for 60 s yields a 15 s clip and returns to IDLE |
 | FR-5 | Only one turn is in flight at a time; a second request while busy is rejected audibly, not queued | Concurrency test: 5 rapid submits produce 1 turn + 4 rejections |
 | FR-6 | Mic is closed in every state except CAPTURING | Assert in the audio callback; unit test on the gate |
+| FR-6a | Nothing escapes a PortAudio callback. Consecutive failures are counted; past the limit the wake detector is disabled and `E_AUDIO_DEAD` is logged once at ERROR, while the capture callback keeps running degraded. A single transient failure disables nothing (M-A1) | `tests/test_callback_guard.py` — `test_a_raising_detector_never_escapes_into_sounddevice`, `test_a_transient_failure_does_not_disable_anything`, `test_the_capture_callback_swallows_and_keeps_copying` |
 | FR-7 | PTT during SPEAKING is barge-in: cancel playback, drop the turn, go to CAPTURING | Manual test recorded at G6 |
 | FR-7c | An interrupted line is treated as **not delivered** (ADR-069): `_speak` reports completed-vs-cancelled, an interrupted reply is not appended to `Dialogue`, and a talked-over confirm question does not arm the handshake — the barged utterance is a fresh command, never the yes/no answer | `test_interrupted_reply_is_not_recorded_as_history`, `test_barge_during_question_leaves_no_pending` |
 | FR-7a | VOICE barge-in (speech detected during playback) is OFF by default and must not fire; PTT is the interrupt. The AEC yields only −5 to −10 dB on this hardware, so speech heard during playback is usually Friday herself (ADR-064). Re-enable with `FRIDAY_BARGE_VAD_ENABLE=1` once OQ-32 lands | `test_voice_barge_is_off_by_default` |
@@ -261,7 +262,13 @@ hears the template, never the code and never the detail.
    E_DB_LOCKED        sqlite contention           -> "Couldn't save that."
    E_BUSY             turn already in flight      -> "One moment."
    E_DISABLED         panic switch engaged        -> "I'm switched off."
+   E_AUDIO_DEAD       audio callback failed N times in a row -> logged only
 ```
+
+`E_AUDIO_DEAD` (added 2026-08-29, M-A1) is the one code with no spoken
+template: it reports that a PortAudio callback has been disabled or is running
+degraded, which the user cannot be told about mid-turn and which changes no
+turn's outcome. It is logged once at ERROR, never spoken.
 
 ---
 
@@ -361,6 +368,9 @@ on the executor, not on the model's text.
    (`test_failed_question_tts_does_not_arm_the_confirm`,
    `test_failed_speech_does_not_strand_the_fsm`) and verifier-enabled
    (`test_speaker_verification_blocks_impostor`) are covered.
+   A raising audio callback is covered too since 2026-08-29
+   (`tests/test_callback_guard.py`): it must not escape into sounddevice, which
+   answers an exception by never calling back again.
    **Mic-open failure is NOT** — that is M-A8, still open: `daemon.py` discards
    `recorder.open()`'s result, so a mic-less machine starts "successfully" and
    every press silently no-ops.

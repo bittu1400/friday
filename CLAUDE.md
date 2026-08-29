@@ -10,7 +10,7 @@ remember preferences, and search the web through a local proxy.
 
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
 review passes; the fifth (the 2026-08-26 full-codebase audit) is HALF FIXED —
-Steps 1–7 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
+Steps 1–8 of 12 executed 2026-08-29.** `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
 `hey_jarvis` wake word, ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
@@ -41,7 +41,7 @@ enrollment tool** (speaker verify silently failed open) and a **`clipboard_set`
 that spoke success while doing nothing**. (3) The 2026-08-25 live sessions fixed
 13 more (see the session blocks in `progress.md`). (4) A full read-only codebase
 audit (**2026-08-26**, report: `Alpha-ox-analysis.md`) found **1 CRITICAL + 8
-HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–7
+HIGH + ~21 MEDIUM** on paths no test drives. (5) **2026-08-29 executed Steps 1–8
 of that fix list**: C1 (text-mode confirm of any action was a silent no-op —
 both UIs now share one `turn.resolve_pending`, ADR-069), H1 (confirmed
 dispatches and web searches wrote zero audit rows), H2/H3/M-P1 (a confirm could
@@ -52,7 +52,10 @@ user's next command), H4 (no-STT mode raised on every capture), H5/M-A2/M-A3
 worked at all** — the schema required an id the planner cannot know, ADR-070),
 M-T2/M-T3/M-T9 (WAL sidecar perms, migration atomicity, retention scope), and
 H8 (**the debug workflow leaked every transcript to `/var/log/journal`** —
-`no_disk` guarded the file handler only, and under systemd stderr is journald).
+`no_disk` guarded the file handler only, and under systemd stderr is journald),
+and M-A1 (an exception out of either PortAudio callback made sounddevice stop
+calling back **forever** — an open stream, a passing health check, and a deaf
+assistant).
 Four decisions were then put to the user rather than defaulted (ADR-072 +
 plan ordering; see the 2026-08-29 block in `progress.md`).
 
@@ -62,7 +65,7 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: Steps 8–12.** Read the `>>> START HERE <<<` block at the top of
+**NEXT SESSION: Steps 9–12.** Read the `>>> START HERE <<<` block at the top of
 `progress.md` first, then the **fix-status table at the bottom of
 `Alpha-ox-analysis.md`** — it is the fastest map of what is fixed and what is
 not, and it records three places the audit itself was wrong. Do not re-audit.
@@ -413,4 +416,5 @@ just prefs list|forget  # manage stored preferences
 | "The confirm is armed, so the user was asked" | Only if the question was actually spoken. Arming before delivery meant a TTS failure left a `system_wifi{off}` pending with no timer, and an unrelated "yeah" dispatched it (ADR-069). |
 | "It's just a `notify-send`, it's fast" | It is `subprocess.run(timeout=2)` on the single event loop, in the path that fires while a turn is already running. While the loop blocks, Friday is deaf (H6). |
 | "`FRIDAY_DEBUG` only echoes to the console, so nothing hits disk" | Under systemd the console IS journald, and journald persists to `/var/log/journal`. The `no_disk` filter guarded the file handler only, so the workflow built to watch a session wrote every transcript to disk (H8). Name the *sinks that outlive the process*, not the handlers. |
+| "The stream object is open, so the mic is being listened to" | sounddevice answers an escaping callback exception by printing it and never calling back again. Open stream, `audio_devices` PASS, wake and VAD dead (M-A1). Both callbacks run through `CallbackGuard` now; if you add a third, use it. |
 | "History is in the prompt, so anaphora just works" | It also lets Friday's own suggestion become her own command — a bare "hey jarvis" dispatched `open_app{editor}` 4/4. Plan without history first; confirm anything only history could supply (ADR-065). |

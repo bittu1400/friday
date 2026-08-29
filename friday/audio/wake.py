@@ -17,6 +17,7 @@ import numpy as np
 
 from friday import config
 from friday.audio.aec import AecProcessor, NullAec
+from friday.audio.guard import CallbackGuard
 from friday.audio.vad import SpeechGate, Vad
 
 log = logging.getLogger(__name__)
@@ -197,6 +198,10 @@ class WakeListener:
         self._heard_speech = False   # any speech at all in the current capture
         self._silent_frames = 0      # frames since the capture began
         self._stream: Any = None
+        # M-A1: an exception out of here does not crash anything — sounddevice
+        # eats it and quietly stops calling back, so wake and VAD die while the
+        # service still looks healthy. Swallow, count, and degrade out loud.
+        self._guard = CallbackGuard("wake", on_disable=self._disable_detector)
 
         frame_ms = (frame_len * 1000) // 16000
         self.frame_ms = frame_ms
@@ -325,11 +330,19 @@ class WakeListener:
                 # The daemon arms from `_start_capture`, after acceptance.
                 self.schedule(self.callbacks.on_wake)
 
+    def _disable_detector(self) -> None:
+        """Give up on wake detection for the rest of the process (M-A1).
+
+        The stream stays open — PTT still works, and so does a capture already
+        running — but nothing pretends the wake word is being listened for.
+        """
+        self.detector = None
+
     def _sd_callback(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         if status:
             log.debug("WakeListener input stream status: %s", status)
         mono = indata[:, 0].copy() if indata.ndim > 1 else indata.copy()
-        self._on_frame(mono)
+        self._guard.run(self._on_frame, mono)
 
     def start(self) -> bool:
         """Start always-on audio stream; fail-soft returning False on error."""

@@ -18,6 +18,7 @@ from collections.abc import Callable
 import numpy as np
 
 from .. import config
+from .guard import CallbackGuard
 
 
 class Recorder:
@@ -38,6 +39,11 @@ class Recorder:
         self._buf = np.zeros(self._cap, dtype=np.float32)  # preallocated once
         self._n = 0  # write cursor
         self._stream: object | None = None
+        # M-A1: nothing may escape into sounddevice, which answers an exception
+        # by silently never calling back again. Unlike wake there is nothing to
+        # disable here — the callback only gate-checks and copies — so it keeps
+        # running and says once that it is degraded.
+        self._guard = CallbackGuard("capture", stop_calling=False)
 
     # --- callback-side: no allocation, no blocking ------------------------
 
@@ -52,6 +58,10 @@ class Recorder:
         take = min(mono.shape[0], room)
         self._buf[self._n : self._n + take] = mono[:take]
         self._n += take
+
+    def _sd_callback(self, indata, frames, time_info, status) -> None:  # noqa: ANN001 - sd signature
+        """PortAudio thread entry point. indata: (frames, 1) float32."""
+        self._guard.run(self._write, indata[:, 0])
 
     # --- daemon-side ------------------------------------------------------
 
@@ -87,13 +97,12 @@ class Recorder:
         except ImportError:
             return False
 
-        def _cb(indata, frames, time_info, status):  # noqa: ANN001 - sd signature
-            # indata: (frames, 1) float32. Column 0 is the mono channel.
-            self._write(indata[:, 0])
-
         try:
             self._stream = sd.InputStream(
-                samplerate=self._sr, channels=1, dtype="float32", callback=_cb
+                samplerate=self._sr,
+                channels=1,
+                dtype="float32",
+                callback=self._sd_callback,
             )
             self._stream.start()
         except Exception:

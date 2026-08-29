@@ -30,6 +30,9 @@ E_DISABLED = "E_DISABLED"
 E_STT_EMPTY = "E_STT_EMPTY"  # no speech -> silence, back to IDLE (FR-12)
 E_STT_TIMEOUT = "E_STT_TIMEOUT"  # transcription too slow
 E_BUSY = "E_BUSY"  # a turn is already in flight (FR-5)
+# G10 (always-on audio): a PortAudio callback failed repeatedly and its feature
+# was disabled (M-A1). Logged, never spoken — the user hears nothing change.
+E_AUDIO_DEAD = "E_AUDIO_DEAD"
 
 
 class PolicyRejected(Exception):

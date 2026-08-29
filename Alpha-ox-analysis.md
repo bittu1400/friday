@@ -376,7 +376,7 @@ no fix step reordered.
 
 ---
 
-## Fix status — updated 2026-08-29 (Steps 1–7 executed)
+## Fix status — updated 2026-08-29 (Steps 1–8 executed)
 
 This report is a snapshot of 2026-08-26 and is **not** rewritten as fixes land.
 Use this table for what is done; use `progress.md`'s START HERE block for what
@@ -403,9 +403,10 @@ before its fix.
 | M-L9 (part) `check_database` cannot fail on perms | FIXED — perms read BEFORE the DB is opened | `test_selftest_checks_the_sidecar_perms` |
 | L25 selftest docstring lists 7 checks, 8 run | FIXED 2026-08-29 while verifying docs against the tree | `friday/selftest.py` module docstring |
 | *(not a finding)* declined confirms unaudited | CHANGED by decision, not defect — ADR-072 answers OQ-37: a decline now writes a `declined` row | `tests/test_audit_contract.py` |
-| M-A1, M-T1, M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 8–12 and the triage tail | progress.md |
+| M-A1 unguarded PortAudio callbacks | FIXED — one shared `CallbackGuard`; consecutive-failure count, `E_AUDIO_DEAD` at ERROR, wake detector disabled, capture degraded-but-alive | `tests/test_callback_guard.py`, spec FR-6a |
+| M-T1, M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 9–12 and the triage tail | progress.md |
 
-**Status line, 2026-08-29 (Step 7):** the CRITICAL and **all eight HIGHs** are
+**Status line, 2026-08-29 (Step 8):** the CRITICAL and **all eight HIGHs** are
 closed. Everything still open is MEDIUM or LOW, and none of it is a disclosure
 defect — the remaining work is robustness (Steps 8–12 and the triage tail).
 

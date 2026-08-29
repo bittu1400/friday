@@ -2156,9 +2156,12 @@ ordering rationale); weakening FR-57/FR-58 to match current code instead of
 fixing code to match the spec; deferring C1 because text mode is "rarely used"
 (it is the same defect class that made four prior sessions necessary).
 
-**Status:** Accepted 2026-08-26. **Steps 1-7 implemented 2026-08-29** (ADR-069,
+**Status:** Accepted 2026-08-26. **Steps 1-8 implemented 2026-08-29** (ADR-069,
 ADR-070, ADR-071; evidence in progress.md) — item (g) landed with Step 7, so no
-disclosure defect from the audit is open. Steps 8-12 pending.
+disclosure defect from the audit is open, and item (i)'s callback half landed
+with Step 8 (`E_AUDIO_DEAD`, at ERROR rather than the WARNING this ADR names:
+a callback that has died is a larger event than a refusal to arm). Steps 9-12
+pending.
 
 ---
 

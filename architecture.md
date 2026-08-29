@@ -266,6 +266,15 @@ The audio callback allocates nothing and never touches the database. It also
 does not mutate capture state: since ADR-071 it scores, it may fire `on_wake`,
 and arming VAD end-of-speech is the loop's job, after the FSM has accepted.
 
+It also cannot die quietly (M-A1, 2026-08-29). Both callbacks run through one
+`CallbackGuard` (`friday/audio/guard.py`), because sounddevice answers an
+escaping exception by printing it and **never calling back again** — leaving an
+open stream, a passing `audio_devices` self-test, and a deaf assistant. The
+guard swallows, counts *consecutive* failures, and past the limit logs
+`E_AUDIO_DEAD` once at ERROR: the wake detector is then disabled outright
+(nothing pretends to listen for the wake word), while the capture callback,
+which only gate-checks and copies, keeps running degraded.
+
 Backpressure:
 
 ```
