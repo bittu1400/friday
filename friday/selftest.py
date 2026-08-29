@@ -4,10 +4,20 @@ Performs full-system sanity and health verification (architecture.md §7, friday
   1. llama-server reachability & health (port 8080 loopback)
   2. SearXNG reachability & health (port 8888 loopback)
   3. GPU architecture check (sm_120 / Blackwell compute capability 12.0)
-  4. Database permissions & schema version (0700 dir, 0600 file, schema v1)
-  5. Audio subsystem (input mic & output playback devices available)
-  6. Panic switch status (~/.local/state/friday/DISABLED)
-  7. Loopback socket bind audit (asserts no 0.0.0.0 or wildcard bindings on 8080/8888)
+  4. LLM actually ON the GPU — that llama-server holds VRAM, not merely that a
+     GPU exists. Added after llama-server served from CPU for hours while
+     `gpu_arch` reported PASS throughout (2026-08-25).
+  5. Database permissions & schema version (0700 dir, 0600 file incl. the
+     `-wal`/`-shm` sidecars, schema >= 1). Perms are read BEFORE the database
+     is opened, because opening it repairs them — a check that measured its own
+     repair could never fail.
+  6. Audio subsystem (input mic & output playback devices available)
+  7. Panic switch status (~/.local/state/friday/DISABLED)
+  8. Loopback socket bind audit (asserts no 0.0.0.0 or wildcard bindings on 8080/8888)
+
+Eight checks, and this list says eight: it listed seven while eight ran until
+2026-08-29 (audit L25). A docstring that miscounts the checks is a small lie
+about the one tool whose whole job is telling you the truth about the system.
 """
 
 from __future__ import annotations

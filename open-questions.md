@@ -197,22 +197,15 @@ the trigger (wake logs "no VAD, PTT only" and does not open a capture) is
 strictly better than 15 s of deafness. If it never fires, this stays as is.
 **Blocks:** nothing. **Default if undecided:** keep ADR-071's behaviour.
 
----
-
-### OQ-37 — Should a DECLINED confirm write an audit row?
-**Status:** OPEN — deliberately deferred 2026-08-29 (fix-phase Step 3).
-
-FR-58 says one row per **dispatch**, and a decline is not a dispatch, so
-`resolve_pending` writes nothing when the user says no — and the contract test
-asserts that. But "Friday proposed turning off Wi-Fi and I said no" is
-arguably the more interesting security event of the two, and it is currently
-invisible to `mine_habits` and to any later forensic read.
-
-**What decides it:** whether the audit log is a record of *what happened to the
-system* (dispatches only, current answer) or of *what was asked of it*
-(proposals too). The second is more useful and strictly more data at rest —
-which cuts against T7. **Blocks:** nothing. **Default if undecided:** dispatches
-only, as today.
+**ASKED AND DEFERRED 2026-08-29.** Put to the user the same day it was raised,
+with the option of refusing the wake trigger outright or failing at startup.
+Answer: **wait for the warning to actually fire.** `webrtcvad` failing to load
+has never been observed on this machine, so refusing wake would be designing
+for a state with no evidence behind it — and it has its own failure mode
+(silently removing hands-free operation on a degraded install). This is a
+deliberate hold, not an unanswered question: it stays open **until the log line
+appears**, and the next session should not re-litigate it without that
+evidence.
 
 ---
 
@@ -314,6 +307,24 @@ grounding turn is grammar-locked exactly like search (ADR-008).
 _(Move entries here with the answer and the date. Do not delete them —
 the reasoning behind a closed question is the thing you will want in six
 months.)_
+
+- **OQ-37 — Should a DECLINED confirm write an audit row?** ANSWERED
+  2026-08-29: **yes** (ADR-072), and it is implemented the same day. The four
+  confirm-gated tools are exactly the dangerous ones, and "Friday *proposed*
+  turning off Wi-Fi and I said no" is the more interesting half of that
+  exchange — it is also the half that says something about the planner, since a
+  proposal the user keeps refusing is a mis-planning signal that was previously
+  invisible. FR-58 changes from "one row per dispatch" to "one row per resolved
+  action, dispatched or declined". Two constraints came with the answer: a
+  declined row must never feed `mine_habits` (it filters `outcome='ok'`, and a
+  test now proves five consecutive declines mine to zero habits — Friday
+  learning "you often turn off Wi-Fi" from five refusals is the worst possible
+  reading of this data), and the redaction rule lives in exactly one function,
+  `turn.audit_params`, called by both the executed and declined paths. Rejected:
+  the narrower "only for confirm-gated tools" option, which describes the same
+  set today and would need re-deciding the moment a fifth confirm-gated tool
+  appears; and reusing `outcome='denied'`, which already means "policy refused
+  it" and would conflate a user changing their mind with the ban list firing.
 
 - **OQ-34 — Should `clipboard_read` ever speak clipboard contents aloud?**
   ANSWERED 2026-08-27: **no, not without an explicit confirm each time**

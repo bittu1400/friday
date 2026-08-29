@@ -393,7 +393,7 @@ before its fix.
 | H5 trigger-arm TOCTOU | FIXED — acceptance arms, detection does not | `tests/test_trigger_arming.py`, ADR-071 |
 | H6 blocking work on the event loop | FIXED — four sites threaded (five, with the TUI's copy) | `tests/test_event_loop_blocking.py` |
 | H7 cancel picks the wrong reminder | FIXED — **and the branch turned out to be unreachable**; see ADR-070 | `tests/test_audit_contract.py` |
-| H8 journald debug leak | **OPEN** — Step 11 | threat-model T7 control 7 |
+| H8 journald debug leak | **OPEN — now Step 7, pulled to the front 2026-08-29** (only remaining disclosure defect; everything else left is robustness) | threat-model T7 control 7 |
 | M-P1 expiry resets a live capture | FIXED — expiry never touches the FSM | `test_confirm_expiry_does_not_reset_a_live_capture` |
 | M-A2 cap-timer leak on re-arm | FIXED | `test_rearming_the_cap_cancels_the_previous_handle` |
 | M-A3 `vad=None` resurrects the 15 s cap | FIXED (conservative half-step) — refuse + warn once; OQ-36 raised | `test_arming_without_a_vad_is_refused_and_logged_once` |
@@ -401,7 +401,9 @@ before its fix.
 | M-T3 partial-migration crash loop | FIXED — one transaction + idempotent DDL | `tests/test_db_integrity.py` |
 | M-T9 reminders never pruned | FIXED (ADR-068b) | `test_retention_sweeps_terminal_reminders_only` |
 | M-L9 (part) `check_database` cannot fail on perms | FIXED — perms read BEFORE the DB is opened | `test_selftest_checks_the_sidecar_perms` |
-| M-A1, M-T1, M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 7–12 and the triage tail | progress.md |
+| L25 selftest docstring lists 7 checks, 8 run | FIXED 2026-08-29 while verifying docs against the tree | `friday/selftest.py` module docstring |
+| *(not a finding)* declined confirms unaudited | CHANGED by decision, not defect — ADR-072 answers OQ-37: a decline now writes a `declined` row | `tests/test_audit_contract.py` |
+| M-A1, M-T1, M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 8–12 and the triage tail | progress.md |
 
 ### Corrections this execution pass found in the report itself
 

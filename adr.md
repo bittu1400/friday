@@ -2397,3 +2397,57 @@ defensible, but it silently removes hands-free operation on a degraded install
 rather than degrading it loudly, and no measurement says how often webrtcvad
 actually fails to load here. The warning is the honest first move; if it ever
 fires in practice, that is the evidence for going further.
+
+---
+
+## ADR-072 — A declined confirm is audited too; the audit records what was ASKED of the system, not only what it did
+
+**Status:** Accepted (2026-08-29). Answers OQ-37. Amends FR-58 and ADR-067b.
+
+**Context.** Step 3 of the fix phase gave every executed dispatch an audit row
+and, following FR-58's wording ("one row per dispatch"), gave a declined
+confirm none. The contract test asserted that absence explicitly. Raised as
+OQ-37 rather than decided unilaterally, because it is a genuine tradeoff and
+the answer belongs to whoever lives with the data.
+
+The case for recording declines: the four confirm-gated tools are exactly the
+dangerous ones — turn off Wi-Fi, close the active window, overwrite the
+clipboard, read the clipboard aloud — and "Friday **proposed** turning off
+Wi-Fi and I said no" is arguably the more interesting half of that exchange.
+It is also the half that says something about the *planner*: a proposal the
+user keeps refusing is a mis-planning signal, and there was no way to see it.
+Against: more content at rest, which is what T7 exists to minimize.
+
+**Decision.** Record declines. `resolve_pending` writes one row on the declined
+branch of **both** pending types, with `policy_decision='declined'`,
+`outcome='declined'` and `duration_ms=0` — a row that cannot be misread as
+evidence that something ran.
+
+Two constraints came with it:
+
+1. *A refusal must never become a habit.* `mine_habits` filters on
+   `outcome='ok'`, so `declined` rows are structurally excluded. That is
+   asserted by a test rather than left to the filter's current wording: five
+   consecutive declines of `system_wifi{off}` must mine to zero habits. The
+   alternative reading — Friday learning "you often turn off Wi-Fi" from five
+   refusals — is the worst thing this data could do.
+2. *One redaction rule, one function.* `turn.audit_params` now decides what may
+   be recorded about a pending, and **both** the executed and the declined path
+   call it. Splitting that rule across two call sites is precisely the shape of
+   C1, three weeks after C1. Clipboard text is recorded as a length, clipboard
+   contents not at all, a preference by key only, closed-enum params verbatim.
+
+**Consequences.** FR-58 changes from "one row per dispatch" to "one row per
+*resolved action* — dispatched or declined", and the contract test now asserts
+both halves. Audit volume grows only on the confirm paths, which are rare by
+construction. Retention is unchanged: declines age out with everything else at
+90 days (FR-59). The `outcome` column gains a fourth value; nothing reads it
+except `mine_habits`, which filters it out.
+
+**Rejected.** Recording declines only for confirm-gated tools (the narrower
+option): every pending IS a confirm-gated action or a preference, so the
+narrower rule and the general one describe the same set today — and the
+narrower one would need re-deciding the moment a fifth confirm-gated tool
+appears. Also rejected: recording the decline as `outcome='denied'`, which
+already means "policy refused it" and would conflate the user changing their
+mind with the ban list firing.

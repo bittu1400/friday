@@ -413,9 +413,16 @@ async def resolve_pending(
     if isinstance(pending, PendingPreference):
         if is_affirmation(answer):
             return await confirm_preference(pending, prefs, audit, request_id=request_id)
+        await _audit_declined(audit, request_id, "remember_preference", pending)
         return templates.cancelled_preference()
 
     if not is_affirmation(answer):
+        # ADR-072 (OQ-37): a decline is NOT a dispatch, and it still gets a row.
+        # "Friday proposed turning off Wi-Fi and I said no" is the more
+        # interesting half of that exchange, and it was invisible to every
+        # later read. `outcome='declined'` keeps it out of `mine_habits`, which
+        # filters on `outcome='ok'` — a refusal must never become a habit.
+        await _audit_declined(audit, request_id, pending.tool_id, pending)
         return templates.CANCELLED_ACTION
 
     # Every branch below EXECUTES, so every branch below audits (FR-58). These
@@ -428,11 +435,11 @@ async def resolve_pending(
         from .tools.clipboard import set_clipboard
 
         ok = await asyncio.to_thread(set_clipboard, pending.params.get("text", ""))
-        # The text itself is the user's own data and may be a secret — record
-        # its length, never its content (FR-26/FR-57).
+        # `audit_params` decides what may be recorded — here, the text's LENGTH
+        # and never its content (FR-26/FR-57). Same function the declined path
+        # uses, so the two cannot state the rule differently.
         await _audit_confirmed(
-            audit, request_id, "clipboard_set",
-            {"chars": str(len(pending.params.get("text", "")))},
+            audit, request_id, "clipboard_set", audit_params(pending),
             "ok" if ok else "error",
         )
         return "Copied to your clipboard." if ok else "Clipboard unavailable."
@@ -446,7 +453,9 @@ async def resolve_pending(
         outcome = "not_found" if raw is None else ("ok" if raw.split() else "empty")
         # Contents are never audited — the row records that a read-aloud was
         # confirmed and happened, which is the fact worth keeping.
-        await _audit_confirmed(audit, request_id, "clipboard_read", {}, outcome)
+        await _audit_confirmed(
+            audit, request_id, "clipboard_read", audit_params(pending), outcome
+        )
         if raw is None:
             return "Clipboard unavailable."
         txt = " ".join(raw.split())
@@ -461,7 +470,7 @@ async def resolve_pending(
     res = await executor.execute(spec, pending.params, request_id, dry_run=dry_run)
     dispatched = res.outcome not in (Outcome.DENIED, Outcome.DISABLED, Outcome.NOT_FOUND)
     await _audit_confirmed(
-        audit, request_id, pending.tool_id, pending.params,
+        audit, request_id, pending.tool_id, audit_params(pending),
         res.outcome.value,
         policy_decision="allowed" if dispatched else res.outcome.value,
         duration_ms=res.duration_ms,
@@ -489,6 +498,45 @@ async def _audit_confirmed(
         policy_decision=policy_decision,
         outcome=outcome,
         duration_ms=duration_ms,
+    )
+
+
+def audit_params(pending: PendingPreference | PendingAction) -> dict[str, str]:
+    """What may be recorded about a pending, executed or declined (FR-26/FR-57).
+
+    One function, so the redaction rule cannot end up stated differently in the
+    executed path and the declined path — that divergence is what C1 was.
+
+    The rule: record enough to know WHAT was proposed, never enough to leak the
+    user's own content. A preference value and clipboard text are both content;
+    a tool id and a closed-enum param are not.
+    """
+    if isinstance(pending, PendingPreference):
+        return {"key": pending.key}  # the value is user data
+    if pending.tool_id == "clipboard_set":
+        return {"chars": str(len(pending.params.get("text", "")))}
+    if pending.tool_id == "clipboard_read":
+        return {}  # nothing about the selection, not even its size
+    return dict(pending.params)  # closed enums (state=off, action=close, ...)
+
+
+async def _audit_declined(
+    audit: AuditLog | None,
+    request_id: str,
+    tool_id: str,
+    pending: PendingPreference | PendingAction,
+) -> None:
+    """One row per DECLINED confirm (ADR-072). Nothing ran, so `policy_decision`
+    and `outcome` both say so and `duration_ms` is 0."""
+    if audit is None:
+        return
+    await audit.arecord(
+        request_id=request_id,
+        tool_id=tool_id,
+        params=audit_params(pending),
+        policy_decision="declined",
+        outcome="declined",
+        duration_ms=0,
     )
 
 

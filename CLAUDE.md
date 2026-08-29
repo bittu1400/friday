@@ -25,7 +25,7 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **390 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+`uv run pytest` **395 passed**, `just eval` **28/28 reg 0**, `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**,
 `just test-egress` loopback-only. (Verified 2026-08-29 with the LLM confirmed on
 GPU — see `llm_on_gpu`.)
@@ -51,6 +51,8 @@ user's next command), H4 (no-STT mode raised on every capture), H5/M-A2/M-A3
 (four blocking call sites on the event loop), H7 (**`cancel_reminder` had never
 worked at all** — the schema required an id the planner cannot know, ADR-070),
 and M-T2/M-T3/M-T9 (WAL sidecar perms, migration atomicity, retention scope).
+Four decisions were then put to the user rather than defaulted (ADR-072 +
+plan ordering; see the 2026-08-29 block in `progress.md`).
 
 NOTE: `friday.service` is `Restart=always`, so `kill <pid>` does NOT stop the
 daemon — use `systemctl --user stop friday`. All three units (`friday`,
@@ -64,7 +66,8 @@ service first.
 not, and it records three places the audit itself was wrong. Do not re-audit.
 **H8 is the one invariant-#7 violation still live: `FRIDAY_DEBUG=1` under
 systemd leaks raw transcripts to journald. Run debug in the foreground only
-until Step 11 lands.** Short version:
+until Step 7 lands — it was pulled to the front of the remaining list on
+2026-08-29 precisely because it is the last disclosure defect.** Short version:
 
 ```bash
 just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm

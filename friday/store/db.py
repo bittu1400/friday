@@ -75,16 +75,22 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         # Lock the file down IMMEDIATELY after connect, before any pragma
-        # (M-T2). `journal_mode=WAL` creates `-wal` and `-shm` sidecars, and
-        # SQLite creates them with the same permissions it sees on the main
-        # database — so under a permissive umask, chmod-ing afterwards left the
-        # WAL (preferences, notes, reminder text in flight) world-readable.
+        # (M-T2). The audit said `journal_mode=WAL` creates the `-wal`/`-shm`
+        # sidecars, so a later chmod left them world-readable. Measured
+        # 2026-08-29 under `umask 000`: it does NOT — SQLite creates them at the
+        # first write transaction (`_migrate`, below), by which point the main
+        # file is already 0600 and they inherit it. The ordering stays anyway,
+        # because a security property must not depend on when SQLite happens to
+        # create a file.
         path.chmod(0o600)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA foreign_keys=ON")
-        # The sidecars now exist. SQLite should have inherited 0600 from the
-        # main file above; assert it rather than assume, and repair if not.
+        # The reachable exposure is a sidecar left behind by an UNCLEAN
+        # shutdown: a clean close checkpoints the WAL away, but `friday.service`
+        # is `Restart=always`, so a SIGKILLed daemon leaves one and comes
+        # straight back. Pre-fix, a `-wal` chmod-ed to 0644 after `kill -9`
+        # stayed 0644 across every restart, forever.
         self._secure_sidecars()
         self._migrate()
 

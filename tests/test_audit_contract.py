@@ -22,7 +22,7 @@ from friday.errors import Outcome
 from friday.llm.schema import PARAM_SCHEMA
 from friday.store.audit import AuditLog
 from friday.store.db import Database
-from friday.store.prefs import PrefStore
+from friday.store.prefs import PendingPreference, PrefStore
 from friday.tools import executor as ex
 from friday.tools.executor import ToolResult
 from friday.tools.registry import REGISTRY
@@ -140,13 +140,90 @@ def test_confirmed_clipboard_read_writes_a_row_without_the_contents(store, monke
     assert "hunter2" not in rows[0]["args_redacted"]
 
 
-def test_declined_confirm_writes_no_row(store, ok_executor):
+def test_declined_confirm_writes_a_declined_row(store, ok_executor):
+    """ADR-072 (OQ-37, answered 2026-08-29): a decline is not a dispatch, and it
+    is still recorded. "Friday proposed turning off Wi-Fi and I said no" is the
+    more interesting half of that exchange and was invisible to every later
+    read. The row must say plainly that nothing ran."""
     db, audit, _ = store
     pending = PendingAction("system_wifi", {"state": "off"}, "turn off Wi-Fi")
     asyncio.run(resolve_pending(
         pending, "no", prefs=None, audit=audit, request_id="c4",
     ))
-    assert _rows(db) == [], "nothing executed, so nothing to audit"
+    rows = db.query(
+        "SELECT tool_id, outcome, policy_decision, duration_ms FROM action_audit"
+    )
+    assert len(rows) == 1
+    assert rows[0]["tool_id"] == "system_wifi"
+    assert rows[0]["outcome"] == "declined"
+    assert rows[0]["policy_decision"] == "declined"
+    assert rows[0]["duration_ms"] == 0, "nothing ran, so nothing took time"
+
+
+def test_declined_confirm_dispatches_nothing(store, ok_executor):
+    """The row must not be mistaken for evidence that something happened."""
+    db, audit, _ = store
+    pending = PendingAction("system_wifi", {"state": "off"}, "turn off Wi-Fi")
+    asyncio.run(resolve_pending(
+        pending, "no", prefs=None, audit=audit, request_id="c5",
+    ))
+    assert db.query("SELECT 1 FROM action_audit WHERE outcome = 'ok'") == []
+
+
+def test_a_declined_action_never_becomes_a_habit(store, ok_executor):
+    """`mine_habits` filters on `outcome='ok'`, so declined rows must not feed
+    it — a refusal turning into a suggested habit would be the worst possible
+    reading of this data (ADR-072)."""
+    from friday.store.habits import mine_habits
+
+    db, audit, _ = store
+    pending = PendingAction("system_wifi", {"state": "off"}, "turn off Wi-Fi")
+    for i in range(5):  # well past min_count
+        asyncio.run(resolve_pending(
+            pending, "no", prefs=None, audit=audit, request_id=f"d{i}",
+        ))
+    assert len(_rows(db)) == 5
+    assert mine_habits(db) == []
+
+
+def test_declined_confirm_records_no_user_content(store, monkeypatch):
+    """The decline row obeys the same redaction rule as the executed one —
+    `turn.audit_params` is the single place that rule lives (FR-26/FR-57)."""
+    db, audit, _ = store
+    asyncio.run(resolve_pending(
+        PendingAction("clipboard_set", {"text": "swordfish"}, "overwrite clipboard"),
+        "no", prefs=None, audit=audit, request_id="c6",
+    ))
+    args = db.query("SELECT args_redacted FROM action_audit")[0]["args_redacted"]
+    assert "swordfish" not in args
+    assert "9" in args, "the length is the whole record"
+
+
+def test_declined_preference_is_recorded_by_key_only(store):
+    db, audit, prefs = store
+    asyncio.run(resolve_pending(
+        PendingPreference(key="name", value="Subham"), "no",
+        prefs=prefs, audit=audit, request_id="c7",
+    ))
+    rows = db.query("SELECT tool_id, outcome, args_redacted FROM action_audit")
+    assert len(rows) == 1
+    assert rows[0]["tool_id"] == "remember_preference"
+    assert rows[0]["outcome"] == "declined"
+    assert "Subham" not in rows[0]["args_redacted"], "the value is user data"
+    assert "name" in rows[0]["args_redacted"]
+
+
+def test_audit_params_is_the_only_place_the_redaction_rule_lives():
+    """Executed and declined paths must describe a pending identically — the
+    two-copies-of-one-rule shape is exactly what C1 was."""
+    from friday.turn import audit_params
+
+    assert audit_params(
+        PendingAction("clipboard_set", {"text": "abcd"}, "d")) == {"chars": "4"}
+    assert audit_params(PendingAction("clipboard_read", {}, "d")) == {}
+    assert audit_params(
+        PendingAction("system_wifi", {"state": "off"}, "d")) == {"state": "off"}
+    assert audit_params(PendingPreference(key="name", value="Subham")) == {"key": "name"}
 
 
 # --- web_search: audited on every outcome ----------------------------------

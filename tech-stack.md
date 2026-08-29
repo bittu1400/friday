@@ -108,7 +108,7 @@ dispatch an action (ADR-008).
 | :-- | :-- | :-- |
 | Logging | Structured JSON lines to `friday.log`, `10 MB x 5` rotation, `/home/` redacted | ADR-051, FR-43 |
 | Systemd Units | `friday-llm.service`, `friday.service`, `friday-searxng.service` | ADR-051, architecture §8 |
-| Self-Test | `just selftest` / `friday --selftest` (7 checks: LLM, search, GPU, DB, audio, panic, binds) | ADR-051 |
+| Self-Test | `just selftest` / `friday --selftest` (8 checks: LLM, search, GPU arch, **LLM actually on GPU**, DB perms/schema incl. WAL sidecars, audio, panic, binds) | ADR-051 |
 
 ---
 

@@ -243,13 +243,13 @@ backup, or a synced folder.
    chmod. The reachable exposure is a WAL left behind by an **unclean**
    shutdown, which `Restart=always` makes routine; measured pre-fix, a `-wal`
    chmod-ed to `0644` after `kill -9` stayed `0644` across restarts forever.
-7. **Gap still open** (`Alpha-ox-analysis.md` H8; ADR-067 item i, Step 11 of
-   the fix plan): the `no_disk` filter guards only the file handler, so
+7. **Gap still open** (`Alpha-ox-analysis.md` H8; ADR-067 item i, **Step 7** of
+   the fix plan — pulled to the front 2026-08-29 as the last disclosure defect): the `no_disk` filter guards only the file handler, so
    `FRIDAY_DEBUG=1` under systemd leaks raw transcripts to journald's
    persistent disk — a direct violation of invariant #7 on the documented
    debug workflow. Control being added: suppress `no_disk` records on any
    persistent sink when running under journald. Treat this as **NOT yet
-   enforced**; until Step 11 lands, run debug in the foreground only.
+   enforced**; until Step 7 lands, run debug in the foreground only.
 
 ---
 

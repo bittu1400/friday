@@ -19,7 +19,7 @@ registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **390 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **395 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -35,8 +35,9 @@ M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 **NEXT SESSION continues with Steps 7–12** — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
 is now the fastest map of what is fixed and what is not. **H8 (the journald
-debug leak) is the one invariant-#7 violation still live** — until Step 11
-lands, run `FRIDAY_DEBUG=1` in the foreground only, never under systemd.
+debug leak) is the one invariant-#7 violation still live** — it is now **Step 7**,
+pulled to the front of the remaining list on 2026-08-29. Until it lands, run
+`FRIDAY_DEBUG=1` in the foreground only, never under systemd.
 `docs/reality-check.md` remains the manifest for live-voice verification; its
 header lists the rows that changed on 2026-08-29 and have never been checked by
 a human at a keyboard.
@@ -216,12 +217,12 @@ just eval          -> 28/28 (100%), known-failing 0, regressions 0
 
 ### Where the numbers ended up
 ```
-uv run pytest -q          -> 390 passed  (328 -> 390, +62 across 6 new files)
+uv run pytest -q          -> 395 passed  (328 -> 395, +67 across 7 new files)
 just eval                 -> 28/28 (100%), regressions vs baseline 0
 just test-injection       -> 20/20 blocked
 just test-no-fstring-sql  -> OK: store/ is strictly parameterized SQL
 just selftest             -> [PASSED] all 8 checks (llm_on_gpu PASS, 4710 MiB VRAM)
-tree                      -> 7,341 src lines / 57 modules / 61 test files
+tree                      -> 7,389 src lines / 57 modules / 61 test files
 ```
 
 ---
@@ -332,6 +333,12 @@ rather than a hand-written list, so a tool added later without an audit row
 fails the suite. Pre-fix **10/22 failed**; the 12 already-audited registry
 dispatches passed throughout as positive controls. Suite 345 -> 367.
 
+**Extended later the same day by ADR-072** (decision 2 below): declined confirms
+now write a `declined` row too, `turn.audit_params` became the single home of
+the redaction rule, and the contract test grew to 27 — including the assertion
+that five consecutive declines mine to zero habits. Pre-fix **5/5** of the new
+cases failed. Suite 390 -> 395.
+
 ### Step 4 — H6 — commit `e70952b`
 
 Four call sites ran blocking work on the single event loop, each hundreds of ms
@@ -429,6 +436,37 @@ Suite 380 -> 390.
 
 ---
 
+### Four decisions taken at the end of the session (asked, not assumed)
+
+The working agreement says a decision that is the user's gets asked, not
+defaulted. Four were put to the user once Steps 1–6 were green:
+
+1. **H8 moves to Step 7** (from 11). It is the only remaining *disclosure*
+   defect — invariant #7 breaking on the documented debug workflow — while
+   everything else left is robustness. It is also the workflow the live pass
+   needs, so leaving it last means running the next session under a
+   mitigation. The rest of the list keeps the audit's order.
+2. **A declined confirm IS audited** (OQ-37 closed, ADR-072) — *implemented the
+   same day*, because an amended FR with no code behind it is exactly the drift
+   this project keeps paying for. FR-58 becomes "one row per resolved action,
+   dispatched or declined". Two constraints came with it: a declined row must
+   never feed `mine_habits` (proved by test — five refusals of `system_wifi
+   {off}` mine to zero habits, because Friday learning "you often turn off
+   Wi-Fi" from five refusals is the worst reading this data has), and the
+   redaction rule now lives in exactly one function, `turn.audit_params`,
+   called by both the executed and the declined path. Splitting that rule
+   across two call sites is the shape of C1, and C1 was three weeks ago.
+3. **OQ-36 stays deferred, deliberately.** Refusing the wake trigger when there
+   is no VAD was offered and declined: `webrtcvad` has never failed to load
+   here, so it would be designing for a state with no evidence, and it has its
+   own failure mode. It reopens **when ADR-071's warning actually appears in a
+   log** — not before.
+4. **The live pass stays after Steps 7–12.** Verifying the fixed-but-unverified
+   typed rows first was offered and declined in favour of finishing the code
+   work in one arc. The risk is recorded rather than smoothed over: if a
+   Step 1–6 fix is wrong, six more steps will be stacked on it before anyone
+   finds out.
+
 ### What this session learned (beyond the fixes)
 
 1. **Audit findings can be right about the bug and wrong about the cause.**
@@ -454,15 +492,30 @@ Suite 380 -> 390.
 
 ### Docs updated in this session (all in the same commits or this block)
 
-`adr.md` (+ADR-069, ADR-070, ADR-071; ADR-067 and ADR-068 statuses),
-`spec.md` (FR-7c, FR-12, FR-25b, FR-25c, FR-5a, FR-50, FR-53, FR-58, FR-59,
-FR-81, §5.4 suite status), `architecture.md` (module map, §3 audit note,
+`adr.md` (+ADR-069, ADR-070, ADR-071, ADR-072; ADR-067 and ADR-068 statuses),
+`spec.md` (FR-7c, FR-12, FR-25b, FR-25c, FR-5a, FR-50, FR-53, FR-58 twice,
+FR-59, FR-81, §5.4 suite status), `architecture.md` (module map, §3 audit note,
 §5 threading, §6 failure table), `threat-model.md` (T4 controls 2a/2b,
-T7 controls 6/7, T8 controls 6/7), `open-questions.md` (+OQ-36, OQ-37;
-OQ-34/35 marked implemented), `docs/reality-check.md` (header note, A6, A13),
+T7 controls 6/7, T8 controls 6/7), `open-questions.md` (+OQ-36 deferred with
+its reopen condition, OQ-37 closed, OQ-34/35 marked implemented),
+`docs/reality-check.md` (header note, section F, A6, A13),
 `diagrams/01-turn-lifecycle.md` (CONFIRMING + SPEAKING semantics),
-`Alpha-ox-analysis.md` (fix-status table + corrections the execution found),
-`CLAUDE.md` (status, temptations table).
+`tech-stack.md` (selftest is 8 checks, not 7),
+`Alpha-ox-analysis.md` (fix-status table + the four corrections the execution
+found in the report itself), `CLAUDE.md` (status, temptations table, lessons).
+
+**Verification pass over the docs, at the end.** Every citation was checked
+mechanically against the tree, not by eye: 72 ADR ids, every `FR-*`, every
+cited test name (file or function), every module named in `architecture.md`,
+every `just` recipe, and **26 behavioural claims** asserted directly against
+source (does `_speak` really return `bool`? does `_expire_confirm` really not
+call `state.reset()`? is the chmod really before the pragma?). Two failures
+turned out to be artefacts of the checking script — but one of them exposed a
+real defect it was not looking for: `db.py`'s comment still stated the M-T2
+mechanism the session had **disproved**. Comments are documentation. Fixed.
+The sweep also closed **L25** (the selftest docstring listed 7 checks while 8
+ran) — a small lie in the one tool whose job is telling the truth about the
+system.
 
 ---
 
@@ -480,7 +533,7 @@ the three corrections recorded there.
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 390 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 395 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
@@ -490,33 +543,54 @@ Never two daemons. Never trust "Friday said it worked" — ask the system.
 pre-fix tree, then restore and fix. Two tests this session passed vacuously and
 were only caught that way.
 
-### THE REMAINING FIX LIST
+### THE REMAINING FIX LIST — reordered 2026-08-29 (H8 pulled to the front)
 
-**Step 7 — M-A1: guard the PortAudio callbacks.**
+> **Ordering decision, 2026-08-29.** The audit's plan had H8 at Step 11. Put to
+> the user; answer: **pull it forward to Step 7.** Reason: it is the only
+> remaining *disclosure* defect — a privacy invariant (#7) breaking on the
+> documented debug workflow — and everything else in this list is robustness.
+> It is also the workflow the live-voice pass will need, so leaving it last
+> means running the whole next session under a mitigation. The rest keep the
+> audit's order.
+
+**Step 7 (was 11) — H8: close the journald debug leak.** *Do this first.*
+`logging_config.py:121-138`: `NoDiskFilter` guards only the file handler, so
+`no_disk` records — raw transcripts — go to stderr freely, and under systemd
+stderr is journald, which persists to `/var/log/journal`. The documented debug
+workflow therefore violates invariant #7 every time it is used.
+Suppress `no_disk` records on stderr when running under journald
+(`JOURNAL_STREAM` env detect); log one warning at startup when DEBUG+journald.
+Test: enabling DEBUG creates no file AND `no_disk` records are dropped from any
+persistent sink (extends the FR-57a test). Then delete the "run debug in the
+foreground only" mitigation from `CLAUDE.md`, `threat-model.md` T7 control 7,
+and this block — a mitigation left in the docs after its fix is drift.
+
+**Step 8 (was 7) — M-A1: guard the PortAudio callbacks.**
 Wrap `_on_frame` bodies (`wake.py`, `capture.py`): count consecutive failures,
 degrade loudly past N (disable the detector + ERROR log with a taxonomy code),
 never let an exception escape into sounddevice — python-sounddevice prints to
 stderr and simply stops calling back, so wake/VAD/barge die while the service
 looks healthy. Test must prove the FAIL path (feed a non-10/20/30 ms frame ->
-detector disabled loudly, stream alive). Note the audit's correction: the
+detector disabled loudly, stream alive). Note the audit's own correction: the
 `capture.py` callback only gate-checks and copies, it does not touch ONNX/VAD —
 but it is equally unguarded, so wrap both.
 
-**Step 8 — M-T1 decision execution (ADR-067d).**
+**Step 9 (was 8) — M-T1 decision execution (ADR-067d).**
 Honor `spec.timeout_s`: non-GUI tools get `wait_for(timeout_s)` + process-group
 kill on expiry; GUI-launch tools keep the 0.4 s grace semantics (ADR-043). Fix
 the executor docstring, which currently claims a process-group kill that does
-not exist. The delete-or-honor decision is MADE — do not reopen. This also
-closes `threat-model.md` T8 control 3's "NOT yet enforced" marker and
-`architecture.md` §3's dead-config note.
+not exist. The delete-or-honor decision is MADE — do not reopen. Closes
+`threat-model.md` T8 control 3's "NOT yet enforced" marker and
+`architecture.md` §3's dead-config note. Fold in the launcher-failure-detection
+task from the 2026-08-25 plan; it lives on the same seam.
 
-**Step 9 — LLM client edges: M-L1 + M-L2.**
+**Step 10 (was 9) — LLM client edges: M-L1 + M-L2.**
 Catch bare `TimeoutError` -> `LlamaTimeout` (today it escapes `_plan`'s narrow
 handlers and crashes the turn, leaving TUI input disabled forever); catch
 `HTTPError` **before** `URLError` (it is a subclass), never retry code >= 400,
 and report a server error distinctly from unreachable.
 
-**Step 10 — make the cannot-fail checks able to fail: M-L3, M-L4, M-L9.**
+**Step 11 (was 10) — make the cannot-fail checks able to fail: M-L3, M-L4, M-L9.**
 `gpu_arch` WARN/FAIL on unparsable output; the socket-bind check flags any
 non-loopback local address including IPv6 + a `/proc/net/tcp6` fallback;
 `audio_devices` FAILs when device enumeration raises; `llm_on_gpu` stops
@@ -526,15 +600,8 @@ before opening the DB, so it can no longer pass by repairing what it measures);
 its "creates the DB it claims to verify" half is still open.
 Closes `threat-model.md` T6 control 4.
 
-**Step 11 — H8: close the journald debug leak.**
-Suppress `no_disk` records on stderr when running under journald
-(`JOURNAL_STREAM` env detect); log one warning at startup when DEBUG+journald.
-Test: enabling DEBUG creates no file AND `no_disk` records are dropped from any
-persistent sink (extends the FR-57a test). This is the last invariant-#7
-violation still live; `threat-model.md` T7 control 7 marks it NOT enforced.
-
 **Step 12 — dead-code sweep (one commit).**
-The audit's table, minus two items already retired this session (the
+The audit's table, minus two items already retired in Step 1/3 (the
 `PendingAction` F821 annotation is now a real import; the
 `habits.describe_action` web_search branch is reachable and tested — KEEP it).
 Remaining: `RiskTier` + its `import os`, the `NOT_YET_WIRED` branch (+ its
@@ -546,6 +613,14 @@ param, `preferences.source='user_typed'`, and `_Probe.reset()` in
 `scripts/wake_bench.py`. Run the full suite after; eval must stay 28/28.
 
 ### After Steps 7–12
+
+> **Sequencing decision, 2026-08-29.** Whether to verify the fixed-but-unverified
+> typed rows *before* Steps 7–12 was put to the user. Answer: **keep the plan** —
+> finish the code work in one arc, verify once at the end. The risk is
+> acknowledged and accepted: if a Step 1–6 fix is wrong, six more steps will
+> already be stacked on it. That is a deliberate trade for fewer context
+> switches, not an oversight.
+
 Then, in this order:
 1. **M-P2 / M-P3** — proactive speech bypasses the FSM entirely (concurrent
    unsynchronized `speaker.say`, and Friday can transcribe her own voice
@@ -557,21 +632,23 @@ Then, in this order:
    starts "successfully" and every press silently no-ops. This is the one hole
    left in spec.md §5.4's degraded-capability matrix.
 3. The rest of the MEDIUM/LOW tail, triaged in `Alpha-ox-analysis.md`.
-4. **The live-voice pass.** `docs/reality-check.md` is the manifest. Its header
-   now says which rows changed on 2026-08-29 and need a human at a keyboard:
-   every typed confirm row (C1's blast radius — fixed, but *never verified by a
-   person*), `clipboard_read`'s new confirm, `cancel_reminder` (which per
-   ADR-070 has never worked and is being exercised for the first time), and
-   "a barged reply does not enter history".
-5. ADR-066 live confirmation, OQ-33 threshold-from-data, OQ-32 AEC drill,
-   launcher failure detection (related to M-T1/H1 — fold into Step 8).
+4. **The live pass.** `docs/reality-check.md` is the manifest; its section F
+   lists exactly what changed on 2026-08-29 and has never been touched by a
+   human. Start with the typed rows (no mic needed, minutes of work): every
+   confirm row (C1's blast radius), `clipboard_read`'s new confirm,
+   `cancel_reminder` (which per ADR-070 has never worked at any point, so this
+   is its first real exercise), and "a barged reply does not enter history".
+   Then the live-voice rows outstanding since 2026-08-25.
+5. ADR-066 live confirmation, OQ-33 threshold-from-data, OQ-32 AEC drill.
 
-### Open questions raised this session (neither blocks anything)
-- **OQ-36** — refuse the wake trigger outright when there is no VAD? Waiting
-  for ADR-071's warning to fire in a real session before deciding.
-- **OQ-37** — should a DECLINED confirm write an audit row? Currently no
-  (FR-58 says one row per dispatch, and a decline is not one), but "Friday
-  proposed wifi-off and I said no" is arguably the more interesting event.
+### Open questions as of 2026-08-29
+- **OQ-36** — refuse the wake trigger outright when there is no VAD?
+  **Asked and deliberately deferred**: `webrtcvad` failing to load has never
+  been observed here, so refusing wake would design for a state with no
+  evidence. It stays open **until ADR-071's warning actually appears in a log**.
+  Do not re-litigate without that line.
+- **OQ-37** — CLOSED 2026-08-29 (ADR-072): declined confirms ARE audited, and
+  the fix landed the same day. See the session block above.
 
 ### Definition of done for this phase (applies to EVERY step)
 ```
