@@ -7,13 +7,13 @@
 -- No column exists for `thought`, raw prompts, raw audio, key events, or
 -- unredacted payloads. That is FR-57 enforced by schema, not by discipline.
 
-CREATE TABLE schema_version (version INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
 
 -- Preferences. `key` is a slug (ADR-035, [a-z0-9_]); `value_json` is the
 -- raw user value JSON-encoded. `expires_at` NULL = active; a soft-expire
 -- (ADR-036) sets it to a timestamp. `pinned` is inert under ADR-038 (kept
 -- so retention policy can change without a migration).
-CREATE TABLE preferences (
+CREATE TABLE IF NOT EXISTS preferences (
   key        TEXT PRIMARY KEY,
   value_json TEXT NOT NULL,
   source     TEXT NOT NULL CHECK (source IN ('user_confirmed','user_typed')),
@@ -25,7 +25,7 @@ CREATE TABLE preferences (
 
 -- One row per dispatch (FR-58). `args_redacted` has already had home paths
 -- stripped before it reaches here (FR-57 / obs redaction).
-CREATE TABLE action_audit (
+CREATE TABLE IF NOT EXISTS action_audit (
   request_id       TEXT PRIMARY KEY,
   tool_id          TEXT NOT NULL,
   args_redacted    TEXT NOT NULL,
@@ -34,12 +34,12 @@ CREATE TABLE action_audit (
   duration_ms      INTEGER NOT NULL,
   created_at       INTEGER NOT NULL
 );
-CREATE INDEX idx_audit_created ON action_audit(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON action_audit(created_at);
 
-CREATE TABLE session_summaries (
+CREATE TABLE IF NOT EXISTS session_summaries (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id  TEXT NOT NULL,
   summary     TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 );
-CREATE INDEX idx_summ_session ON session_summaries(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_summ_session ON session_summaries(session_id, created_at);

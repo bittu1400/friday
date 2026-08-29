@@ -1,6 +1,6 @@
 -- 002_reminders — proactive reminders and timers table (G11, ADR-056).
 
-CREATE TABLE reminders (
+CREATE TABLE IF NOT EXISTS reminders (
   id          TEXT PRIMARY KEY,
   created_at  REAL NOT NULL,
   fire_at     REAL NOT NULL,
@@ -8,4 +8,4 @@ CREATE TABLE reminders (
   message     TEXT NOT NULL,
   state       TEXT NOT NULL CHECK (state IN ('active', 'fired', 'cancelled'))
 );
-CREATE INDEX idx_reminders_fire_state ON reminders(fire_at, state);
+CREATE INDEX IF NOT EXISTS idx_reminders_fire_state ON reminders(fire_at, state);

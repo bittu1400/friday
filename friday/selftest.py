@@ -165,6 +165,18 @@ def check_gpu_arch() -> CheckResult:
         )
 
 
+def _wal_sidecars(db_path: Path) -> list[Path]:
+    """The `-wal`/`-shm` files that exist right now, if any."""
+    return [
+        p
+        for p in (
+            db_path.with_name(db_path.name + "-wal"),
+            db_path.with_name(db_path.name + "-shm"),
+        )
+        if p.exists()
+    ]
+
+
 def check_database(db_path: Path = config.MEMORY_DB) -> CheckResult:
     """Verify database existence, permissions (0700 dir, 0600 file), and schema version."""
     state_dir = db_path.parent
@@ -184,6 +196,26 @@ def check_database(db_path: Path = config.MEMORY_DB) -> CheckResult:
             f"State directory mode is {oct(dir_mode)}, expected 0700 (FR-50)",
         )
 
+    # Perms are checked BEFORE the database is opened, because opening it
+    # repairs them (`Database._secure_sidecars`). Checking afterwards would
+    # report the state this function just created — a check that cannot fail,
+    # the exact pattern `gpu_arch` was caught in. Report what is on disk; the
+    # daemon repairs it at runtime.
+    #
+    # The sidecars matter as much as the main file: the WAL holds preferences,
+    # notes and reminder text in flight, and only the main file was checked
+    # before (M-T2).
+    for path in (db_path, *_wal_sidecars(db_path)):
+        if not path.exists():
+            continue
+        file_mode = path.stat().st_mode & 0o777
+        if file_mode != 0o600:
+            return CheckResult(
+                "database",
+                Status.FAIL,
+                f"{path.name} mode is {oct(file_mode)}, expected 0600 (FR-50)",
+            )
+
     # Initialize/open DB to verify migrations and WAL mode
     try:
         db = Database(db_path)
@@ -196,14 +228,15 @@ def check_database(db_path: Path = config.MEMORY_DB) -> CheckResult:
             f"Failed opening SQLite database: {exc}",
         )
 
-    # Check file permissions (0600)
-    file_mode = db_path.stat().st_mode & 0o777
-    if file_mode != 0o600:
-        return CheckResult(
-            "database",
-            Status.FAIL,
-            f"Database file mode is {oct(file_mode)}, expected 0600 (FR-50)",
-        )
+    # A DB this check just created still has to come out at 0600.
+    for path in (db_path, *_wal_sidecars(db_path)):
+        file_mode = path.stat().st_mode & 0o777
+        if file_mode != 0o600:
+            return CheckResult(
+                "database",
+                Status.FAIL,
+                f"{path.name} mode is {oct(file_mode)}, expected 0600 (FR-50)",
+            )
 
     if version < 1:
         return CheckResult(

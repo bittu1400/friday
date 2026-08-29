@@ -74,11 +74,29 @@ class AuditLog:
 
 
 def sweep_retention(db: Database, *, retention_days: int = 90) -> int:
-    """Purge audit rows and session summaries older than the cutoff (ADR-038).
-    Preferences are never touched. Returns rows deleted."""
+    """Purge machine exhaust older than the cutoff (ADR-038, ADR-068b).
+
+    Swept: audit rows, session summaries, and reminders in a TERMINAL state
+    (`fired`/`cancelled`) — once a timer has gone off it is of no further
+    interest, and M-T9 found `reminders` growing without bound on a long-lived
+    install.
+
+    Never swept, at any age: preferences, notes, and **active** reminders.
+    Notes and preferences are content the user authored and expects to still be
+    there; an active reminder has not happened yet. Deleting either would be
+    the "spoke success while doing nothing" failure aimed at the user's own
+    data. Returns rows deleted.
+    """
     cutoff = int(time.time()) - retention_days * 86400
     deleted = db.write("DELETE FROM action_audit WHERE created_at < ?", (cutoff,))
     deleted += db.write(
         "DELETE FROM session_summaries WHERE created_at < ?", (cutoff,)
+    )
+    # `reminders.created_at` is a REAL epoch (DST-immune, ADR-056), not the
+    # INTEGER the other two tables use; the comparison is numeric either way.
+    deleted += db.write(
+        "DELETE FROM reminders WHERE state IN ('fired', 'cancelled') "
+        "AND created_at < ?",
+        (cutoff,),
     )
     return deleted

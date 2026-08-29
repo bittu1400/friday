@@ -23,6 +23,29 @@ from pathlib import Path
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
+def _split_statements(script: str) -> list[str]:
+    """Split a migration script into individual statements.
+
+    `sqlite3.executescript` cannot be used inside a transaction — it issues an
+    implicit COMMIT first — so the statements are executed one at a time
+    instead (M-T3). Splitting uses `sqlite3.complete_statement`, which
+    understands semicolons inside string literals, rather than a naive
+    `split(";")`.
+    """
+    out: list[str] = []
+    buf = ""
+    for line in script.splitlines(keepends=True):
+        buf += line
+        if sqlite3.complete_statement(buf):
+            stmt = buf.strip()
+            buf = ""
+            if stmt and stmt != ";":
+                out.append(stmt)
+    if buf.strip():  # a trailing statement with no terminating semicolon
+        out.append(buf.strip())
+    return out
+
+
 def _load_migrations() -> list[tuple[int, str]]:
     """Every `NNN_*.sql` file, as (version, sql), ascending. Forward-only:
     the number in the filename is the schema version it brings the DB to."""
@@ -51,12 +74,29 @@ class Database:
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
+        # Lock the file down IMMEDIATELY after connect, before any pragma
+        # (M-T2). `journal_mode=WAL` creates `-wal` and `-shm` sidecars, and
+        # SQLite creates them with the same permissions it sees on the main
+        # database — so under a permissive umask, chmod-ing afterwards left the
+        # WAL (preferences, notes, reminder text in flight) world-readable.
+        path.chmod(0o600)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA foreign_keys=ON")
-        # The file exists now; lock it down.
-        path.chmod(0o600)
+        # The sidecars now exist. SQLite should have inherited 0600 from the
+        # main file above; assert it rather than assume, and repair if not.
+        self._secure_sidecars()
         self._migrate()
+
+    def _secure_sidecars(self) -> None:
+        """Force 0600 on the `-wal`/`-shm` files if they exist (FR-50)."""
+        for suffix in ("-wal", "-shm"):
+            side = self._path.with_name(self._path.name + suffix)
+            try:
+                if side.exists():
+                    side.chmod(0o600)
+            except OSError:  # fail soft: a perms repair must not stop startup
+                pass
 
     # -- schema ------------------------------------------------------------
 
@@ -70,18 +110,38 @@ class Database:
         return int(v["v"]) if v and v["v"] is not None else 0
 
     def _migrate(self) -> None:
+        """Apply pending migrations, each atomically with its version row.
+
+        M-T3: this used to run `executescript(sql)` and then INSERT the version
+        as a separate transaction. `executescript` issues an implicit COMMIT
+        before it runs and commits its own work, so a crash between the two
+        left the tables created and the version unrecorded. `Restart=always`
+        then brought the daemon straight back, it re-ran `CREATE TABLE` against
+        tables that already existed, and died on OperationalError — forever.
+
+        So the script is split into statements and driven inside ONE explicit
+        transaction together with the version bump: schema and counter move
+        together or not at all. The DDL also carries IF NOT EXISTS as a second
+        belt, in case a future migration is ever applied outside this path.
+        """
         with self._lock:
             have = self._current_version()
             for version, sql in _load_migrations():
                 if version <= have:
                     continue
-                self._conn.executescript(sql)
-                # Version row written in code, not in the .sql, so the schema
-                # file stays pure DDL and the counter cannot drift from it.
-                self._conn.execute(
-                    "INSERT INTO schema_version(version) VALUES(?)", (version,)
-                )
-                self._conn.commit()
+                try:
+                    self._conn.execute("BEGIN")
+                    for stmt in _split_statements(sql):
+                        self._conn.execute(stmt)
+                    # Version row written in code, not in the .sql, so the
+                    # schema file stays pure DDL and the counter cannot drift.
+                    self._conn.execute(
+                        "INSERT INTO schema_version(version) VALUES(?)", (version,)
+                    )
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
 
     @property
     def version(self) -> int:
