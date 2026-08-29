@@ -13,13 +13,13 @@ Rules:
    this is a single-machine project. Paste it.
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
-**2026-08-26 audit fix phase is PAST HALF — Steps 1–10 of 12 executed
+**2026-08-26 audit fix phase is PAST HALF — Steps 1–11 of 12 executed
 2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
 registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **437 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **449 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -34,7 +34,7 @@ wrong-reminder cancel (H7, which turned out to be an unreachable code path —
 `/var/log/journal`). Plus M-A1, M-T1, M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION continues with Steps 11–12** — see the `>>> START HERE <<<` block
+**NEXT SESSION continues with Step 12** — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
 is now the fastest map of what is fixed and what is not. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
@@ -205,6 +205,63 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (night) — FIX PHASE, Step 11 of 12: making the checks able to fail (M-L3, M-L4, M-L9)
+
+`gpu_arch` reported PASS through an entire GPU outage. That is this step's whole
+subject: five checks that could not report the thing they exist to report.
+
+### What changed
+- **`gpu_arch` (M-L3)** returned **PASS** when it could not parse nvidia-smi's
+  compute capability. "I could not read the answer" is not "the answer was
+  yes." Now WARN, with the unparsed line quoted.
+- **`socket_binds` (M-L4)** matched the literal strings `0.0.0.0:` / `*:` /
+  `[::]:`, so a bind to this laptop's **LAN address** — the actual invariant-#8
+  violation, reachable from another machine — passed the audit that exists to
+  catch it. And its fallback read `/proc/net/tcp` only, so an IPv6 bind was
+  invisible whenever `ss` was missing, which is exactly the degraded state the
+  fallback is for. Now the local address is decoded and asserted
+  `ipaddress.is_loopback`, `tcp6` is read (four little-endian words), and an
+  address the parser cannot decode **counts as a violation**. If neither `ss`
+  nor `/proc/net` answers, the result is WARN "invariant #8 is UNVERIFIED on
+  this run" instead of the PASS it used to return.
+  Header-skipping is now structural, not positional: a line is ignored because
+  its fields do not parse, never because it is line 0. A check that must fail
+  closed cannot assume the header is exactly one line.
+- **`audio_devices` (M-L9)** WARNed when device enumeration raised. PortAudio
+  failing to enumerate means the mic AND the speaker are gone; "warning" is the
+  wrong word for an assistant that can no longer hear or speak. FAIL now, with
+  `ImportError` kept as a WARN (text mode still works).
+- **`llm_on_gpu` (M-L9)** softened any surprise to WARN — in the one check that
+  caught the silent CPU-fallback outage. FAIL now.
+- **`check_database` (M-L9, the half left open in Step 6)** opened the database
+  to read its schema version, and `Database(path)` **creates** a missing one. So
+  it conjured the file and then reported PASS on it. It now FAILs on a missing
+  database and creates nothing.
+
+### Tests — each drives a FAIL path, all verified failing pre-fix
+`tests/test_selftest_fail_paths.py`, 12 tests: **11 failed** against the stashed
+tree. The bind parsing is exercised directly through `_ss_violations` and
+`_proc_net_violations` with real `/proc/net` hex (IPv6 wildcard, IPv6 loopback
+`…01000000`, IPv4 loopback `0100007F`, and a garbage address that must be
+treated as a violation).
+
+One existing test changed: `test_check_socket_binds_wildcard_fails` asserted the
+old message string. Its scenario still fails, as it must.
+
+### Gate
+```
+uv run pytest -q          -> 449 passed  (437 -> 449, +12)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+just test-injection       -> 20/20 blocked
+just selftest             -> [PASSED] all 8 checks, on the real machine, after the change
+```
+
+Docs: `spec.md` FR-63a, `threat-model.md` **T6 control 4 closed** (its "known
+holes" note is now a record of what was fixed), the `selftest.py` module
+docstring, `Alpha-ox-analysis.md`, `CLAUDE.md`, this file.
 
 ---
 
@@ -915,23 +972,23 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 11–12) <<<
+## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Step 12) <<<
 
-**Steps 1–10 are DONE** (see the 2026-08-29 session blocks just above for what
+**Steps 1–11 are DONE** (see the 2026-08-29 session blocks just above for what
 changed and why). **OQ-38 (both Hyprland tools broken since the 0.56
 upgrade) was raised and closed the same day — ADR-074; `hypr_workspace` is
-verified live, `hypr_window` still needs a hand-tick in reality-check §A10.** Steps 11–12 are unchanged from the 2026-08-26 plan except
+verified live, `hypr_window` still needs a hand-tick in reality-check §A10.** Step 12 is unchanged from the 2026-08-26 plan except
 where this block says otherwise. Read the fix-status table at the bottom of
 `Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
 what is not. Do **not** re-audit; the findings are still accurate apart from
 the three corrections recorded there.
 
-**No feature work and no Phase 3 until Steps 11–12 are done.**
+**No feature work and no Phase 3 until Step 12 is done.**
 
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 437 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 449 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
@@ -941,7 +998,7 @@ Never two daemons. Never trust "Friday said it worked" — ask the system.
 pre-fix tree, then restore and fix. Two tests this session passed vacuously and
 were only caught that way.
 
-### THE REMAINING FIX LIST — Steps 11–12 (audit order, H8 already taken)
+### THE REMAINING FIX LIST — Step 12 (audit order, H8 already taken)
 
 > **Ordering decision, 2026-08-29 — now spent.** The audit's plan had H8 at
 > Step 11. Put to the user; answer: pull it forward to Step 7, because it was
@@ -983,15 +1040,12 @@ status is now `LlamaServerError`, never retried, subclassing `LlamaUnreachable`
 so callers and the spoken template are unchanged. `health()` no longer raises
 on a timeout.
 
-**Step 11 (was 10) — make the cannot-fail checks able to fail: M-L3, M-L4, M-L9.**
-`gpu_arch` WARN/FAIL on unparsable output; the socket-bind check flags any
-non-loopback local address including IPv6 + a `/proc/net/tcp6` fallback;
-`audio_devices` FAILs when device enumeration raises; `llm_on_gpu` stops
-downgrading surprises to WARN. Each new FAIL path gets a test that proves it
-fails. **Partly started:** `check_database` was fixed in Step 6 (it reads perms
-before opening the DB, so it can no longer pass by repairing what it measures);
-its "creates the DB it claims to verify" half is still open.
-Closes `threat-model.md` T6 control 4.
+**Step 11 (was 10) — make the cannot-fail checks able to fail. DONE 2026-08-29.**
+`gpu_arch` WARNs on unparsable output; the bind audit decodes the local address
+and flags ANY non-loopback bind across `ss` + `/proc/net/tcp` + `tcp6`, failing
+closed on anything it cannot decode; `audio_devices` and `llm_on_gpu` FAIL where
+they used to WARN; `check_database` no longer creates the database it verifies.
+Twelve FAIL-path tests. Closes `threat-model.md` T6 control 4.
 
 **Step 12 — dead-code sweep (one commit).**
 The audit's table, minus two items already retired in Step 1/3 (the

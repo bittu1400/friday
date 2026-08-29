@@ -376,7 +376,7 @@ no fix step reordered.
 
 ---
 
-## Fix status — updated 2026-08-29 (Steps 1–10 executed)
+## Fix status — updated 2026-08-29 (Steps 1–11 executed)
 
 This report is a snapshot of 2026-08-26 and is **not** rewritten as fixes land.
 Use this table for what is done; use `progress.md`'s START HERE block for what
@@ -407,7 +407,10 @@ before its fix.
 | M-T1 `timeout_s` dead config + false process-group-kill docstring | FIXED — `ToolSpec.detach` splits launch from command; commands are bounded + group-killed + exit-code judged, launches keep ADR-043 and stop saying "Opened" | `tests/test_executor_timeout.py`, ADR-073 |
 | M-L1 bare read timeout escapes the turn | FIXED — `except TimeoutError` first; `health()` too | `tests/test_llm_client_edges.py` |
 | M-L2 server 500 retried and misclassified | FIXED — `HTTPError` before `URLError`, never retried, `LlamaServerError` | `test_a_server_error_is_not_retried` |
-| M-L3..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 11–12 and the triage tail | progress.md |
+| M-L3 `gpu_arch` PASSes on garbage | FIXED — WARN, with the unparsed line quoted | `tests/test_selftest_fail_paths.py` |
+| M-L4 bind audit misses LAN IPs and tcp6 | FIXED — address decoded and asserted loopback; `tcp6` read; unparsable = violation | same file; threat-model T6 control 4 |
+| M-L9 checks that cannot fail | FIXED — `audio_devices` and `llm_on_gpu` FAIL not WARN; `check_database` stops creating the DB it verifies | same file |
+| M-L5..L8, M-L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Step 12 and the triage tail | progress.md |
 
 **Status line, 2026-08-29 (Step 9):** the CRITICAL and **all eight HIGHs** are
 closed. Everything still open is MEDIUM or LOW, and none of it is a disclosure

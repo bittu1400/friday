@@ -150,7 +150,7 @@ def test_check_socket_binds_wildcard_fails():
     ):
         res = check_socket_binds()
         assert res.status is Status.FAIL
-        assert "Wildcard bind detected" in res.message
+        assert "Non-loopback bind" in res.message
 
 
 def test_run_selftest_overall(capsys):

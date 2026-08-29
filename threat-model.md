@@ -207,13 +207,16 @@ unauthenticated endpoint to a model wired to a local action executor.
 2. Startup self-test runs `ss -ltnp` and refuses to start if any Friday
    port is bound beyond loopback. — `friday --selftest`
 3. No reverse proxy, ever, without a new ADR.
-4. **Known holes found by the 2026-08-26 audit** (`Alpha-ox-analysis.md`
-   M-L4; fix is Step 10 of the plan in progress.md): control 2's check flags
-   only wildcard literals — a bind to a specific LAN IP passes it — and its
-   fallback reads `/proc/net/tcp` only, so an IPv6 wildcard (`tcp6`) bind
-   also passes. Invariant #8 itself holds in the code today; this is a check
-   that cannot catch every violation of it. Treat control 2 as incomplete
-   until Step 10 lands (tcp6 fallback + non-loopback local-address detection).
+4. **Control 2's holes are closed** (`Alpha-ox-analysis.md` M-L4; landed
+   2026-08-29, Step 11). It used to match wildcard *literals* only, so a bind
+   to this laptop's LAN address passed the audit that exists to catch exactly
+   that, and its fallback read `/proc/net/tcp` alone, so an IPv6 (`tcp6`) bind
+   was invisible. Now the local address is parsed and asserted
+   `ipaddress.is_loopback`, both `/proc/net/tcp` and `tcp6` are read, and an
+   address the parser cannot decode counts as a violation — the check fails
+   closed, since it exists for the degraded states. If neither `ss` nor
+   `/proc/net` answers, the result is WARN "invariant #8 is UNVERIFIED on this
+   run" rather than the PASS it used to return.
 
 ---
 

@@ -13,7 +13,15 @@ Performs full-system sanity and health verification (architecture.md §7, friday
      repair could never fail.
   6. Audio subsystem (input mic & output playback devices available)
   7. Panic switch status (~/.local/state/friday/DISABLED)
-  8. Loopback socket bind audit (asserts no 0.0.0.0 or wildcard bindings on 8080/8888)
+  8. Loopback socket bind audit: ANY non-loopback bind on 8080/8888 fails, not
+     just wildcard literals, across `ss` and both `/proc/net/tcp` and `tcp6`.
+
+Every check must be able to FAIL (M-L3/L4/L9, 2026-08-29). `gpu_arch` returned
+PASS on output it could not parse — and PASSed through a whole GPU outage;
+`audio_devices` and `llm_on_gpu` returned WARN for "I could not tell", which is
+not the same as "probably fine"; `check_database` opened the database to read
+its version, which CREATED a missing one, then reported PASS on the file it had
+just conjured. A check that cannot fail is worthless.
 
 Eight checks, and this list says eight: it listed seven while eight ran until
 2026-08-29 (audit L25). A docstring that miscounts the checks is a small lie
@@ -28,7 +36,9 @@ from enum import Enum
 import json
 import os
 from pathlib import Path
+import ipaddress
 import shutil
+import struct
 import stat
 import subprocess
 import sys
@@ -166,7 +176,15 @@ def check_gpu_arch() -> CheckResult:
                 details="Expected sm_120 / Blackwell architecture",
             )
         except ValueError:
-            return CheckResult("gpu_arch", Status.PASS, gpu_info)
+            # M-L3: this used to return PASS. "I could not read the answer" is
+            # not "the answer was yes" — and this is the check that reported
+            # PASS through an entire GPU outage on 2026-08-25.
+            return CheckResult(
+                "gpu_arch",
+                Status.WARN,
+                f"could not parse compute capability from nvidia-smi: {gpu_info!r}",
+                details="Expected `<name>, <compute_cap>` — the architecture is UNVERIFIED",
+            )
     except Exception as exc:
         return CheckResult(
             "gpu_arch",
@@ -204,6 +222,16 @@ def check_database(db_path: Path = config.MEMORY_DB) -> CheckResult:
             "database",
             Status.FAIL,
             f"State directory mode is {oct(dir_mode)}, expected 0700 (FR-50)",
+        )
+
+    if not db_path.exists():
+        # M-L9: `Database(db_path)` CREATES a missing database, so this check
+        # used to conjure the file and then report PASS on it — a check that
+        # cannot fail. The daemon creates the DB; this one only inspects.
+        return CheckResult(
+            "database",
+            Status.FAIL,
+            f"No database at {db_path} (run the daemon once to create it)",
         )
 
     # Perms are checked BEFORE the database is opened, because opening it
@@ -287,11 +315,22 @@ def check_audio_devices() -> CheckResult:
             Status.PASS,
             f"Input: {in_name} | Output: {out_name}",
         )
-    except Exception as exc:
+    except ImportError as exc:
         return CheckResult(
             "audio_devices",
             Status.WARN,
-            f"Audio query error: {exc}",
+            f"sounddevice not installed: {exc}",
+            details="Text mode still works; voice does not",
+        )
+    except Exception as exc:
+        # M-L9: this was WARN. Enumeration raising means PortAudio is broken —
+        # the mic and the speaker are both gone, and a "warning" is the wrong
+        # word for an assistant that can no longer hear or speak.
+        return CheckResult(
+            "audio_devices",
+            Status.FAIL,
+            f"Audio device enumeration failed: {exc}",
+            details="Voice in AND out are unavailable — PortAudio cannot enumerate devices",
         )
 
 
@@ -315,9 +354,88 @@ def check_panic_switch() -> CheckResult:
     )
 
 
+_FRIDAY_PORTS: tuple[int, ...] = (8080, 8888)
+
+
+def _is_loopback(host: str) -> bool:
+    """True only for an address that cannot be reached from another machine.
+
+    Fails CLOSED: anything unparsable (`*`, an empty field, garbage) is NOT
+    loopback. Invariant #8's check exists for the degraded states, so it may
+    not give an address the benefit of the doubt.
+    """
+    h = host.strip().strip("[]")
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def _ss_violations(stdout: str) -> list[str]:
+    """Lines from `ss -ltn` that listen on a Friday port off loopback.
+
+    M-L4: this used to match the literal strings `0.0.0.0:`/`*:`/`[::]:` only,
+    so a bind to this laptop's LAN address (192.168.x.y:8080) passed the audit
+    that exists precisely to catch it.
+    """
+    out: list[str] = []
+    # Every line is parsed, header included: it is skipped because its 4th
+    # field ("Local") has no `:port`, not because of its position. A check that
+    # must fail closed cannot assume the header is exactly one line.
+    for line in stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        host, _, port = parts[3].rpartition(":")
+        if not port.isdigit() or int(port) not in _FRIDAY_PORTS:
+            continue
+        if not _is_loopback(host):
+            out.append(line.strip())
+    return out
+
+
+def _hex_to_ip(ip_hex: str) -> str:
+    """Decode a /proc/net/tcp{,6} local address. Empty string if unrecognised."""
+    try:
+        if len(ip_hex) == 8:  # IPv4, one little-endian word
+            return str(ipaddress.IPv4Address(struct.unpack("<I", bytes.fromhex(ip_hex))[0]))
+        if len(ip_hex) == 32:  # IPv6, four little-endian words
+            raw = b"".join(
+                struct.pack(">I", struct.unpack("<I", bytes.fromhex(ip_hex[i : i + 8]))[0])
+                for i in range(0, 32, 8)
+            )
+            return str(ipaddress.IPv6Address(raw))
+    except (ValueError, struct.error):
+        return ""
+    return ""
+
+
+def _proc_net_violations(text: str) -> list[str]:
+    """Listening Friday-port sockets in /proc/net/tcp or tcp6 that are not
+    loopback. `tcp6` was never read at all before (M-L4)."""
+    out: list[str] = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or parts[3] != "0A":  # 0A == TCP_LISTEN (skips the header)
+            continue
+        ip_hex, _, port_hex = parts[1].partition(":")
+        try:
+            port = int(port_hex, 16)
+        except ValueError:
+            continue
+        if port not in _FRIDAY_PORTS:
+            continue
+        ip = _hex_to_ip(ip_hex)
+        if not _is_loopback(ip):  # "" (unparsable) lands here too, on purpose
+            out.append(f"{ip or ip_hex}:{port}")
+    return out
+
+
 def check_socket_binds() -> CheckResult:
-    """Audit listening TCP sockets to assert no 0.0.0.0 wildcard binds on 8080/8888 (Invariant #8)."""
-    # 1. Try ss -ltn
+    """Assert nothing listens on 8080/8888 off loopback (invariant #8, T6).
+
+    Not just wildcards: ANY address another machine could reach is a violation.
+    """
     if shutil.which("ss") is not None:
         try:
             proc = subprocess.run(
@@ -327,51 +445,51 @@ def check_socket_binds() -> CheckResult:
                 timeout=3.0,
                 check=True,
             )
-            for line in proc.stdout.splitlines():
-                if ":8080" in line or ":8888" in line:
-                    if "0.0.0.0:8080" in line or "0.0.0.0:8888" in line or "*:8080" in line or "*:8888" in line or "[::]:8080" in line or "[::]:8888" in line:
-                        return CheckResult(
-                            "socket_binds",
-                            Status.FAIL,
-                            f"Wildcard bind detected on Friday port: {line.strip()}",
-                            details="Invariant #8 violated: services must bind to 127.0.0.1 loopback only",
-                        )
+            bad = _ss_violations(proc.stdout)
+            if bad:
+                return CheckResult(
+                    "socket_binds",
+                    Status.FAIL,
+                    f"Non-loopback bind on a Friday port: {bad[0]}",
+                    details="Invariant #8 violated: services must bind to 127.0.0.1 only",
+                )
             return CheckResult(
                 "socket_binds",
                 Status.PASS,
                 "Services bound to 127.0.0.1 loopback only (no 0.0.0.0 / wildcard listeners)",
             )
         except Exception:
-            pass
+            pass  # fall through to /proc
 
-    # 2. Fallback to /proc/net/tcp inspection
     try:
-        proc_tcp = Path("/proc/net/tcp")
-        if proc_tcp.exists():
-            lines = proc_tcp.read_text().splitlines()[1:]
-            for line in lines:
-                parts = line.strip().split()
-                if len(parts) >= 4:
-                    local_addr, st = parts[1], parts[3]
-                    if st == "0A":  # TCP_LISTEN
-                        ip_hex, port_hex = local_addr.split(":")
-                        port = int(port_hex, 16)
-                        if port in (8080, 8888):
-                            if ip_hex == "00000000":
-                                return CheckResult(
-                                    "socket_binds",
-                                    Status.FAIL,
-                                    f"Wildcard 0.0.0.0 bind detected on port {port}",
-                                )
+        seen_any = False
+        for name in ("/proc/net/tcp", "/proc/net/tcp6"):
+            path = Path(name)
+            if not path.exists():
+                continue
+            seen_any = True
+            bad = _proc_net_violations(path.read_text())
+            if bad:
+                return CheckResult(
+                    "socket_binds",
+                    Status.FAIL,
+                    f"Non-loopback bind on a Friday port: {bad[0]} (from {name})",
+                    details="Invariant #8 violated: services must bind to 127.0.0.1 only",
+                )
+        if seen_any:
             return CheckResult(
-                "socket_binds",
-                Status.PASS,
-                "Ports 8080/8888 bound strictly to loopback",
+                "socket_binds", Status.PASS, "Ports 8080/8888 bound strictly to loopback"
             )
     except Exception as exc:
         return CheckResult("socket_binds", Status.WARN, f"Socket audit check error: {exc}")
 
-    return CheckResult("socket_binds", Status.PASS, "Loopback binding verified")
+    # Neither `ss` nor /proc/net answered. That is not evidence of compliance.
+    return CheckResult(
+        "socket_binds",
+        Status.WARN,
+        "Could not audit listening sockets (no `ss`, no /proc/net/tcp)",
+        details="Invariant #8 is UNVERIFIED on this run",
+    )
 
 
 def check_llm_on_gpu() -> CheckResult:
@@ -424,7 +542,14 @@ def check_llm_on_gpu() -> CheckResult:
             ),
         )
     except Exception as exc:
-        return CheckResult("llm_on_gpu", Status.WARN, f"could not verify GPU offload: {exc}")
+        # M-L9: WARN here softened the ONE check that caught the silent
+        # CPU-fallback outage. "I could not tell" is not "probably fine".
+        return CheckResult(
+            "llm_on_gpu",
+            Status.FAIL,
+            f"could not verify GPU offload: {exc}",
+            details="Unverified means unusable: every latency budget assumes the GPU",
+        )
 
 
 def run_all_checks() -> list[CheckResult]:
