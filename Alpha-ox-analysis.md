@@ -376,7 +376,7 @@ no fix step reordered.
 
 ---
 
-## Fix status — updated 2026-08-29 (Steps 1–9 executed)
+## Fix status — updated 2026-08-29 (Steps 1–10 executed)
 
 This report is a snapshot of 2026-08-26 and is **not** rewritten as fixes land.
 Use this table for what is done; use `progress.md`'s START HERE block for what
@@ -405,7 +405,9 @@ before its fix.
 | *(not a finding)* declined confirms unaudited | CHANGED by decision, not defect — ADR-072 answers OQ-37: a decline now writes a `declined` row | `tests/test_audit_contract.py` |
 | M-A1 unguarded PortAudio callbacks | FIXED — one shared `CallbackGuard`; consecutive-failure count, `E_AUDIO_DEAD` at ERROR, wake detector disabled, capture degraded-but-alive | `tests/test_callback_guard.py`, spec FR-6a |
 | M-T1 `timeout_s` dead config + false process-group-kill docstring | FIXED — `ToolSpec.detach` splits launch from command; commands are bounded + group-killed + exit-code judged, launches keep ADR-043 and stop saying "Opened" | `tests/test_executor_timeout.py`, ADR-073 |
-| M-L1..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 10–12 and the triage tail | progress.md |
+| M-L1 bare read timeout escapes the turn | FIXED — `except TimeoutError` first; `health()` too | `tests/test_llm_client_edges.py` |
+| M-L2 server 500 retried and misclassified | FIXED — `HTTPError` before `URLError`, never retried, `LlamaServerError` | `test_a_server_error_is_not_retried` |
+| M-L3..L4, M-L5..L10, M-P2..P4, M-A4..A8, all LOWs | **OPEN** — Steps 11–12 and the triage tail | progress.md |
 
 **Status line, 2026-08-29 (Step 9):** the CRITICAL and **all eight HIGHs** are
 closed. Everything still open is MEDIUM or LOW, and none of it is a disclosure

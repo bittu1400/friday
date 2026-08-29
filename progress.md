@@ -13,13 +13,13 @@ Rules:
    this is a single-machine project. Paste it.
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
-**2026-08-26 audit fix phase is PAST HALF — Steps 1–9 of 12 executed
+**2026-08-26 audit fix phase is PAST HALF — Steps 1–10 of 12 executed
 2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
 registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **429 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **437 passed**, `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -34,7 +34,7 @@ wrong-reminder cancel (H7, which turned out to be an unreachable code path —
 `/var/log/journal`). Plus M-A1, M-T1, M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION continues with Steps 10–12** — see the `>>> START HERE <<<` block
+**NEXT SESSION continues with Steps 11–12** — see the `>>> START HERE <<<` block
 below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
 is now the fastest map of what is fixed and what is not. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
@@ -205,6 +205,47 @@ active active active
 Docs written the same turn: ADR-068, OQ-34/OQ-35 moved to Closed, spec FR-59
 amended, `docs/reality-check.md` A13 row + a new unticked check. **No code
 changed yet.**
+
+---
+
+## SESSION 2026-08-29 (night) — FIX PHASE, Step 10 of 12: the LLM client's error shapes (M-L1, M-L2)
+
+Both defects lived on the error path of one `try`, which no fixture drove: every
+test in the suite either talks to a healthy llama-server or does not talk to one
+at all.
+
+### What was wrong, measured against the pre-fix tree
+```
+PRE-FIX 500          -> LlamaUnreachable, urlopen called 3x (retried a server that ANSWERED)
+PRE-FIX read timeout -> TimeoutError ESCAPED (crashes the turn)
+```
+
+- **M-L1.** A slow generation can raise `TimeoutError` **bare** — notably from
+  `resp.read()`, where the connect already succeeded. It matched no handler in
+  the client and none in `turn._plan`, so it escaped the turn entirely and left
+  the TUI's input disabled for the rest of the session.
+- **M-L2.** `urllib.error.HTTPError` **subclasses** `URLError`, so a 500 fell
+  into the connect-retry branch: three generations against a server that
+  answered, contradicting the module's own "retry ONLY on connect", and then
+  reported as unreachable when it plainly was not.
+
+### The fix
+`except TimeoutError` first, then `except HTTPError`, then `URLError` — order is
+the whole fix for M-L2. A status becomes `LlamaServerError(status)`, never
+retried. It **subclasses `LlamaUnreachable`** so every existing handler keeps
+working and the user still hears "My brain's offline." (the outcome is the same
+for them), while the log can tell "nothing is listening" from "llama-server is
+up and returning 500" — different things to go fix. `health()` also catches
+`TimeoutError`: a health check that raises is worse than one that returns False,
+because `selftest` would report a crash instead of an unhealthy server.
+
+### Gate
+```
+uv run pytest -q          -> 437 passed  (429 -> 437, +8)
+just eval                 -> 28/28 (100%), known-failing 0, regressions vs baseline 0
+```
+
+Docs: `spec.md` FR-42a, `Alpha-ox-analysis.md`, `CLAUDE.md`, this file.
 
 ---
 
@@ -874,23 +915,23 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 10–12) <<<
+## >>> START HERE: NEXT SESSION (updated 2026-08-29 — FIX PHASE, Steps 11–12) <<<
 
-**Steps 1–9 are DONE** (see the four 2026-08-29 session blocks just above for
-what changed and why). **OQ-38 (both Hyprland tools broken since the 0.56
+**Steps 1–10 are DONE** (see the 2026-08-29 session blocks just above for what
+changed and why). **OQ-38 (both Hyprland tools broken since the 0.56
 upgrade) was raised and closed the same day — ADR-074; `hypr_workspace` is
-verified live, `hypr_window` still needs a hand-tick in reality-check §A10.** Steps 10–12 are unchanged from the 2026-08-26 plan except
+verified live, `hypr_window` still needs a hand-tick in reality-check §A10.** Steps 11–12 are unchanged from the 2026-08-26 plan except
 where this block says otherwise. Read the fix-status table at the bottom of
 `Alpha-ox-analysis.md` first — it is now the fastest map of what is fixed and
 what is not. Do **not** re-audit; the findings are still accurate apart from
 the three corrections recorded there.
 
-**No feature work and no Phase 3 until Steps 10–12 are done.**
+**No feature work and no Phase 3 until Steps 11–12 are done.**
 
 ### First commands, in order
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 429 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 437 passed, 28/28 reg 0 — the baseline you must not drop
 ```
 Voice testing rule unchanged: `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`.
 Never two daemons. Never trust "Friday said it worked" — ask the system.
@@ -900,7 +941,7 @@ Never two daemons. Never trust "Friday said it worked" — ask the system.
 pre-fix tree, then restore and fix. Two tests this session passed vacuously and
 were only caught that way.
 
-### THE REMAINING FIX LIST — Steps 10–12 (audit order, H8 already taken)
+### THE REMAINING FIX LIST — Steps 11–12 (audit order, H8 already taken)
 
 > **Ordering decision, 2026-08-29 — now spent.** The audit's plan had H8 at
 > Step 11. Put to the user; answer: pull it forward to Step 7, because it was
@@ -934,11 +975,13 @@ volume up."). The launcher-failure-detection task from the 2026-08-25 plan is
 closed by that wording decision. **Its real-path run raised OQ-38: both
 Hyprland tools were broken and always had been — closed the same day, ADR-074.**
 
-**Step 10 (was 9) — LLM client edges: M-L1 + M-L2.**
-Catch bare `TimeoutError` -> `LlamaTimeout` (today it escapes `_plan`'s narrow
-handlers and crashes the turn, leaving TUI input disabled forever); catch
-`HTTPError` **before** `URLError` (it is a subclass), never retry code >= 400,
-and report a server error distinctly from unreachable.
+**Step 10 (was 9) — LLM client edges: M-L1 + M-L2. DONE 2026-08-29.**
+`except TimeoutError` first (a bare read timeout used to escape the turn and
+disable TUI input forever), then `HTTPError` before `URLError` — it is a
+subclass, so a 500 was retried three times and reported as unreachable. A
+status is now `LlamaServerError`, never retried, subclassing `LlamaUnreachable`
+so callers and the spoken template are unchanged. `health()` no longer raises
+on a timeout.
 
 **Step 11 (was 10) — make the cannot-fail checks able to fail: M-L3, M-L4, M-L9.**
 `gpu_arch` WARN/FAIL on unparsable output; the socket-bind check flags any
