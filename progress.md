@@ -240,10 +240,14 @@ quietly folded in, because **"the sweep is done" had already been stated once**.
 2. **A dead local and three unused imports.** `color = ""` in `selftest.py` (the
    F841 the audit's static-analysis note listed), plus `re` in
    `logging_config.py`, `sys` in `selftest.py`, `Vad` in `wake.py`.
-3. **Two `just` recipes cited that do not exist.** `daemon.py` told the operator
+3. **Two `just` recipes cited that do not exist** — and one of them was
+   reported FIXED three sessions ago. `daemon.py` told the operator
    to run `just enroll` (it is `just enroll-voice` — and this is the G13
    fail-open warning, so the one line telling you how to fix a security gap
-   named a command that does not run). And a G7 evidence block in this file
+   named a command that does not run). The 2026-08-25 session block claims this
+   was fixed; it fixed `speaker_enroll.py` and missed `daemon.py`. A partial
+   find-and-replace, reported as done — which is why this pass diffed every
+   cited recipe against the `justfile` instead of trusting the claim. And a G7 evidence block in this file
    cites `just test-grammar-lock`; `git log -S` finds no such recipe ever, so it
    was run ad hoc. The evidence is kept and the citation corrected in place —
    the lock is permanently covered by `tests/test_grammar_lock.py` and
@@ -2041,6 +2045,12 @@ Restart Friday with `systemctl --user start friday`.
 - `just test-no-fstring-sql` was cited as evidence but **did not exist** as a
   recipe — added it to the justfile (the property already held).
 - `just enroll` → real name is `just enroll-voice` (fixed in code docstrings).
+  **[Corrected 2026-08-29:** only *some* of them. `speaker_enroll.py` was fixed;
+  `daemon.py:102` still said `just enroll` three sessions later — in the one
+  warning that fires when speaker verification is failing OPEN. A partial
+  find-and-replace reported as done. Found by the doc-readiness pass, which
+  diffed every cited `just` recipe against the justfile rather than trusting
+  this line.**]**
 - CLAUDE.md status block said "G0–G9 done / Phase 2 not built" — corrected to
   reflect Phase 2 complete + this review.
 - New `docs/reality-check.md`: the systematic capability manifest for next
