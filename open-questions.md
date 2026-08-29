@@ -16,6 +16,132 @@ _None — all Phase 1 questions are resolved and all gates G0 through G9 have pa
 
 ---
 
+## Blocking the post-live-pass fix list (raised 2026-08-29 by the LIVE-VOICE PASS)
+
+_All seven are knowable now. Working agreement §2: ask them in ONE batch before
+a line of the fix list is written. Evidence for every one of them is in
+`progress.md`, "SESSION 2026-08-29 (night, later)"._
+
+### OQ-39 — What is `webrtcvad` actually reporting on this microphone?
+**Decider:** MEASURE · **Blocks:** D3 (hands-free is unusable) · **Status:** OPEN
+
+All three wake captures ran the full 15 s cap. One contained zero speech by
+Silero's reckoning yet ADR-066's 3 s bail-out never fired, which can only
+happen if `_heard_speech` went true — i.e. `webrtcvad` called the room voiced.
+The same code ended captures at 2.0/3.4/1.7/1.9 s on 2026-08-25.
+
+**What answers it:** a probe that prints the voiced-fraction of live mic frames
+at `VAD_AGGRESSIVENESS` 0-3, through the same AEC path as
+`friday/audio/wake.py:_on_frame`, in this room. Nothing is decided until that
+number exists — the 2026-08-25 barge-in cutoff was blamed on two wrong causes
+before measurement found the real one.
+
+**If nobody decides:** hands-free stays unusable and PTT is the only trigger.
+
+### OQ-40 — What counts as a spoken "yes", and what should a non-answer do?
+**Decider:** USER · **Blocks:** D1 (CRITICAL) · **Status:** OPEN
+
+Two questions. The first is narrow: `is_affirmation` (`friday/turn.py:47-53`)
+matches bare tokens, so Whisper's `"Yes."` is not an affirmation and every
+spoken confirm has declined. Stripping trailing punctuation is the obvious
+minimum — but is the accepted set also too narrow for speech ("go ahead",
+"yeah do it", "please do", "confirm")? Widening it trades a missed yes for a
+wrongly-accepted one on a destructive action.
+
+The second is the interesting half: **today ANY non-affirmation cancels**
+(ADR-069's fail-safe). During the live pass the user issued `Open a terminal`
+while a preference confirm was live; it was swallowed as a decline and the
+terminal never opened. Should a clearly-new command RUN instead of cancelling
+— and if so, how is "clearly a new command" decided without a second model turn
+(which ADR-037 rules out)?
+
+**If nobody decides:** default to the narrow fix — normalise punctuation only,
+keep the fail-safe cancel — and leave the second half open. That is the smaller
+change and it does not weaken invariant #10.
+
+### OQ-41 — What should `request_id` be, and should the audit write be `INSERT OR REPLACE`?
+**Decider:** USER (architectural — needs an ADR) · **Blocks:** D2 · **Status:** OPEN
+
+`friday/store/audit.py:56` writes `INSERT OR REPLACE INTO action_audit` keyed
+on `request_id`, and `friday/daemon.py:136,288` generate that id as `v{seq}`
+with `seq` resetting to 0 on every daemon start. So every restart silently
+overwrites the previous run's low-numbered rows. Proven live: run 2's `v3`
+replaced run 1's `v3` web_search row.
+
+Options: a per-run prefix (`{boot_id}-v{n}`), a UUID, a monotonic rowid, or
+keeping the id and making the write a plain `INSERT` that fails loudly on
+collision. The choice decides whether the audit log is trustworthy across
+restarts, which is why it is an ADR and not a patch.
+
+**If nobody decides:** the audit table keeps eating itself, and it is the
+primary evidence channel for verifying every other fix.
+
+### OQ-42 — Should Friday have a local-time action?
+**Decider:** USER · **Blocks:** D7 · **Status:** OPEN
+
+"What time is it?" routes to `web_search` and answers from a scraped page —
+live evidence: *"05:00:05 P.M. UTC-7 as of 08/28/2026"* when the real local
+time was 20:29. No invariant broke (a search turn cannot act), but Friday
+states a wrong fact confidently with the machine's own clock available.
+
+A `get_time` action would be a new entry in the closed enum plus an outcome
+template; per invariant #2 and ADR-009 the model must never supply the time
+string — code reads the clock, the template speaks it.
+
+**If nobody decides:** it keeps answering wrongly from the web.
+
+### OQ-43 — What happens when no duration is stated?
+**Decider:** USER · **Blocks:** D5 · **Status:** OPEN
+
+`set_reminder`'s `seconds` is `{"kind": "text"}` (`friday/llm/schema.py:72`) —
+free text the model fills in. Live: `'suited timer for uhh... umm...'` became a
+60-second timer and `'remind me to call my mom later'` became a 3600-second
+one, both dispatched, both spoken as if the user had said so. The manifest
+promises it asks; **no ask path exists anywhere in the codebase.**
+
+This is the 2026-08-25 brightness defect's shape (a free-text param a builder
+guesses at) in the one place a closed enum cannot help, because a duration is a
+number and not a vocabulary. What is the rule — a bounded numeric with a
+"was a duration actually spoken?" test, a clarify turn, or something else?
+
+**If nobody decides:** garbled speech keeps becoming real timers.
+
+### OQ-44 — Should spoken model output have a sanity floor?
+**Decider:** USER · **Blocks:** D6 · **Status:** OPEN
+
+Friday spoke the literal string `String.Empty` (her own stored session summary
+records it). It came from the model via
+`friday/proactive/briefing.py:57-62`, which speaks `distill_dialogue`'s raw
+output. Startup briefings and sign-off summaries are the two places raw model
+text reaches the speaker by design (they are not direct-action templates, so
+ADR-009 does not cover them). Should there be a floor — reject output that is
+empty, a bare identifier, or non-prose — and fall back to the fixed line?
+
+**If nobody decides:** Friday occasionally says something that is obviously a
+programming artefact.
+
+### OQ-45 — Is the 1400 ms TTFA target still the target?
+**Decider:** USER · **Blocks:** nothing today; it decides whether optimisation
+work is scheduled · **Status:** OPEN
+
+Measured live with `llm_on_gpu` PASS, n=77:
+
+```
+min=1689  p50=2172  p90=3613  p95=4900  max=8674  mean=2483  (ms)
+over the 4400 ms hard fail: 4    at or under the 1400 ms target: 0
+```
+
+**Zero of 77 turns met the p50 target and the observed floor is 1689 ms.**
+Three of the four hard-fail breaches are `web_search` (network + grounding,
+arguably exempt); the fourth is not. Either the target moves to something the
+system can actually hit, or optimisation gets scheduled. Note the clock
+includes STT, since `_capture_end` starts it.
+
+**If nobody decides:** the manifest keeps carrying a target nothing has ever
+met, which is worse than no target.
+
+---
+
 ## Kept Open (Long-Term / Optional)
 
 ### OQ-28 — Should a meta-question about capability route to chat, not web_search?

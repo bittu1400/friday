@@ -34,13 +34,25 @@ wrong-reminder cancel (H7, which turned out to be an unreachable code path —
 `/var/log/journal`). Plus M-A1, M-T1, M-P1, M-A2, M-A3, M-T2,
 M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 
-**NEXT SESSION is the LIVE-VOICE PASS** (the typed half is done — see the
-session block below) — see the `>>> START HERE <<<` block
-below, and the fix-status table at the bottom of `Alpha-ox-analysis.md`, which
-is now the fastest map of what is fixed and what is not. **No disclosure defect
+**THE LIVE-VOICE PASS HAS NOW RUN (2026-08-29, night).** The whole manifest was
+spoken on the real machine, both destructive rows included. It found **9
+defects — 1 CRITICAL, 2 HIGH, 5 MEDIUM, 1 LOW — and no code was changed.**
+The critical one: **`is_affirmation` compares against bare tokens and Whisper
+punctuates, so every spoken "yes" has been recorded as a DECLINE** — every
+confirm-gated capability has been unreachable by voice for the whole of Phase 2
+(`friday/turn.py:47-53`, evidence in the `action_audit` table). The next
+session's job is the 9-defect fix list in the `>>> START HERE <<<` block below,
+which also carries the seven questions (OQ-39…OQ-45) to put to the user before
+any code is written. The fix-status table at the bottom of
+`Alpha-ox-analysis.md` still maps the 2026-08-26 audit, which remains fully
+fixed — none of these 9 came from it. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
 too when `JOURNAL_STREAM` says stderr is journald, so `FRIDAY_DEBUG=1` is safe
-under systemd (it shows nothing there; foreground is where transcripts appear).
+under systemd (it shows nothing there). **Corrected 2026-08-29 by the live
+pass:** "run it in the foreground" is NOT sufficient — a terminal inside a
+Hyprland session that systemd started inherits `JOURNAL_STREAM`, so the guard
+fires there too and you see nothing. Use
+`env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice`.
 Everything left in the list is robustness — and Step 8 (M-A1) is done too:
 both PortAudio callbacks now run through one `CallbackGuard`, so an audio
 callback can no longer die quietly and leave a healthy-looking deaf assistant;
@@ -68,6 +80,336 @@ a human at a keyboard.
    G12 ACTION SURF [x]   <-- System (vol/bright/media/wifi) + Hyprland (ws/win) + notes + dictation + ban.
    G13 SPEAKER VER [x]   <-- 3D-Speaker/CAM++ (sherpa-onnx, CPU) 512-dim voiceprint + 10-utterance enroll.
 ```
+
+---
+
+## SESSION 2026-08-29 (night, later) — THE LIVE-VOICE PASS: first full spoken sweep, 9 defects, 2 of them serious. NO CODE CHANGED.
+
+**What this session was.** The live-voice pass the previous four blocks kept
+pointing at. Full manifest sweep by voice, both deliberately-held-out
+destructive rows included at the user's explicit instruction. 121 turns in run
+1 + 6 in run 2, all through the real daemon, real STT, real LLM on GPU, real
+SQLite, real `wl-copy`/`nmcli`/`hyprctl`. **Not one line of Python was changed**
+— this block, the manifest, the OQs and CLAUDE.md are the entire output. The
+fixes are the NEXT session's job and are enumerated in the START HERE block.
+
+**Method, and why it was set up this way.**
+- `just selftest` FIRST: **8/8**, `llm_on_gpu` PASS, llama-server pid 2633
+  holding 4710 MiB VRAM. Every latency below is therefore trustworthy
+  (2026-08-25's CPU-fallback lesson).
+- Preconditions asked of the SYSTEM, not of the config: wake model present
+  (`hey_jarvis.onnx`, 1.27 MB); PTT bind read from `hyprctl binds` →
+  `key: XF86Presentation`, `dispatcher: __lua`, `arg: 249`; all eight CLI
+  backends present (`wpctl brightnessctl playerctl nmcli wl-copy wl-paste
+  notify-send hyprctl`); Brave already running as `/opt/brave-bin/brave`.
+- **Store was EMPTY at start** (0 reminders / 0 notes / 0 preferences), so every
+  row written during the pass is attributable to this pass.
+- Baseline captured for restore: volume 0.60, brightness 28/400, wifi enabled,
+  workspace 2, clipboard empty.
+
+**Every verdict below was read back from the system — the DB, `nmcli`,
+`wl-paste`, `wpctl` — never from what Friday said.** That rule is what found
+defect 1: the log looks like the confirms worked.
+
+---
+
+### D1 (CRITICAL) — every spoken "yes" is recorded as a DECLINE
+
+`friday/turn.py:47-53`:
+
+```python
+_AFFIRM = frozenset(
+    {"yes", "y", "yeah", "yep", "yup", "sure", "ok", "okay", "correct", "do it"}
+)
+def is_affirmation(text: str) -> bool:
+    return text.strip().casefold() in _AFFIRM
+```
+
+Whisper punctuates its output. `"Yes."` and `"Yes!"` are not in that set.
+`resolve_pending` treats anything-that-is-not-an-affirmation as a cancel — fail
+safe, by design (ADR-069) — so it writes `outcome='declined'` and does nothing.
+
+The audit table is unambiguous. Bare `Yes` worked; punctuated `Yes` did not:
+
+```
+v37 | remember_preference | {"key": "name"}       | allowed  | ok        <- heard 'Yes'
+v48 | clipboard_read      | {}                    | declined | declined  <- heard 'Yes!'
+v50 | clipboard_read      | {}                    | declined | declined  <- heard 'Yes.'
+v52 | clipboard_set       | {"chars": "11"}       | declined | declined  <- heard 'Yes.'
+v54 | clipboard_set       | {"chars": "11"}       | declined | declined  <- heard 'Yes.'
+v97 | hypr_window         | {"action": "close"}   | declined | declined  <- heard 'Yes.'
+v3  | system_wifi         | {"state": "off"}      | declined | declined  <- heard 'Yes.' (run 2)
+```
+
+Confirmed against the system afterwards, not against the log:
+
+```
+nmcli radio wifi   -> enabled          (the wifi-off affirm never ran)
+wl-paste           -> "Nothing is copied"  (clipboard_set never ran)
+sqlite preferences -> name="B2" only   (the ONE bare-'Yes' confirm that landed)
+```
+
+**Blast radius.** Every confirm-gated capability in the product — `clipboard_read`,
+`clipboard_set`, `system_wifi{off}`, `hypr_window{close}`, and any ADR-065
+history-confirm — has been unreachable by voice for the whole of Phase 2.
+Preferences are the sole exception and only by luck of transcription.
+
+**Why five review passes, 450 tests and a typed pass all missed it.** Typing
+gives a bare `yes`. STT gives `Yes.` The tests
+(`tests/test_clipboard_confirm.py`, `test_confirm_lifecycle.py`,
+`test_audit_contract.py`, `test_memory_turn.py`, `test_tui_confirm.py`) all
+feed the bare token — and a grep for a punctuated affirmation across the whole
+of `tests/` returns **0 hits**:
+
+```
+$ grep -rn '"[Yy]es[.!]"' tests/ | wc -l
+0
+``` The one character that has never appeared in any fixture
+is the full stop that Whisper puts on the end of every utterance.
+
+This is the eighth instance of "a green suite is not a working feature", and
+the first where the *typed* pass actively created the false confidence: C1 was
+fixed, the shared resolver is correct, and the thing that was verified by
+typing cannot be verified by typing.
+
+### D2 (HIGH) — audit rows are silently overwritten on every daemon restart
+
+`friday/store/audit.py:56` is `INSERT OR REPLACE INTO action_audit`, keyed on
+the `request_id` PRIMARY KEY. `friday/daemon.py:136,288` build that id as a
+per-process counter that resets to zero on every start:
+
+```python
+self._seq = 0          # daemon.py:136, per Daemon instance
+self._seq += 1
+rid = f"v{self._seq}"  # daemon.py:288
+```
+
+So run 2's `v3` REPLACED run 1's `v3`. Proven in this session's own data: run 1
+turn v3 was `What time is it?` → `web_search`, and there is no `v3` web_search
+row in the table — that slot now holds run 2's `system_wifi{off} declined`
+(created_at 1788016100). Other `web_search` rows from the same run survive
+(v21, v22, v55), so the row was written and then destroyed.
+
+FR-58 promises one row per resolved action. It cannot hold while the key is a
+per-run counter and the write is OR REPLACE. Every restart quietly eats the
+low-numbered rows of the previous run, and `mine_habits` reads that table.
+
+### D3 (HIGH) — hands-free captures never end: no VAD end-of-speech, no ADR-066 bail-out
+
+All three wake-initiated captures ran the full `MAX_CAPTURE_S`:
+
+```
+20:24:29 wake fired score=0.557 -> 15.000 s, whisper VAD removed 12.968
+20:28:46 wake fired score=0.929 -> 14.995 s, removed 14.995, heard=''
+20:29:01 wake fired score=0.740 -> 14.995 s, removed 11.824
+```
+
+The middle one is the decisive datum: faster-whisper's Silero VAD found **zero**
+speech in the entire 15 s, yet ADR-066's 3 s no-speech bail-out never fired, and
+no `no VAD` warning was logged (so `WakeListener.vad` is not None and
+`arm_end_of_speech` did not take its M-A3 early return).
+
+In `friday/audio/wake.py:294-315` the bail-out is skipped once `_heard_speech`
+goes true (`:299`), and end-of-speech needs `VAD_END_SILENCE_S` (0.8 s) of
+continuous non-voiced frames. Both failing together points at one cause:
+**`webrtcvad` at `VAD_AGGRESSIVENESS=2` is calling this room voiced more or less
+continuously**, on the same frames Silero calls silent.
+
+The identical code ended captures at 2.033 / 3.379 / 1.738 / 1.972 s on
+2026-08-25. Something about the room, the mic gain or the AEC path differs.
+
+**Deliberately NOT fixed this session.** The 2026-08-25 barge-in cutoff was
+blamed on the AEC library, then on misalignment, and only measurement found the
+real split. Same discipline here: measure the voiced-fraction across
+aggressiveness 0-3 on live frames before touching a line. Raised as OQ-39.
+
+PTT is unaffected — tap-toggle ends the capture — and that is the only reason
+the sweep was completable at all. Exactly **three** captures in the whole
+session were wake-initiated (one in the aborted first run, two in run 1); all
+three hit the cap. Every other turn was `ptt` or `ptt-barge`. **Hands-free
+operation, the entire point of G10, is currently unusable.**
+
+### D4 (MEDIUM) — `open my todo` is refused; the alias match cannot survive STT spelling
+
+`friday/tools/registry.py:231`:
+
+```python
+key = next((k for k in FILE_REGISTRY if k in raw), None)
+```
+
+Whisper transcribes it `to-do`, so `raw = "my to-do"` and `"todo" in "my to-do"`
+is False. Fails closed, correctly, to `PolicyRejected` — audit rows
+`v34`/`v35 file_open {"alias": "my to-do"} denied`, spoken *"I'm not allowed to
+do that."* `my notes` and `my config` matched and opened (`v32`, `v33` → ok).
+
+Manifest A11 lists three registered aliases; one of them is unreachable by
+voice.
+
+### D5 (MEDIUM) — a garbled duration silently becomes a timer
+
+`friday/llm/schema.py:72` — `set_reminder` takes
+`{"seconds": {"kind": "text"}, "message": {"kind": "text"}}`. `seconds` is free
+text the model fills in, and nothing checks that a duration was ever spoken:
+
+```
+v61 heard 'suited timer for uhh... umm...'      -> {"seconds": "60"}   dispatched, "in 1 minute"
+v57 heard 'ok remind me to call my mom later'   -> {"seconds": "3600"} dispatched, "in 1 hour"
+```
+
+Manifest A6 requires that a garbled duration ask again and set NOTHING. There is
+no ask path. This is the exact shape of the 2026-08-25 brightness defect — a
+free-text param a downstream builder guesses at — surviving in the one place a
+closed enum cannot be used, because a duration is a number and not a vocabulary.
+
+### D6 (MEDIUM) — Friday spoke the literal string `String.Empty`
+
+Not present anywhere in the repo (grepped). It came from the model, through
+`friday/proactive/briefing.py:57-62`, which returns `distill_dialogue`'s raw
+output and speaks it with no guard against degenerate output. Friday's own
+stored session summary (row 6) records it:
+
+> The user and Friday discussed a summary request, said goodbye, and Friday
+> mistakenly said "String.Empty" before offering assistance and saying goodnight.
+
+Sign-off summary and startup briefing are the two places raw model text is
+spoken by design; neither has a sanity floor.
+
+### D7 (MEDIUM) — "what time is it" is answered from the web, wrongly
+
+There is no local-time action in the schema, so the planner reaches for
+`web_search` and reads a scraped clock:
+
+```
+v3  'What time is it?'    -> web_search -> "The current time is 05:00:05 P.M. UTC-7 as of 08/28/2026."
+v55 'What time do I have?' -> web_search {"query": "current time"} -> "04:37:36 AM, Saturday, August 29, 2026"
+```
+
+Real local time was 20:29 and 20:41. Invariant #1 held (a search turn cannot
+act) — this is a capability gap, not a security defect, but Friday states a
+wrong fact with total confidence and the machine's own clock was right there.
+
+### D8 (MEDIUM) — questions and negations dispatch state changes
+
+No "is this actually an imperative?" gate exists between the planner and
+dispatch:
+
+```
+v11 'what am I currently open terminal, I mean workspace, workspaces'
+      -> hypr_workspace{workspace:1} dispatched=True   (a QUESTION switched workspace)
+v83 "Don't off the Wi-Fi"
+      -> system_wifi{state:on}      dispatched=True   (a NEGATION dispatched)
+v95 'remove the full screen like make it half off'
+      -> hypr_window{focus_left}    dispatched=True   (wrong action entirely)
+```
+
+Each is individually low-harm because the tool set is reversible by
+construction (invariant #10), which is exactly the argument for why the ban list
+and the confirm tiers exist. It is still Friday acting on an utterance that was
+not a command.
+
+### D9 (LOW) — outcome templates speak raw enum values
+
+`"Window focus_left."`, `"Launching file my notes."`, `"Launching YouTube for
+play a video."` The direct-action templates (ADR-009, invariant #4) are correct
+in structure — outcome-driven, not model-authored — but they interpolate the
+param verbatim, underscores and all.
+
+---
+
+### Three things that looked like defects and are NOT
+
+- **Block 5 / ADR-069 was mis-specified by me, and the user executed what I
+  wrote.** ADR-069 promises that barging *over the question* costs a re-ask
+  because an undelivered question never arms. The user let the question finish,
+  then issued `Open a terminal` 18 s later on a normal `ptt` capture. A live
+  pending plus a non-affirmation is a cancel — correct behaviour, audit row
+  `v24 remember_preference declined`. **The real test needs a `ptt-barge`
+  capture DURING the spoken question.** Still untested; it is in the todo list.
+- **`scratchpad` → `confirm armed: create_note (30s)`** is ADR-065 working
+  exactly as designed: bare `scratchpad` means nothing without history, resolves
+  to an action only with it, so it is confirmed rather than dispatched. The
+  generic tool-name wording in that log line is what a history-confirm looks
+  like.
+- **`E_BUSY: press ignored in transcribing`, twice** — FR-5, one turn in flight,
+  rejected and not queued. Manifest row passes.
+
+### What is now VERIFIED live (read back from the system)
+
+App launches (`open_app` browser/terminal/editor/vlc, audit `ok`), `open_youtube`,
+`youtube_search` incl. the ADR-027 query path, `hypr_workspace` 3/1/2,
+`hypr_window` focus_left/focus_right/fullscreen, `system_volume`
+up/down/mute (0.60 → 0.65 read back with `wpctl`), `system_brightness` up/down,
+`system_media{next}`, `system_wifi{on}`, `create_note` + `read_notes`
+(`note_38779031 "buy glossaries"`), `forget_preference` (expires_at set),
+`cancel_reminder` killing the most-recently-CREATED reminder and naming it
+(*"Cancelled: study my college materials."* — `rem_f5347991 cancelled`,
+`rem_516da893` survived active), reminders surviving a daemon restart and firing
+(`rem_f1b7fd47`, `rem_d7be0cff`, `rem_0a83afc5`, `rem_792c7486` all `fired`),
+all eight block-13 refusals failing closed to `action=none` with a spoken
+template, and FR-5 busy rejection.
+
+**TTFA, with `llm_on_gpu` PASS throughout** — every `TTFA` line from both
+runs, n=77:
+
+```
+n=77  min=1689  p50=2172  p90=3613  p95=4900  max=8674  mean=2483   (ms)
+over the 4400 ms hard fail: 4        at or under the 1400 ms target: 0
+```
+
+**The manifest's p50 target of 1400 ms is not met, and not one single turn in
+77 reached it.** The floor is ~1.69 s. Three of the four hard-fail breaches are
+`web_search` turns (7055 / 8674 / 5693 ms — network plus grounding, expected);
+the fourth is not — `v81 'buzz'` took 4900 ms to answer `action=none`, so the
+tail is not purely a search-turn story. This is measured with the LLM confirmed
+on GPU, so it is a real number and not the 2026-08-25 CPU-fallback trap.
+
+Note the clock this measures: `_capture_end` is set at end-of-capture, so for a
+PTT turn that is the second tap, and the STT time is inside the figure.
+
+### Two observations that are not yet defects
+
+- **`phonemizer` logs `words count mismatch on N% of the lines` constantly**
+  (100-500%). Cosmetic in the log; unknown whether it changes what is spoken.
+- **`onnxruntime` warns `CUDAExecutionProvider is not in available provider
+  names`** at every daemon start. This is invariant #6 holding (STT/TTS/wake are
+  CPU) but it reads like an error. Worth a one-line note or a suppressed warning
+  so a future session does not chase it.
+
+### Decisions taken this session (process, not architecture — no ADR)
+
+- **D-a. One daemon, tee'd to tmpfs — NOT a second daemon.** The user proposed
+  running a second instance in the background for logging. Refused: two
+  `just voice` processes fight over the mic and the PTT socket (the 2026-08-25
+  segfault). Instead the single foreground daemon was piped through
+  `tee /tmp/friday-live.log`, and `/tmp` was CHECKED to be tmpfs
+  (`findmnt -no FSTYPE /tmp` → `tmpfs`) so transcripts stayed in RAM and
+  invariant #7 held. Log deleted at teardown.
+- **D-b. `env -u JOURNAL_STREAM` is required to see anything.** The user's
+  terminal inherits `JOURNAL_STREAM` (Hyprland session started under systemd),
+  so H8's guard fired in the FOREGROUND and dropped every `heard=` line. The
+  first run was blind and had to be restarted. **This is a real usability trap
+  in the documented debug workflow** and is now written into the manifest's
+  preconditions.
+- **D-c. Both held-out destructive rows were included**, at the user's explicit
+  instruction, ordered LAST (`hypr_window{close}` aimed at a scratch window,
+  `system_wifi{off}` after everything needing the network). Both were then
+  blocked by D1 — neither actually ran.
+- **D-d. D3 measured before fixed.** No code written against the VAD until the
+  voiced-fraction is measured. Recorded as OQ-39.
+- **D-e. No code changed at all this session.** The pass was a verification job;
+  mixing fixes into it would have made the evidence untrustworthy.
+
+### State left behind
+
+- `friday.service` is **STOPPED** (the pass required the foreground daemon).
+  `friday-llm` and `friday-searxng` are running. Restart friday with
+  `systemctl --user start friday` when the next session is not using the mic.
+- `/tmp/friday-live.log` deleted.
+- Volume restored to 0.60. Brightness unchanged at 28. Wifi enabled. Workspace 2.
+- The DB deliberately still holds this session's rows — they are the evidence
+  for D1 and D2. `rem_516da893` ("call my mom") is still **active** and will fire.
+- Suites NOT re-run: no code changed, so the 450/28/20/8/OK baseline stands
+  from earlier today.
 
 ---
 
@@ -1284,85 +1626,204 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (rewritten 2026-08-29 — THE FIX PHASE IS DONE. The job is the LIVE-VOICE PASS.) <<<
+## >>> START HERE: NEXT SESSION (rewritten 2026-08-29 after the LIVE-VOICE PASS. The manifest has now been SPOKEN. There are 9 defects and a fix list.) <<<
 
 ### Where the project actually is
-The 2026-08-26 audit's fix list is **finished: all 12 steps**, 1 CRITICAL + 8
-HIGH + the targeted MEDIUMs, plus **ADR-073** and **ADR-074**, which came out of
-Step 9's real-path run and were not in the audit at all. The **typed** half of
-`docs/reality-check.md` has been run for real and ticked. Every doc has been
-mechanically re-checked against the tree (see the doc-readiness session block).
 
-**So there is nothing left to fix from the audit, and nothing left to write.**
-What is left is the thing that found every serious defect of the last five
-sessions: **running the real system.**
+The audit fix phase is done and the **live-voice pass has now run** — the whole
+manifest, by voice, on the real machine, with both destructive rows included.
+It found **9 defects**, one CRITICAL and two HIGH, none of which any test or
+any typed pass could see. Full evidence in the session block
+**"SESSION 2026-08-29 (night, later) — THE LIVE-VOICE PASS"** above; read it
+before you touch anything, because every fix below depends on its evidence.
+
+**No code changed during that pass.** The baseline is still:
 
 ```
 uv run pytest 450 · eval 28/28 reg 0 · injection 20/20 · selftest 8/8 · no-fstring-sql OK
 7,795 src lines · 58 modules · 67 test files
 ```
 
+**The headline: every spoken "yes" in this project has been recorded as a
+decline.** `is_affirmation` compares against a frozenset of bare tokens and
+Whisper punctuates, so `"Yes."` is not an affirmation. Every confirm-gated
+capability — clipboard read, clipboard write, wifi off, close window, every
+ADR-065 history-confirm — has been unreachable by voice for the whole of
+Phase 2. It was invisible because typing gives a bare `yes`.
+
 ### First commands, in order
+
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
 uv run pytest -q && just eval       # expect 450 passed, 28/28 reg 0 — the baseline you must not drop
+systemctl --user status friday      # it was left STOPPED by the live pass. Leave it stopped if you will use the mic.
 ```
 
-### THE JOB: the live-voice rows of `docs/reality-check.md`
-Its §F lists exactly what is verified and what is not. **One daemon, never two**
-— `friday.service` is `Restart=always`, so `kill <pid>` does not stop it:
+**To run the daemon in the foreground you MUST clear `JOURNAL_STREAM`:**
 
 ```bash
-systemctl --user stop friday && FRIDAY_DEBUG=1 just voice
+systemctl --user stop friday && env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice 2>&1 | tee /tmp/friday-live.log
 ```
 
-**`FRIDAY_DEBUG` now behaves differently under systemd (H8, Step 7).** Transcript
-lines are dropped from stderr whenever `JOURNAL_STREAM` says stderr is journald,
-because journald persists them and invariant #7 forbids that. It is safe there
-and it shows you nothing; **the foreground is the only place you will see
-`heard=…`**, and the daemon logs one warning saying so.
+Without `env -u`, H8's guard fires even in the foreground (a Hyprland session
+started under systemd inherits `JOURNAL_STREAM`), every `heard=` line is
+dropped, and you run blind. The first attempt of the live pass was wasted this
+way. `/tmp` is tmpfs on this machine — verified with `findmnt -no FSTYPE /tmp`
+— so the tee stays in RAM and invariant #7 holds. **Delete the log afterwards.**
 
-Start with the rows that changed and have never been heard:
-1. **wake + VAD end-of-speech**, and the ADR-066 no-speech bail-out (a capture
-   with no speech at all gives up after 3 s instead of 15 s of deafness).
-2. **"a barged reply does not enter history"** (ADR-069). Do the deliberate
-   version: ask for something that confirms, talk over the question, then give a
-   completely different command — it must RUN, not be answered "Okay, cancelled."
-3. **TTFA** (target p50 1400 ms / hard fail 4400 ms). Any latency number taken
-   without `llm_on_gpu` PASSing first is void — it degrades silently.
-4. **ADR-066 live confirmation, OQ-33** (a `WAKE_THRESHOLD` chosen from logged
-   scores rather than guessed), **OQ-32** (the AEC drill that unblocks
-   hands-free barge-in; voice barge-in is OFF by default, ADR-064).
+---
 
-### The two non-voice rows still outstanding, and why
-- **`hypr_window`** (`docs/reality-check.md` §A10). ADR-074 fixed it and
-  `hypr_workspace` is verified live, but `close`/`fullscreen` act on the
-  **focused window**, so probing them means closing somebody's window. Tick it
-  by hand when you can see the screen.
-- **`system_wifi{off}`'s affirm path.** The confirm arms and a decline is
-  verified; affirming drops the network mid-session. Deliberately not run.
+### ASK THE USER FIRST — batched, before a line of code (working agreement §2)
+
+Seven decisions belong to the user and all of them are knowable now. Asking
+them mid-implementation is the failure §2 exists to prevent. Each is written up
+in `open-questions.md`.
+
+1. **OQ-40 — what counts as a spoken "yes", and what should a non-answer do?**
+   Two questions in one, and the second is the interesting half: today ANY
+   non-affirmation cancels (ADR-069, fail safe). During the pass the user said
+   `Open a terminal` while a preference confirm was live and it was swallowed as
+   a decline. Should a clearly-new command run instead of cancelling — and if
+   so, how is "clearly a new command" decided without a second model turn?
+2. **OQ-41 — `request_id` scheme, and `INSERT OR REPLACE` vs `INSERT`.**
+   Architectural: it decides whether the audit log can be trusted across
+   restarts. Needs an ADR once answered.
+3. **OQ-42 — should there be a local-time action?** Friday currently answers
+   "what time is it" from a scraped web page, wrongly, with the machine clock
+   right there.
+4. **OQ-43 — what should happen when no duration is stated?** The manifest
+   promises "it asks"; there is no ask path anywhere in the codebase, so this
+   is a new mechanism, not a bug fix.
+5. **OQ-44 — a floor on spoken model output.** Friday said the literal
+   `String.Empty`. Briefings and sign-off summaries speak raw model text by
+   design.
+6. **OQ-45 — the TTFA target.** 1400 ms p50 was met by **0 of 77** turns; the
+   observed floor is 1689 ms and p50 is 2172 ms. Either the target moves or
+   something gets optimised; that is the user's call, not a default.
+7. **OQ-39 — the VAD measurement (MEASURE, not USER).** No opinion needed, but
+   it must be run before any VAD code is touched.
+
+---
+
+### THE FIX LIST — 9 defects, in this order, and why this order
+
+**Every step: write the failing test FIRST, then `git stash push <source>` and
+watch it fail against the pre-fix tree.** Two tests passed vacuously in the fix
+phase and were only caught that way.
+
+**Step 1 — D2: stop the audit log eating itself.** `friday/store/audit.py:56`
+is `INSERT OR REPLACE`, keyed on a `request_id` that `friday/daemon.py:136,288`
+resets to `v1` on every daemon start. **This is first, ahead of the CRITICAL,
+on purpose:** verifying the D1 fix means restarting the daemon repeatedly and
+reading the audit table, and until this is fixed each restart destroys the
+previous run's proof. Fix the evidence channel before you use it. Answer OQ-41
+first; write the ADR.
+
+**Step 2 — D1 (CRITICAL): spoken affirmations.** `friday/turn.py:47-53`.
+Whatever OQ-40 decides, the minimum is that STT punctuation must not turn a yes
+into a no. The failing test must use a *realistic STT transcript* — `"Yes."`,
+`"Yes!"`, `"Yeah."` — because the existing fixtures in
+`tests/test_clipboard_confirm.py`, `test_confirm_lifecycle.py`,
+`test_audit_contract.py`, `test_memory_turn.py` and `test_tui_confirm.py` all
+feed bare tokens and all pass today. **Fix `is_affirmation` once, where both
+UIs already route (ADR-069's one resolver) — do not patch a caller.**
+
+**Step 3 — D3: hands-free capture never ends.** MEASURE FIRST (OQ-39): a probe
+that prints the `webrtcvad` voiced-fraction on live mic frames at
+aggressiveness 0-3, through the same AEC path
+(`friday/audio/wake.py:_on_frame`). Only then decide. Do not assume the cause
+is the aggressiveness constant; the same code worked on 2026-08-25. Suspect the
+frames themselves as much as the threshold.
+
+**Step 4 — D4: `open my todo`.** `friday/tools/registry.py:231`. Normalise the
+alias before the substring match so STT's `to-do` reaches the `todo` key.
+Keep failing closed on a genuine miss — that behaviour is correct and is
+manifest A11.
+
+**Step 5 — D5: garbled durations.** Needs OQ-43 answered — it is a new
+mechanism (an ask path), not a repair. `friday/llm/schema.py:72`.
+
+**Step 6 — D7: local time.** Needs OQ-42. If yes, it is a new action in the
+closed enum plus a template; the model must never supply the time string.
+
+**Step 7 — D6: degenerate spoken model output.** Needs OQ-44.
+`friday/proactive/briefing.py:57-62`.
+
+**Step 8 — D8: questions and negations dispatch.** The hardest one and
+deliberately last, because a naive imperative-gate will break legitimate
+phrasings. Evidence rows: `v11` (a question switched workspace), `v83` (a
+negation dispatched), `v95` (wrong action entirely). Consider it alongside
+OQ-28, which is the same family.
+
+**Step 9 — D9: templates speak raw enum values.** `"Window focus_left."`,
+`"Launching file my notes."` Cosmetic, one file, do it last.
+
+---
+
+### THEN RE-RUN THE BLOCKED MANIFEST ROWS
+
+These could not be verified because D1 blocked them. They are NOT failures —
+they are untested, and they include both rows the user explicitly asked to have
+ticked:
+
+- `clipboard_read` affirm path (speaks the contents)
+- `clipboard_set` affirm path (`wl-paste` must return the text)
+- **`system_wifi{off}` affirm** — drops the network, deliberate, do it last
+- **`hypr_window{close}` affirm** — point it at a scratch window
+- any ADR-065 history-confirm affirm
+
+### AND THE ROWS THE PASS NEVER REACHED
+
+- **ADR-069 barge-over-confirm, done properly.** The live pass tested this
+  wrong — my error, written into the script. The real test is a `ptt-barge`
+  capture *during* the spoken question, not a normal capture after it. Expect
+  the confirm never to arm and the new command to run.
+- **PTT key barge-in over a reply** (FR-7): tap mid-sentence, speech must cut.
+- **Dictation actually typing** into a focused window, and `new line` /
+  `period` becoming punctuation.
+- **The apps actually appearing** — `pgrep -a`, `hyprctl clients`. The audit
+  says `ok`, but that is the spawn, not the window (ADR-043).
+- **`file_open` opening the RIGHT file** — the 2026-08-25 defect was it opening
+  the wrong one.
+- **A reminder firing: one notification AND one spoken line, exactly once.**
+- `just test-egress`, the panic switch, and the §C invariant spot-checks.
+
+### FOUR THINGS ONLY THE USER CAN ANSWER ABOUT THE LAST RUN
+
+Ask these before re-testing the same ground:
+
+1. Did foot / VS Code / mpv / VLC actually appear on screen?
+2. Did `open my notes` and `open my config` open the right files?
+3. Did dictation actually type characters into the focused window?
+4. When the 5-minute timer fired, was there one desktop notification **and**
+   one spoken line, exactly once?
 
 ### Rules that are not optional (each one is paid for)
-- **Ask the system, never Friday.** `pgrep -a`, `hyprctl clients`, `wl-paste`,
-  `nmcli radio wifi`, read the DB. Every "Opened X." was a lie for the whole
-  project, and both Hyprland tools reported success while never working.
-- **A green suite is not a working feature**, six times over now.
-- **Reproduce before fixing, and prove the code is REACHABLE first** (M-T2's
-  stated mechanism does not happen here; `cancel_reminder` had never run at all).
-- **Write the failing test first**, then `git stash push <source>` and watch it
-  fail against the pre-fix tree. Two tests passed vacuously and were only caught
-  that way.
-- **No feature work and no Phase 3 until the live-voice pass has run.**
+
+- **Ask the system, never Friday.** This pass is the strongest evidence yet:
+  the log reads like the confirms worked. `nmcli radio wifi`, `wl-paste` and
+  the `action_audit` table said otherwise.
+- **A green suite is not a working feature** — eight times now.
+- **A typed pass is not a spoken pass.** New this session, and it is the whole
+  reason D1 survived five reviews: the difference between `yes` and `Yes.`
+- **Reproduce and MEASURE before fixing** (D3 is parked behind OQ-39 for
+  exactly this reason).
+- **Write the failing test first**, then stash the source and watch it fail.
+- **No feature work and no Phase 3 until this fix list is done.**
 
 ### Reading order for the next session
+
 1. This block.
-2. The 2026-08-29 session blocks above (Steps 7–12, ADR-074, the typed pass, the
-   doc-readiness pass).
-3. `docs/reality-check.md` §F — the manifest and its status.
-4. The **fix-status table at the bottom of `Alpha-ox-analysis.md`** — and note
-   its new header warning: that file is a **snapshot**, its line numbers are
-   as-of 2026-08-26, and several now point into deleted code. Trust the table,
-   not the line numbers. **Do not re-audit.**
+2. The **"SESSION 2026-08-29 (night, later) — THE LIVE-VOICE PASS"** block above
+   — the evidence for all 9 defects.
+3. `docs/reality-check.md` §F — now split into what is verified live, what
+   failed live, and what is blocked.
+4. `open-questions.md` OQ-39 … OQ-45 — the seven questions to ask up front.
+5. The **fix-status table at the bottom of `Alpha-ox-analysis.md`** only if you
+   need the 2026-08-26 audit's history. It is a snapshot; its line numbers are
+   stale. **Do not re-audit.**
+
+---
 
 ### THE FIX LIST — ALL 12 DONE (kept as the record of what each step did)
 

@@ -14,25 +14,29 @@ Paste anything that fails — with the exact command/utterance and what happened
 into `progress.md` under a new dated session block. A row that cannot be
 verified (no mic, tool missing) is marked `SKIP (reason)`, never silently ticked.
 
-> **2026-08-29 update — C1 is FIXED, and the typed confirm rows are now the
-> priority.** Every *typed* path through a confirm-first row (A5, wifi-off,
-> window-close, clipboard_set, and now clipboard_read) was BROKEN in text mode:
-> the TUI confirm raised on `PendingAction`, so "yes" did nothing. Both UIs now
-> resolve through one shared `turn.resolve_pending` (ADR-069) and headless
-> Textual tests drive the real app. **None of those rows has been verified by a
-> human at a keyboard yet** — that is exactly the "green suite, broken feature"
-> trap this file exists for, so tick them by actually typing them.
+> **2026-08-29 (night) — THE MANIFEST HAS BEEN SPOKEN, and one defect blocks
+> every confirm row.** `is_affirmation` (`friday/turn.py:47-53`) matches bare
+> tokens; Whisper punctuates; so **every spoken "yes" is recorded as a
+> DECLINE** and no confirm-gated capability has ever worked by voice. Read
+> section F first — it says what is verified live, what failed, and what is
+> blocked. Do not re-run a `C?` row until D1 is fixed; you will only re-observe
+> the decline.
 >
-> Also changed 2026-08-29 and needing a live pass: `clipboard_read` now asks
-> before it reads (ADR-068a), `cancel_reminder` takes no params and cancels the
-> most recently created reminder by name (ADR-070), and a barged reply no
-> longer enters history (ADR-069).
+> **Second: `hands-free is currently unusable`** — all three wake captures ran
+> the full 15 s cap and ADR-066's bail-out never fired (D3). The 2026-08-25
+> ticks on those A15 rows are un-ticked below. PTT works.
+>
+> **Third, for whoever runs this next:** `FRIDAY_DEBUG=1` in the foreground is
+> NOT enough. A terminal in a systemd-started Hyprland session inherits
+> `JOURNAL_STREAM`, so H8's guard drops every `heard=` line and you run blind.
+> Use `env -u JOURNAL_STREAM`.
 
 Derived from the action schema (`friday/llm/schema.py`), the turn router
 (`friday/turn.py`), the daemon intercepts (`friday/daemon.py`), and the tool
 registry (`friday/tools/registry.py`); re-verified against the code on
 2026-08-29 (fix-phase Steps 1-6). If code and this file disagree, one of them is a bug — find out
-which before ticking. See section F at the bottom for what is verified today.
+which before ticking. See section F for what is verified today (the LIVE pass); F-typed and
+F-prev keep the earlier evidence.
 
 ---
 
@@ -64,7 +68,8 @@ Then either:
   is busy", the tap did not register and the toggle did not flip.
 - **To watch a live session**, run the daemon in the foreground instead of as a
   service (stop the service first — two daemons fight over the mic and socket):
-  `systemctl --user stop friday && FRIDAY_DEBUG=1 just voice`. `FRIDAY_DEBUG`
+  `systemctl --user stop friday && env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice`.
+  **The `env -u` is mandatory** — see the banner at the top of this file. `FRIDAY_DEBUG`
   echoes `heard=…` and `action=… spoken=…` to the console only; those lines are
   filtered out of the on-disk log (invariant #7). **Foreground is the only place
   they appear:** since 2026-08-29 (H8) they are also dropped from stderr when
@@ -119,7 +124,11 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "what can you do?" | accurate toolset description (ADR-053) — no invented abilities |
 | "tell me a joke" / opinion / suggestion | conversational reply, no action |
 
-- [ ] Chat never claims to have *done* something (it's only talking, ADR-009)
+- [ ] **Contradicted once LIVE 2026-08-29.** Chat never claims to have *done*
+      something (ADR-009). After a lapsed confirm, a bare "yes" was planned as
+      `chat` and Friday said *"Window unfocused and restored."* — describing an
+      action that never happened. Nothing was dispatched (`dispatched=False`),
+      so no invariant broke, but the spoken line was a fabrication.
 - [ ] Reply is at most ~4 short sentences, no markdown/URLs (spoken-safe)
 
 ### A5. Preferences (`remember_preference` / `forget_preference`) — confirm-first
@@ -147,7 +156,13 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
 - [ ] When it fires: one desktop notification **and** one spoken "Reminder: …"
 - [ ] It fires **exactly once** — timers are one-shot, NOT recurring
-- [ ] A garbled duration never becomes a silent default timer (it asks)
+- [ ] **FAILS LIVE 2026-08-29 (D5).** A garbled duration never becomes a silent
+      default timer (it asks). It does: `'suited timer for uhh... umm...'` →
+      `{"seconds": "60"}` dispatched, *"in 1 minute"*; `'remind me to call my
+      mom later'` → `{"seconds": "3600"}` dispatched, *"in 1 hour"*.
+      `seconds` is `{"kind": "text"}` (`friday/llm/schema.py:72`) — free text
+      the model invents — and **no ask path exists anywhere in the codebase**.
+      This is a new mechanism, not a repair. OQ-43.
 - [x] **Set a short timer AND a long reminder, then say "cancel my timer"** —
       verified 2026-08-29, and this is `cancel_reminder`'s **first ever
       successful run** (ADR-070: it had never worked at any point). Typed:
@@ -187,7 +202,13 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "turn off wifi" | asks to confirm, then off | nmcli | C? |
 | ↑ **decline verified 2026-08-29:** "turn off wifi" + "no" -> "Okay, cancelled.", `nmcli radio wifi` still `enabled`, audit row `declined`. The **affirm** path is deliberately untested — it would drop the network mid-session | | | |
 
-- [ ] Each spoken outcome matches the real system state change
+- [x] Each spoken outcome matches the real system state change — **verified
+      LIVE 2026-08-29** for volume (`wpctl` 0.60 → 0.65), brightness up/down
+      (**"dim the screen" really dimmed** — the 2026-08-25 defect stays fixed),
+      `system_media{next}`, and `system_wifi{on}` (`nmcli radio wifi` enabled).
+- [ ] **`system_wifi{off}` AFFIRM still unverified — blocked by D1**, not by
+      caution this time: the user said "Yes." and it was recorded `declined`
+      (audit v85, and run 2's v3). `nmcli radio wifi` never changed.
 - [x] **2026-08-29, measured through the real executor:** `system_volume`
       mute/unmute → `ok` (volume restored to 0.80). `system_media{play_pause}`
       → **`error` / E_TOOL_FAILED**, correctly: `playerctl` exits 1 with "No
@@ -205,7 +226,15 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "close this window" | asks to confirm, then **closes the active window** (killactive) | C? |
 
 - [ ] Workspace outside 1–10 is refused
-- [ ] "close window" actually closes it (regression: it used to be a silent no-op)
+- [ ] **"close window" actually closes it — ATTEMPTED LIVE 2026-08-29, BLOCKED
+      BY D1.** The confirm armed correctly (`confirm armed: close active window
+      (30s)`), the user said "Yes." twice, and both were recorded `declined`
+      (audit v97, run 2's v8). The window survived. Once D1 is fixed this is
+      the first row to re-run.
+- [ ] A second attempt reached `chat` instead: after the confirm lapsed, a bare
+      "yes" was planned as chat and Friday **invented** *"Window unfocused and
+      restored."* — a chat turn claiming to have done something (ADR-009 /
+      manifest A4). Worth its own look while fixing D1.
 - [x] **WAS BROKEN, FIXED 2026-08-29 (ADR-074).** Both Hyprland tools had
       never worked on this machine and Friday announced success every time.
       Two causes, both measured: `HYPRLAND_INSTANCE_SIGNATURE` was missing from
@@ -229,6 +258,15 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "open my config" | opens ~/.config/hypr/hyprland.conf |
 | "open my todo" | opens ~/todo.md |
 
+- [x] **`my notes` and `my config` dispatched `ok` LIVE 2026-08-29** (audit v32,
+      v33). *Whether the RIGHT file opened is still unchecked — ADR-043 means
+      `ok` is the spawn, not the window, and opening the wrong file was the
+      2026-08-25 defect.*
+- [ ] **`open my todo` is REFUSED — D4, live 2026-08-29.** Whisper transcribes
+      it `to-do`; `registry.py:231` substring-matches `"todo" in "my to-do"`
+      → False → `PolicyRejected`, spoken *"I'm not allowed to do that."*
+      (audit v34, v35 `denied`). One of the three registered aliases is
+      unreachable by voice.
 - [ ] Only the three registered aliases; an unregistered file is not openable
 
 ### A12. Notes (`create_note` / `read_notes`) — SQLite, pure data
@@ -247,6 +285,13 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
       2026-08-29: "copy hello world to my clipboard" + "yes" -> *"Copied to your
       clipboard."*, and `wl-paste` then returned `hello world`. (The user's own
       clipboard was saved before the pass and restored after it.)
+- [ ] **Both rows above are TYPED evidence only. By VOICE both are blocked by
+      D1** (2026-08-29): four `clipboard_read` confirms and two `clipboard_set`
+      confirms were armed, the user said "Yes."/"Yes!" each time, and all six
+      were recorded `declined` (audit v48, v50, v52, v54 and v52/v54).
+      `wl-paste` was still empty afterwards — nothing was ever copied. The
+      DECLINE halves passed live ("No."/"Nope." → *"Okay, cancelled."*, no
+      content spoken), which is ADR-068a's disclosure gate holding.
 - [ ] Clipboard content with pipes/semicolons/backticks copies verbatim (STDIN, never argv)
 - [x] **`clipboard_read` speaks NOTHING before the confirm, and nothing at all
       on "no"** — verified 2026-08-29 against a known probe value
@@ -266,20 +311,26 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 - [ ] A planner-routed phrasing (e.g. "dictation on") also actually toggles the mode
 
 ### A15. Voice I/O plumbing
-- [ ] PTT toggle: one tap starts capture, a second tap stops + transcribes (ADR-044)
-- [x] Wake word "hey jarvis" from idle begins capture — 2026-08-25,
-      `capture start source=wake` on every trigger of the 16:25 run
-- [x] VAD ends a wake-initiated capture on trailing silence (no key release) —
-      2026-08-25, captures of 2.033 / 3.379 / 1.738 / 1.972 s, not the 15 s cap
-- [x] A capture nobody speaks into is abandoned after ~3 s, not run to the 15 s
-      cap (ADR-066) — **built 2026-08-25, NOT yet confirmed on live audio.**
-      Expect `capture abandoned: no speech within 3.0s` in the log.
+- [x] PTT toggle: one tap starts capture, a second tap stops + transcribes (ADR-044)
+      — verified LIVE 2026-08-29 across 100+ turns; it is the only working trigger
+- [x] Wake word "hey jarvis" from idle begins capture — still true 2026-08-29
+      (`wake fired score=0.557 / 0.929 / 0.740`, all above the 0.50 threshold)
+- [ ] **UN-TICKED 2026-08-29 (D3).** VAD ends a wake-initiated capture on
+      trailing silence. It did on 2026-08-25 (2.033 / 3.379 / 1.738 / 1.972 s);
+      on 2026-08-29 **all three wake captures ran the full 15 s cap.**
+- [ ] **UN-TICKED 2026-08-29 (D3).** A capture nobody speaks into is abandoned
+      after ~3 s (ADR-066). One capture contained **zero** speech by Silero's
+      reckoning (`VAD filter removed 00:14.995 of 14.995`) and still ran to the
+      cap; `capture abandoned:` never appeared and no `no VAD` warning was
+      logged. Suspected: `webrtcvad` at aggressiveness 2 calling this room
+      voiced continuously. **MEASURE before fixing — OQ-39.**
 - [ ] Barge-in by KEY PRESS over Friday's speech cuts it and re-captures (FR-7)
 - [x] Barge-in by VOICE is **OFF by default and must NOT fire** (ADR-064). The
       AEC yields only −5 to −10 dB on this hardware, so speech heard during
       playback is usually Friday herself. A voice barge event during a reply is
       now a FAILURE, not a pass. Re-enable only via `FRIDAY_BARGE_VAD_ENABLE=1`
-      after OQ-32. Verified 2026-08-25: no cutoffs in the 16:25 run.
+      after OQ-32. Verified 2026-08-25: no cutoffs in the 16:25 run —
+      **and again 2026-08-29 across 127 turns: not one voice barge fired.**
 - [ ] STT transcribes accurately (small.en); TTS speaks (Kokoro af_bella)
 
 ### A16. Cross-session memory
@@ -356,7 +407,122 @@ changed — a row here that disagrees with the code is itself a defect.
 
 ---
 
-## F. Status of this manifest as of 2026-08-29
+## F. Status of this manifest as of 2026-08-29 (night) — THE LIVE-VOICE PASS
+
+**THE MANIFEST HAS NOW BEEN SPOKEN.** 127 turns through the real daemon, real
+STT, real LLM on GPU, real SQLite, real `wl-copy`/`nmcli`/`hyprctl`, with
+`just selftest` 8/8 and `llm_on_gpu` PASS throughout. Both deliberately
+held-out destructive rows were attempted at the user's explicit instruction.
+**Every verdict below was read back from the system, never from what Friday
+said.** Full evidence: `progress.md`, "SESSION 2026-08-29 (night, later)".
+
+### The one that invalidates every confirm row
+
+**D1 (CRITICAL) — every spoken "yes" is recorded as a DECLINE.**
+`friday/turn.py:47-53` matches `text.strip().casefold()` against a frozenset of
+bare tokens. Whisper punctuates, so `"Yes."` and `"Yes!"` are not
+affirmations, and `resolve_pending`'s fail-safe treats a non-affirmation as a
+cancel. Audit rows: bare `Yes` → `allowed/ok` (v37); `Yes.`/`Yes!` →
+`declined` (v48, v50, v52, v54, v97, and run 2's v3). Confirmed against the
+system: `nmcli radio wifi` still `enabled`, `wl-paste` still empty.
+
+**Consequence for this file:** every `C?` row is UNVERIFIABLE by voice until
+that is fixed. They are not failures — they are blocked. The decline halves of
+those rows DO pass (a decline is what the system does for everything).
+
+### Verified LIVE and ticked (read back from the system)
+
+- **A1** all five apps dispatched `ok`; `open_app{browser}` with Brave already
+  running still reported success (the ADR-043-amendment row). *Windows not yet
+  eyeballed — see "still not verified".*
+- **A2** `open_youtube` and `youtube_search` (`{"query": "lo-fi"}`).
+- **A3** `web_search` answered and **never dispatched** — invariant #1 holds
+  live. But see D7 below: time questions are answered wrongly from the web.
+- **A4** chat replies short and spoken-safe; `what can you do?` listed a real
+  toolset (ADR-053 holds).
+- **A6** `set_reminder`, `list_reminders`, and **`cancel_reminder` killed the
+  most recently CREATED reminder and named it** — *"Cancelled: study my college
+  materials."*, with `rem_f5347991 cancelled` and `rem_516da893` surviving
+  active. Reminders **survived a daemon restart and fired**.
+- **A7** DND enable/`resume` both routed; a normal command after "be quiet"
+  cleared it and ran (as specified — it surprises the user, note it).
+- **A9** volume up/down/mute (`wpctl` read back 0.60 → 0.65), brightness
+  up/down — **and "dim the screen" really dimmed** (the 2026-08-25 defect
+  stays fixed) — `system_media{next}`, `system_wifi{on}`.
+- **A10** `hypr_workspace` 3/1/2; `hypr_window` focus_left/focus_right/
+  fullscreen all dispatched `ok` (ADR-074 holds live); **workspace 47 refused.**
+- **A11** `my notes` and `my config` dispatched `ok`. **`my todo` REFUSED — see
+  D4.** *Right-file check still outstanding.*
+- **A12** `create_note` + `read_notes` round-tripped through SQLite.
+- **A15** PTT toggle worked for 100+ turns; **FR-5 busy rejection observed
+  twice** (`E_BUSY: press ignored in transcribing`); **voice barge-in did NOT
+  fire once** across the whole session (ADR-064 row PASSES).
+- **B** all eight refusals fail closed to `action=none` with a spoken template.
+- **ADR-065** observed working: bare `scratchpad` armed a confirm instead of
+  dispatching, because the action only appears with history.
+
+### FAILED live — nine defects, all in `progress.md` with root causes
+
+| # | Sev | What | Where |
+| :-- | :-- | :-- | :-- |
+| D1 | CRITICAL | spoken "yes" recorded as decline | `friday/turn.py:47-53` |
+| D2 | HIGH | audit rows overwritten every daemon restart | `friday/store/audit.py:56` + `daemon.py:136,288` |
+| D3 | HIGH | hands-free capture never ends (no VAD end, no ADR-066 bail) | `friday/audio/wake.py:294-315` |
+| D4 | MED | `open my todo` refused — STT spells it `to-do` | `friday/tools/registry.py:231` |
+| D5 | MED | garbled duration silently becomes a timer | `friday/llm/schema.py:72` |
+| D6 | MED | Friday spoke the literal `String.Empty` | `friday/proactive/briefing.py:57-62` |
+| D7 | MED | "what time is it" answered from the web, wrongly | no local-time action exists |
+| D8 | MED | questions and negations dispatch state changes | no imperative gate |
+| D9 | LOW | outcome templates speak raw enum values | templates |
+
+**D3 makes A15's hands-free rows fail outright.** All three wake-initiated
+captures ran the full 15 s cap; one contained no speech at all and the ADR-066
+3 s bail-out did not fire. The rows ticked on 2026-08-25 ("wake begins
+capture", "VAD ends a wake capture") are hereby **UN-ticked** — wake still
+*fires*, but the capture it opens no longer ends. Parked behind OQ-39: measure
+the `webrtcvad` voiced-fraction before changing a line.
+
+### TTFA — measured, with the LLM confirmed on GPU
+
+```
+n=77  min=1689  p50=2172  p90=3613  p95=4900  max=8674  mean=2483  (ms)
+over the 4400 ms hard fail: 4    at or under the 1400 ms target: 0
+```
+
+**The 1400 ms p50 target was met by zero of 77 turns.** Three of the four
+hard-fail breaches are `web_search` (network + grounding); the fourth is not.
+Raised as OQ-45 — the target moves or something gets optimised, and that is the
+user's call.
+
+### Still NOT verified, and why
+
+- **Every `C?` affirm path** — blocked by D1. Includes both rows the user asked
+  to have ticked: `system_wifi{off}` affirm and `hypr_window{close}` affirm.
+- **ADR-069 barge-over-confirm** — the pass tested this WRONG (a normal `ptt`
+  capture after the question, not a `ptt-barge` during it), so the row stands
+  untested. The observed cancel was correct behaviour.
+- **FR-7 key barge-in** over a reply.
+- **Dictation actually typing** into a focused window.
+- **The apps actually appearing on screen**, and `file_open` opening the RIGHT
+  file (ADR-043: `ok` is the spawn, not the window).
+- **A reminder's fire behaviour** — one notification AND one spoken line,
+  exactly once.
+- **A16 cross-session memory** — summaries ARE being written (6 rows), but the
+  startup briefing's use of them was not confirmed.
+- **§C invariant spot-checks** — `just test-egress`, panic switch, no-CUDA.
+- **Enrolled speaker verification** — still OFF, still fails OPEN unenrolled.
+
+### Two log observations that are not yet defects
+
+- `phonemizer` logs `words count mismatch on N% of the lines` (100-500%)
+  constantly. Unknown whether it changes what is spoken.
+- `onnxruntime` warns `CUDAExecutionProvider is not in available provider
+  names` at every start. That is invariant #6 *holding*, but it reads like an
+  error.
+
+---
+
+## F-typed. Status of the TYPED pass, 2026-08-29 (superseded as 'current' by section F above, kept for its evidence)
 
 **TYPED PASS RUN 2026-08-29** — the real Textual app driven headless with the
 real LlamaClient on GPU, a real SQLite DB (in a scratch `XDG_STATE_HOME`, so the

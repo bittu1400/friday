@@ -9,13 +9,25 @@ Hyprland machine. It can launch a small fixed set of applications,
 remember preferences, and search the web through a local proxy.
 
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
-review passes. The fifth (the 2026-08-26 full-codebase audit) is FULLY FIXED:
-all 12 steps executed 2026-08-29, plus ADR-073 and ADR-074, which came out of
-Step 9's real-path run and were not in the audit at all. The TYPED half of
-`docs/reality-check.md` is verified; the live-VOICE half is the next session's
-whole job.** `friday/` is a real text+voice assistant
+review passes AND the live-voice pass. The 2026-08-26 audit is FULLY FIXED (all
+12 steps executed 2026-08-29, plus ADR-073/074 from Step 9's real-path run).
+The LIVE-VOICE PASS then ran on 2026-08-29 (night) and found 9 MORE defects —
+1 CRITICAL, 2 HIGH, 5 MEDIUM, 1 LOW — none of which came from the audit and
+none of which any test could see. NO CODE HAS BEEN CHANGED YET; the next
+session's whole job is the 9-defect fix list.** The critical one:
+**`is_affirmation` (`friday/turn.py:47-53`) matches bare tokens and Whisper
+punctuates, so EVERY spoken "yes" has been recorded as a DECLINE** — no
+confirm-gated capability has ever worked by voice. Also: **hands-free is
+unusable** (all three wake captures ran the full 15 s cap, ADR-066's bail-out
+never fired), and **the audit table overwrites itself on every daemon restart**
+(`INSERT OR REPLACE` + a per-run `v{n}` id).
+
+`friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
-`hey_jarvis` wake word, ADR-044/055; TTFA p50 2.16s/p95 2.73s), searches the web
+`hey_jarvis` wake word, ADR-044/055 — **but see D3: as of 2026-08-29 a wake
+capture never ends, so PTT is the only usable trigger**; TTFA measured live
+2026-08-29, n=77, p50 2172 ms / p95 4900 ms / max 8674 ms, with **0 of 77**
+turns meeting the 1400 ms target — OQ-45), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
 egress proof; ADR-045/046/047), converses naturally (G8: two-stage chat,
 `CHAT_SYSTEM`, RAM `Dialogue`, ADR-048), personalizes from mined habits
@@ -77,7 +89,20 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: the LIVE-VOICE PASS (`docs/reality-check.md`), not more fixing.**
+**NEXT SESSION: the 9-defect fix list from the live-voice pass.**
+Read `progress.md`'s `>>> START HERE <<<` block first — it carries the ordered
+fix list and the seven questions (OQ-39…OQ-45) to put to the user **in one
+batch before any code is written** (working agreement §2). Step 1 is D2, the
+audit-overwrite, *ahead of* the CRITICAL: verifying D1 means restarting the
+daemon and reading `action_audit`, and until D2 is fixed each restart destroys
+the previous run's proof. Fix the evidence channel before you use it.
+
+**To run the daemon in the foreground you MUST use `env -u JOURNAL_STREAM`** —
+a terminal in a systemd-started Hyprland session inherits it, H8's guard fires,
+and every `heard=` line is dropped. The first live-pass run was wasted this way.
+
+The historical note below (the pre-live-pass version of this paragraph) is kept
+because its reasoning still holds:
 Nothing from the audit is left to fix and no doc is left to write — every doc was
 mechanically re-checked against the tree on 2026-08-29 (0 dangling ADR/OQ/FR
 ids, every cited test and symbol resolves). What remains is that most of the
@@ -184,16 +209,31 @@ Lessons that block repeats — every one of them paid for:
   without confirming `llm_on_gpu` first is untrustworthy.
 
 `docs/reality-check.md` remains the manifest of what Friday must do and must
-refuse. **Typed rows: verified 2026-08-29** against the real app, real LLM, real
-SQLite and real `wl-copy`/`nmcli` — the five confirm paths (C1's blast radius),
-`cancel_reminder`'s first ever successful run (ADR-070), `clipboard_read`'s
-disclosure gate (ADR-068a), `clipboard_set` really copying, and the audit
-contract observed on real rows. Wake, VAD end-of-speech and "voice barge must
-not fire" are ticked live from 2026-08-25. **Everything else in the live-voice
-half is still the main work**, plus two deliberate hold-outs: `hypr_window`
-(acts on the focused window) and `system_wifi{off}`'s affirm (drops the
-network). Per defect #4, verify by asking the system, never by what Friday
-says.
+refuse. Its §F is now the **live** status (the typed pass moved to §F-typed).
+
+**Verified LIVE 2026-08-29 (night), read back from the system:** all five app
+launches, YouTube + YouTube search, `web_search` never dispatching (invariant
+#1 holds live), chat, `hypr_workspace` and `hypr_window` focus/fullscreen,
+volume/brightness/media/wifi-on with `wpctl`/`nmcli` read back, notes
+round-tripping SQLite, `cancel_reminder` naming the right reminder, reminders
+surviving a restart and firing, all eight §B refusals failing closed, FR-5 busy
+rejection, ADR-064 (not one voice barge in 127 turns) and ADR-065 (a
+history-only action was confirmed, not dispatched).
+
+**Blocked or failed live:** every `C?` affirm path — blocked by D1, including
+the two hold-outs the user asked to have ticked (`system_wifi{off}` affirm and
+`hypr_window{close}` affirm; both were attempted, both recorded `declined`,
+neither ran). Hands-free (D3). `open my todo` (D4). Garbled durations (D5).
+
+**Still never tested:** ADR-069 barge-over-confirm done properly (the live pass
+tested it wrong — a normal capture after the question instead of a `ptt-barge`
+during it), FR-7 key barge-in, dictation actually typing, whether the app
+windows actually appeared, whether `file_open` opened the RIGHT file, and a
+reminder's fire behaviour.
+
+Per defect #4, verify by asking the system, never by what Friday says — the
+live pass is the strongest evidence yet: its log reads exactly as though every
+confirm worked.
 
 ## Working agreement — how sessions run
 
@@ -464,6 +504,11 @@ just prefs list|forget  # manage stored preferences
 | "A sibling call site uses the same broken thing, but the ticket didn't mention it" | `registry.py` recorded in a comment that Hyprland 0.56 broke `hyprctl dispatch` — and `hypr_workspace`/`hypr_window`, which use the same form, were left broken and announcing success (ADR-074). Knowing a breakage and not grepping for its siblings is how it survives. |
 | "The argv test passes, so the tool works" | `test_hypr_tools_argv` asserted `["hyprctl","dispatch","workspace","3"]` for months. That argv is exactly what the code built and exactly what the compositor rejected. A test that asserts the argv the code builds proves only that the code builds it. |
 | "Escape the value into the command string carefully" | Don't build the string. `_LUA_DISPATCH` maps a closed param to one of sixteen import-time constants, so there is no interpolation to escape (ADR-074, stricter than ADR-027 because a workspace is one of ten values and a search query is not). |
+| "The confirm works — I typed yes and it went through" | A typed pass is not a spoken pass. `is_affirmation` matched bare tokens; Whisper writes `Yes.`; so every SPOKEN confirm in Phase 2 declined while every typed one passed. The one character never in a fixture was the full stop. Test with realistic STT output, punctuation and all. |
+| "The audit table is the evidence, so I can trust it" | Not across restarts. `request_id` is a per-run `v{n}` counter and the write is `INSERT OR REPLACE`, so run 2's `v3` silently ate run 1's `v3`. Fix the evidence channel before you use it to verify anything. |
+| "Wake fired, so hands-free works" | Firing is not capturing. On 2026-08-29 all three wake captures ran the full 15 s cap and ADR-066's 3 s bail-out never fired — including on a capture with zero speech in it. Check what the capture DID, not that the detector triggered. |
+| "`FRIDAY_DEBUG=1` in the foreground shows transcripts" | Only if `JOURNAL_STREAM` is unset. A terminal inside a systemd-started Hyprland session inherits it, H8's guard fires, and you run blind — one whole live run was wasted this way. Use `env -u JOURNAL_STREAM`. |
+| "The log shows the action, so the action happened" | The live-pass log reads like every confirm worked. `nmcli radio wifi`, `wl-paste` and `action_audit` all said `declined`. Ask the system, every single time. |
 | "The last session's block says that was already fixed" | It says `just enroll` was corrected in the docstrings; it corrected one file and missed `daemon.py`, in the one warning that fires when speaker verification is failing OPEN. A find-and-replace reported as done. Diff the claim against the tree — `just --list`, `grep`, run it — before believing it. |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
 | "Only poll the wake detector when we need it" | openWakeWord is a STREAMING model. Starving it leaves stale features and a stale score, and it re-fires the instant you resume — that was OQ-29. Feed it every frame; ignore the result instead. |
