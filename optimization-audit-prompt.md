@@ -100,6 +100,66 @@ whether moving any stage to the iGPU or NPU is actually faster, actually lower
 latency, and actually better quality, and tell me where each stage belongs. Some
 moves may lose; report those too, with the numbers.
 
+### An environment is already built for you — use it
+
+I set this up on 2026-08-30 so you do not have to ask permission or wait:
+
+```
+~/.cache/friday-accel-eval/venv        (uv, Python 3.12)
+  openvino               2026.3.1
+  openvino-genai         2026.3.1.0    <- WhisperPipeline, for STT on NPU/iGPU
+  openvino-tokenizers    2026.3.1.0
+  onnxruntime-openvino   1.24.1        <- carries BOTH EPs, see below
+```
+
+`onnxruntime-openvino` reports:
+
+```
+['OpenVINOExecutionProvider', 'CPUExecutionProvider']
+```
+
+**This is deliberately not a replacement.** One package provides both providers,
+so the intended design — my decision, treat it as a constraint — is:
+
+> **`OpenVINOExecutionProvider` is the default. `CPUExecutionProvider` is the
+> fallback.** Nothing is ripped out. If OpenVINO fails to compile a graph, is
+> unavailable, or loses on measurement, the CPU path must still be there and
+> must still work. Any placement you propose has to degrade to CPU cleanly.
+
+Note `onnxruntime-openvino` is **1.24.1** where the project venv runs
+**1.29.0** — a downgrade. Whether `kokoro-onnx`, `sherpa-onnx` and
+`openwakeword` all work correctly on 1.24.1 is **unverified and is part of your
+job**. Do not assume it.
+
+**Devices, enumerated and smoke-tested by me:**
+
+```
+CPU     Intel(R) Core(TM) Ultra 9 275HX
+GPU.0   Intel(R) Graphics (iGPU)
+GPU.1   NVIDIA GeForce RTX 5070 Laptop GPU (dGPU)
+NPU     Intel(R) AI Boost
+```
+
+A trivial 256x256 matmul compiled and executed on CPU, GPU.0 and NPU:
+
+```
+CPU    compile   56.4 ms | infer   2.85 ms | ok
+GPU.0  compile 1319.9 ms | infer   8.40 ms | ok
+NPU    compile  296.6 ms | infer 151.33 ms | ok
+```
+
+**Read that table for exactly what it proves: the devices compile and execute.
+It says NOTHING about whether they are fast.** The graph is far too small to
+mean anything, and the NPU's 151 ms is almost certainly first-call dispatch
+overhead. Do not quote these numbers as performance. Compile time is worth
+noting though — a 1.3 s iGPU compile matters for cold start, and both devices
+support caching compiled blobs.
+
+**`GPU.1` being the NVIDIA card is unexpected and I have not investigated it.**
+OpenVINO reaching an NVIDIA GPU would be through OpenCL, not CUDA — so whether
+that conflicts with invariant #6 is a genuine question and not one I have
+answered. Work it out and tell me; do not assume either way.
+
 ## Hard constraints — a design that breaks one of these is wrong, not clever
 
 These are non-negotiable and long-settled. Read `CLAUDE.md`'s "Hard invariants"
@@ -202,6 +262,17 @@ true than a long one I have to re-verify line by line.
 - `pgrep -f foo` matches its own command line. Bracket it: `pgrep -f "[f]oo"`.
 - `just test-egress` **cannot detect egress** — it inspects listening sockets.
   Do not cite it as proof of anything.
-- Ask me before downloading anything large, installing a package into the
-  project environment, or making any outbound network request beyond
-  documentation lookups.
+- **Installing is pre-authorised. Do not ask.** If you need a package, a
+  runtime, a converted model or a different build to measure something, install
+  it and say so in the report. My standing instruction: *"whatever they want
+  installed, install them right now. We can just delete if useless."* Put new
+  work in `~/.cache/friday-accel-eval/` or a scratch venv of your own.
+- **The one exception: do not install into or modify the project venv**
+  (`~/Projects/Personal/Intern/friday/.venv`) or `pyproject.toml`. The live
+  assistant runs from it, and `onnxruntime-openvino` would displace the
+  `onnxruntime` it depends on. Benchmark in a scratch environment; if a move
+  wins, propose the migration and let me run it.
+- Downloading models is fine. Say what you downloaded and where it landed.
+- Outbound network beyond package installs and documentation: tell me what and
+  why. There is an open defect (D13/D15) about this repo phoning home, so I care
+  about the distinction.
