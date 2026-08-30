@@ -83,6 +83,82 @@ a human at a keyboard.
 
 ---
 
+## SESSION 2026-08-30 (night) — FIX LIST STEP 1: D2, the audit log that ate itself. DONE. (ADR-076, FR-86)
+
+First code change since 2026-08-29. Step 1 of the 12-defect live-voice fix
+list, taken ahead of the CRITICAL on purpose: verifying D1 means restarting the
+daemon and reading `action_audit`, and until this landed each restart destroyed
+the previous run's proof.
+
+**The damage, read from the live DB before touching anything** — `v8` and `v3`
+carry 20:53/20:56 timestamps while `v87`…`v120` carry 20:46–20:51 ones. Those
+two low ids are a *later* run's rows sitting on top of the earlier run's:
+
+```
+$ sqlite3 ~/.local/state/friday/memory.db \
+    "select request_id,tool_id,outcome,datetime(created_at,'unixepoch','localtime') \
+     from action_audit order by created_at desc limit 6;"
+v8|hypr_window|declined|2026-08-29 20:56:34
+v3|system_wifi|declined|2026-08-29 20:53:20
+v120|youtube_search|ok|2026-08-29 20:51:46
+v119|open_youtube|ok|2026-08-29 20:51:29
+v97|hypr_window|declined|2026-08-29 20:48:05
+v95|hypr_window|ok|2026-08-29 20:47:38
+$ sqlite3 ~/.local/state/friday/memory.db "select count(*) from action_audit;"
+71
+```
+
+**The fix.** `friday/store/audit.py:59` — `INSERT OR REPLACE` becomes a plain
+`INSERT`, so a colliding `request_id` raises instead of destroying a row.
+`friday/daemon.py:288` — `rid = uuid.uuid4().hex`; the `v{n}` counter survives
+as `tag`, used in the `heard=` debug line and the TTFA line so a log line can
+still be tied to a row within a session (ADR-076's consequence clause). The
+TUI already generated UUIDs (`ui/tui.py:152,191`), so the daemon was the only
+producer of reusable ids.
+
+**Failing tests first, watched fail against the pre-fix tree:**
+
+```
+$ uv run pytest -q tests/test_audit.py::test_colliding_request_id_never_replaces_a_row \
+                  tests/test_daemon.py::test_request_id_is_unique_across_daemon_restarts
+E       AssertionError: reused request id across restarts: ['v1', 'v1']
+FAILED tests/test_audit.py::test_colliding_request_id_never_replaces_a_row
+FAILED tests/test_daemon.py::test_request_id_is_unique_across_daemon_restarts
+2 failed in 0.19s
+```
+
+The daemon-level test constructs two `Daemon` instances — a restart — and
+asserts the two request ids differ; that is the actual defect, and a store-only
+test would not have seen it.
+
+**After the fix:**
+
+```
+$ uv run pytest -q
+452 passed, 1 warning in 6.22s          # 450 baseline + the 2 new tests
+
+$ just eval
+fixture-set revision: a661efe50529
+passed 28/28  (100%)
+known-failing: 0
+regressions vs baseline: 0
+
+$ just test-no-fstring-sql
+OK: store/ is strictly parameterized SQL
+```
+
+**NOT yet verified on the real path, deliberately.** The proof that matters is
+two live daemon runs writing rows that both survive, and that requires a daemon
+restart with a microphone. It is taken as the FIRST action of Step 2 (D1),
+which restarts the daemon anyway. Until then this is a green-suite claim, and
+this file has been wrong about those eight times. The existing 71 `v{n}` rows
+are left alone — a UUID cannot collide with them.
+
+**No new decision, no new question.** ADR-076 and FR-86 already specified this;
+both are now marked implemented.
+
+---
+
 ## SESSION 2026-08-30 (later) — MODEL EVALUATION: five models benched on this laptop, Gemma 4 12B retained, three deleted. NO CODE CHANGED. (ADR-084, OQ-47, D16)
 
 **What this session was.** A direct continuation of the offline challenge
@@ -2220,7 +2296,9 @@ and what was rejected.
 watch it fail against the pre-fix tree.** Two tests passed vacuously during the
 fix phase and were only caught that way.
 
-**Step 1 — D2: stop the audit log eating itself. → ADR-076, FR-86.**
+**Step 1 — D2: stop the audit log eating itself. → ADR-076, FR-86. CODE DONE
+2026-08-30 — see the session block above; real-path proof still owed, taken at
+the start of Step 2.**
 UUID `request_id`, plain `INSERT`. **First, ahead of the CRITICAL, on purpose:**
 verifying D1 means restarting the daemon and reading `action_audit`, and until
 this lands each restart destroys the previous run's proof. Fix the evidence

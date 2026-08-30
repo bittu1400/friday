@@ -230,7 +230,7 @@ nowhere else. See ADR-027 and threat T2.
 | FR-83 | Tolerant startup ping (`wait_for_llm`) polls llama-server on boot to prevent crash loops while weights load | **MET (G9):** `tests/test_resilience.py`; cold-start startup verified |
 | FR-84 | Subsystem fault resilience: survives `kill -9` of llama-server and audio stream disconnects/sleep without orchestrator crash | **MET (G9):** `tests/test_resilience.py` 4/4; live kill -9 recovery verified |
 | FR-85 | A spoken affirmation is normalised (trailing punctuation stripped) before matching, and the accepted set covers natural spoken forms. A non-answer to a live confirm cancels the pending AND is then routed as an ordinary command | ADR-075 · **NOT YET IMPLEMENTED** (D1) |
-| FR-86 | `action_audit.request_id` is a UUID and the write is a plain `INSERT`; audit rows survive daemon restarts | ADR-076 · **NOT YET IMPLEMENTED** (D2) |
+| FR-86 | `action_audit.request_id` is a UUID and the write is a plain `INSERT`; audit rows survive daemon restarts | ADR-076 · `store/audit.py`, `daemon.py` · `test_colliding_request_id_never_replaces_a_row`, `test_request_id_is_unique_across_daemon_restarts` |
 | FR-87 | A turn may end in a **clarify question**: Friday asks, sets nothing, holds no pending. A `set_reminder` duration not grounded in the transcript is discarded and clarified, never guessed | ADR-077 · **NOT YET IMPLEMENTED** (D5) |
 | FR-88 | `get_time` answers time/date from the machine clock via an outcome template; the model never supplies the string | ADR-078 · **NOT YET IMPLEMENTED** (D7) |
 | FR-89 | Model-authored speech (briefings, sign-off summaries) is rejected and replaced by the fixed line when empty, a bare identifier, or non-prose | ADR-079 · **NOT YET IMPLEMENTED** (D6) |

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import sqlite3
 import time
 from pathlib import Path
+
+import pytest
 
 from friday.store.audit import AuditLog, redact, redact_args, sweep_retention
 from friday.store.db import Database
@@ -70,3 +73,21 @@ def test_retention_keeps_recent(tmp_path) -> None:
     )
     assert sweep_retention(db, retention_days=90) == 0
     assert db.query("SELECT COUNT(*) AS n FROM action_audit")[0]["n"] == 1
+
+
+def test_colliding_request_id_never_replaces_a_row(tmp_path) -> None:
+    """D2 / FR-86: the write is a plain INSERT.
+
+    It was `INSERT OR REPLACE` keyed on a `v{n}` counter the daemon reset at
+    every start, so run 2's `v3` silently destroyed run 1's `v3`. A collision
+    must now raise loudly instead of eating history.
+    """
+    db = Database(tmp_path / "memory.db")
+    audit = AuditLog(db)
+    kw = dict(params={}, policy_decision="allowed", outcome="ok", duration_ms=1)
+    audit.record(request_id="v3", tool_id="web_search", **kw)
+    with pytest.raises(sqlite3.IntegrityError):
+        audit.record(request_id="v3", tool_id="open_app", **kw)
+    assert [r["tool_id"] for r in db.query("SELECT tool_id FROM action_audit")] == [
+        "web_search"
+    ]

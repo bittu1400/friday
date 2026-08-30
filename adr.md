@@ -2573,7 +2573,9 @@ proves nothing.
 ## ADR-076 — Audit rows get a UUID and a plain INSERT
 
 **Status:** Accepted 2026-08-29 (night). Closes OQ-41. Fixes D2 (HIGH).
-**Not yet implemented.**
+**IMPLEMENTED 2026-08-30** (`friday/store/audit.py:59`, `friday/daemon.py:288`).
+Real-path proof — rows surviving a restart of the live daemon — is pending and
+is taken at the start of the D1 voice test, which restarts the daemon anyway.
 
 **Context.** `friday/store/audit.py:56` wrote `INSERT OR REPLACE INTO
 action_audit`, keyed on `request_id`, and `friday/daemon.py:136,288` generated

@@ -53,7 +53,10 @@ class AuditLog:
         duration_ms: int,
     ) -> None:
         self._db.write(
-            "INSERT OR REPLACE INTO action_audit"
+            # Plain INSERT, never OR REPLACE: `request_id` is the primary key
+            # and a colliding id must raise rather than destroy history
+            # (D2/ADR-076 — a per-run `v{n}` counter made restarts eat rows).
+            "INSERT INTO action_audit"
             "(request_id, tool_id, args_redacted, policy_decision, outcome, "
             " duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (

@@ -285,7 +285,10 @@ class Daemon:
 
     async def _run_turn(self, pcm) -> None:  # noqa: ANN001 - numpy array
         self._seq += 1
-        rid = f"v{self._seq}"
+        # The audit key is a UUID so it survives restarts (ADR-076); `v{n}`
+        # stays in the debug log to correlate a line with a row in-session.
+        rid = uuid.uuid4().hex
+        tag = f"v{self._seq}"
         try:
             # TRANSCRIBING
             text = await self._transcribe(pcm)
@@ -295,7 +298,7 @@ class Daemon:
             if config.DEBUG:
                 # no_disk: the transcript may reach the console, never the log
                 # file (invariant #7 — the redactor rewrites paths, not bodies).
-                log.info("[debug] %s heard=%r", rid, text, extra={"no_disk": True})
+                log.info("[debug] %s heard=%r", tag, text, extra={"no_disk": True})
             if not text:  # FR-12 empty / FR-13 over-limit -> IDLE, silent
                 return
 

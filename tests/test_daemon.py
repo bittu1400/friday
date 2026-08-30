@@ -719,3 +719,27 @@ def test_history_resolved_action_dispatches_only_after_yes(monkeypatch):
         assert ran == [{"app": "browser"}], "yes must dispatch the held action"
 
     asyncio.run(go())
+
+
+def test_request_id_is_unique_across_daemon_restarts(monkeypatch):
+    """D2 / FR-86: two daemon runs must not reuse request ids.
+
+    The id was `f"v{self._seq}"` with `_seq` reset to 0 per process, so run 2's
+    third turn wrote `v3` again — and `INSERT OR REPLACE` erased run 1's row.
+    """
+    seen = []
+
+    async def fake_run_turn(*a, **k):
+        seen.append(k["request_id"])
+        return TurnResult("none", {}, "(no action)", False)
+
+    monkeypatch.setattr(daemon_mod, "run_turn", fake_run_turn)
+
+    async def one_turn(d):
+        await d.on_ptt("press")
+        await d.on_ptt("release")
+        await d._turn_task
+
+    asyncio.run(one_turn(_daemon()))
+    asyncio.run(one_turn(_daemon()))  # a restart: fresh Daemon, fresh counter
+    assert len(set(seen)) == 2, f"reused request id across restarts: {seen}"
