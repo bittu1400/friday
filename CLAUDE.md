@@ -222,6 +222,18 @@ surviving a restart and firing, all eight §B refusals failing closed, FR-5 busy
 rejection, ADR-064 (not one voice barge in 127 turns) and ADR-065 (a
 history-only action was confirmed, not dispatched).
 
+**2026-08-30 — the offline challenge.** The user asked whether the model is
+really local. **It is:** `llama-server` has 0 remote sockets, binds 127.0.0.1:8080,
+and holds 4712 MiB of VRAM with the 4.4 GB GGUF on local disk. But verifying it
+properly found **three more defects (D13–D15)**: the STT path phones home to
+Hugging Face at every daemon start (~9 KB metadata, no audio or text —
+`friday/audio/stt.py:96` lacks `local_files_only=True`); ADR-058's wake-pause
+during dictation was never implemented; and **`just test-egress` cannot detect
+egress at all**, which is why the first one survived. Defects now **D1–D15**.
+Also measured: decode is bandwidth-bound at ~272 GB/s, so `tok/s ~= 272 /
+weights_GB` and Qwen2.5-7B Q4_K_M is **already at this card's roof** — the
+2172 ms p50 TTFA is mostly not generation. Bigger-model question is OQ-46.
+
 **Blocked or failed live:** every `C?` affirm path — blocked by D1, including
 the two hold-outs the user asked to have ticked (`system_wifi{off}` affirm and
 `hypr_window{close}` affirm; both were attempted, both recorded `declined`,
@@ -514,6 +526,9 @@ just prefs list|forget  # manage stored preferences
 | "The log shows the action, so the action happened" | The live-pass log reads like every confirm worked. `nmcli radio wifi`, `wl-paste` and `action_audit` all said `declined`. Ask the system, every single time. |
 | "The last session's block says that was already fixed" | It says `just enroll` was corrected in the docstrings; it corrected one file and missed `daemon.py`, in the one warning that fires when speaker verification is failing OPEN. A find-and-replace reported as done. Diff the claim against the tree — `just --list`, `grep`, run it — before believing it. |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
+| "`just test-egress` passes, so nothing leaves the machine" | It inspects `ss -ltnp` — **listening** sockets. Egress is outbound. The recipe named `test-egress` looks at the one category that cannot contain an egress event, and duplicates `selftest`'s `socket_binds`. Every "egress proof" in these docs traces to it. Asking `ss -tnp` instead found D13 in one command (D15). |
+| "RAM and CPU look normal, so no local model is running" | Wrong meter. A GPU-resident model lives in **VRAM**: 4712 MiB held, 519 MB RSS, 0 % GPU between turns, 6 min CPU over 2 days. Idle is what correct looks like. `nvidia-smi --query-compute-apps` is the meter. |
+| "The ADR says the wake word is paused during dictation" | ADR-058 decided it; `grep -rn is_dictating` returns two hits, one of which is the property itself. Nothing tells the detector. Third time an ADR was mistaken for an implementation (see `cancel_reminder`/ADR-070 and both Hyprland tools/ADR-074) — D14. |
 | "Only poll the wake detector when we need it" | openWakeWord is a STREAMING model. Starving it leaves stale features and a stale score, and it re-fires the instant you resume — that was OQ-29. Feed it every frame; ignore the result instead. |
 | "Speech during playback means the user is interrupting" | On this hardware the AEC gives −5 to −10 dB, so it is usually Friday. Voice barge-in is off (ADR-064); PTT is the interrupt until OQ-32 lands. |
 | "The two UIs do the same thing, they just have their own copy of it" | That copy is the bug. The TUI's confirm was never migrated to `PendingAction` and crashed on every G12 action for months (C1). One `turn.resolve_pending`, both callers. |

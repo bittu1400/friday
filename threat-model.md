@@ -318,7 +318,7 @@ slow search exhausts RAM, pins all 24 cores, or leaves the FSM stuck.
 | G3 | AS-1..AS-16 pass; registry has no `irreversible` entries; `shell=True` grep is empty |
 | G4 | DB permissions, redaction test, export/delete/reset all work |
 | G6 | PTT path documented with evidence; if `evdev`, the udev ACL is narrow and reviewed |
-| G7 | IS-1..IS-20 all blocked, asserted on the executor; egress test confirms SearXNG is the only outbound path |
+| G7 | IS-1..IS-20 all blocked, asserted on the executor. **The egress half of this row is withdrawn 2026-08-30:** `just test-egress` inspects *listening* sockets and cannot observe an outbound connection (D15), and SearXNG is **not** the only outbound path — the STT model load contacts Hugging Face at every daemon start (D13). See `docs/reality-check.md` §C and OQ-46. |
 | G9 | Self-test refuses a non-loopback bind; panic file honoured |
 
 ## 7. Phase 2 re-review trigger

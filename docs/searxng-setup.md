@@ -1,6 +1,9 @@
 # SearXNG setup (G7, ADR-045)
 
-Friday's only egress. A loopback-only SearXNG in Docker, managed as a
+Friday's only *intentional* egress. (**Corrected 2026-08-30:** it is not the
+only outbound path — `friday/audio/stt.py:96` lets `huggingface_hub` contact
+Hugging Face at every daemon start, ~9 KB of metadata, no audio or text. That
+is D13; the test that was supposed to catch it is D15.) A loopback-only SearXNG in Docker, managed as a
 `systemd --user` unit. Nothing binds beyond `127.0.0.1` (invariant #8 / FR-60).
 
 ## Pinned image

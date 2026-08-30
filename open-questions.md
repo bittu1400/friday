@@ -162,6 +162,58 @@ met, which is worse than no target.
 
 ---
 
+### OQ-46 — Offline hardening, and is a bigger model worth its latency?
+
+**Decider:** USER · **Blocks:** nothing today · **Status:** OPEN (raised
+2026-08-30 by the offline challenge)
+
+Two decisions, kept in one entry because they trade against each other on the
+same 8151 MiB of VRAM.
+
+**(a) Close the STT phone-home (D13).** `friday/audio/stt.py:96` passes a model
+*name* to `WhisperModel`, so `huggingface_hub` contacts `huggingface.co` at every
+daemon start to check the cached revision — measured at 1899 B out / 7637 B in.
+No audio or text leaves; what leaks is that this machine loaded
+`Systran/faster-whisper-small.en`. Options:
+
+  1. `local_files_only=True` at the call site — narrowest, fails loudly if the
+     cache is ever missing, and does not affect other libraries.
+  2. `Environment=HF_HUB_OFFLINE=1` in `friday.service` — one line, covers any
+     future `huggingface_hub` caller, but is invisible from the code and is not
+     inherited by a foreground `just voice`.
+  3. Both.
+
+A separate sub-decision: `just test-egress` (D15) needs replacing with a check
+that can fail, or deleting so it stops being cited as proof.
+
+**(b) Bigger model?** The user asked whether an 8B or 12B would be stronger.
+Measured constraint, not estimated: decode here is memory-bandwidth-bound at
+~272 GB/s, so `tok/s ~= 272 / weights_GB`, and 3026 MiB of VRAM is free.
+
+| Candidate | Q4_K_M weights | Predicted decode | Fits 8 GB? |
+| :-- | :-- | :-- | :-- |
+| Qwen2.5-7B (current) | 4.4 GB | 61.9 tok/s (measured) | yes, 3.0 GB spare |
+| 8B class | ~4.9 GB | ~55 tok/s | yes, comfortably |
+| 12B class | ~7.1 GB | ~38 tok/s | only by cutting ctx or KV quant |
+| 14B class | ~9 GB | — | **no** |
+
+The tension: TTFA already fails 0-of-77 (OQ-45/ADR-080), and a bigger model can
+only make it worse. It also buys least where Friday spends most of its turns —
+the planner is GBNF-constrained to a closed tool enum, so capacity is largely
+wasted there; the gain would land in G8 chat only. A hybrid-thinking model must
+have thinking disabled or TTFA explodes.
+
+**If nobody decides:** (a) stays open and the "local-first" claim keeps a small
+hole in it with a test that cannot find it; (b) defaults to keeping
+Qwen2.5-7B, which is the safe answer — it already sits at this card's
+bandwidth roof.
+
+**Note:** ADR-041's dependency drill applies. No swap without `just eval`
+(28 fixtures) plus a TTFA sample on this laptop, and an ADR recording the
+rejected alternatives.
+
+---
+
 ## Kept Open (Long-Term / Optional)
 
 ### OQ-28 — Should a meta-question about capability route to chat, not web_search?

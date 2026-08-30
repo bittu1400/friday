@@ -83,6 +83,180 @@ a human at a keyboard.
 
 ---
 
+## SESSION 2026-08-30 — THE OFFLINE CHALLENGE: the user asked whether the model is really local. It is. Two new defects found proving the question was worth asking. NO CODE CHANGED.
+
+**What this session was.** The user asked a blunt question: *"Are you sure the
+current model is offline? Why don't I see any more usage than normal? If it's
+not offline, were you lying to me all this time?"* That is the right question
+and the docs could not answer it — every offline claim in this repo rested on
+`just test-egress`, which turns out to be a check that cannot fail (below).
+So the claim was verified against the running system instead of the documents.
+
+**Verdict: the LLM is 100% local. The claim was true.** But the sweep found
+that Friday *does* make one small outbound connection at every daemon start,
+from the STT path, and that the test written to prove otherwise never looked.
+
+### The offline claim, verified against the system
+
+| Question | Command | Answer |
+| :-- | :-- | :-- |
+| Is a remote model being called? | `ss -tnp \| grep -c llama-server` | **0** remote sockets. Ever. |
+| Where does it listen? | `ss -tlnp` | `LISTEN 127.0.0.1:8080` — loopback only |
+| Are the weights local? | `ls -lh ~/.local/share/friday/models/` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` 4.4 GB, dated Aug 22 |
+| Is it really on the GPU? | `nvidia-smi --query-compute-apps` | pid 2633 holds **4712 MiB** |
+| Health | `just selftest` | 8/8 PASS, incl. `llm_on_gpu` and `socket_binds` |
+
+### Why the machine looks idle — the user's actual observation, explained
+
+The user's evidence for suspicion was that Friday costs nothing visible: "only
+the RAM is used a little bit, nothing more." That observation is correct and it
+is what a resident local model is supposed to look like:
+
+```
+GPU utilisation (idle)  0 %              <-- 0 % between turns; bursts are ~340 ms
+VRAM held               4712 MiB         <-- THIS is where the model lives
+RSS (system RAM)        519 MB           <-- process + mmap pages only
+CPU, over 2d uptime     6 min 25 s       <-- ~0.2 %
+```
+
+**The model lives in VRAM, not RAM.** Watching RAM and CPU to decide whether a
+GPU-resident model is running is looking at the wrong meter. Recorded here
+because the next person will look at the same wrong meter.
+
+### D13 (MEDIUM) — the STT path phones home to Hugging Face on every daemon start
+
+`friday/audio/stt.py:96` constructs the Whisper backend by **name**:
+
+```python
+m = WhisperModel(model_name, device="cpu", compute_type=compute_type, cpu_threads=threads)
+```
+
+No `local_files_only=True`, no `download_root`. `faster_whisper` therefore hands
+the name to `huggingface_hub`, which contacts `huggingface.co` (AWS CloudFront)
+to check the cached revision — **at every start**, forever, even though the
+weights have been on disk since August.
+
+Caught live on the running daemon, not inferred:
+
+```
+ESTAB [2400:74e0:...]:46360  [2600:9000:21b4:ce00:17:b174:6d00:93a1]:443
+      users:(("python3",pid=505380,fd=13))          <-- friday.voice_main
+      bytes_sent:1899  bytes_received:7637
+```
+
+**Scope, stated precisely so it is not over- or under-sold:** ~9 KB of
+metadata. **No audio, no transcript, no user text leaves the machine** —
+invariant #7 is not violated. What does leave is the fact that this machine
+started and loaded `Systran/faster-whisper-small.en`. For a project whose first
+line of `CLAUDE.md` is "local-first", that is a defect, not a footnote. It also
+means a network outage can delay or break STT startup for no reason: the
+weights are already local (`~/.cache/huggingface/hub/models--Systran--faster-whisper-small.en`, 464 MB).
+
+Fix is one of: `local_files_only=True` at the call site, or
+`Environment=HF_HUB_OFFLINE=1` in `friday.service`. Not applied — see OQ-46.
+
+### D14 (MEDIUM) — ADR-058's wake-word pause during dictation was never implemented
+
+ADR-058 decided, in as many words: *"the wake word is **paused** so 'hey
+jarvis' mid-sentence is typed, not fired."* `docs/reality-check.md` A14 carries
+it forward as an expected row ("wake paused"), and
+`friday/audio/dictation.py:4` repeats it in the module docstring.
+
+Nothing does it:
+
+```
+$ grep -rn is_dictating friday/**/*.py
+friday/daemon.py:335            <-- the ONLY consumer: the type-verbatim branch
+friday/audio/dictation.py:54    <-- the property itself
+```
+
+One call site. The wake detector is never told that dictation is active, so
+saying "hey jarvis" mid-dictation still fires the detector. The failure is
+benign-looking (the phrase gets typed rather than triggering a turn) which is
+exactly why it survived — but it is a decided behaviour that three documents
+assert and no code provides.
+
+This is the repo's own recurring pattern, for the third time: **an ADR is not
+an implementation.** Same class as `cancel_reminder` (ADR-070) and both
+Hyprland tools (ADR-074).
+
+### D15 (MEDIUM) — `just test-egress` cannot fail on egress
+
+The reason D13 survived to today. The whole recipe:
+
+```
+test-egress:
+    @echo "listening sockets (must be 127.0.0.1 only):"
+    @ss -ltnp | grep -E '8080|8888' || true
+    @echo "asserting no 0.0.0.0 bind on 8080/8888:"
+    @! ss -ltnp | grep -E '0\.0\.0\.0:(8080|8888)'
+```
+
+`ss -ltnp` is **listening** sockets. Egress is **outbound** sockets. The recipe
+named `test-egress` inspects the one category that by construction cannot
+contain an egress event. It duplicates `selftest`'s `socket_binds` check and
+proves nothing beyond it. Every "egress proof" cited in `CLAUDE.md`,
+`progress.md` and `threat-model.md` traces back to this.
+
+Straight into the ledger next to `gpu_arch` passing through a GPU outage and
+`wake-bench` printing "Wake Hits: 0" with a dead microphone: **a check that
+cannot fail is worthless.** Any replacement needs a test that proves the FAIL
+path — e.g. assert no non-loopback ESTAB socket is owned by a `friday`/
+`llama-server` pid, then prove it by making one on purpose.
+
+### Measured this session — a bandwidth constant that makes model sizing arithmetic
+
+From the live `friday-llm` journal, LLM confirmed on GPU:
+
+```
+eval time = 339.46 ms / 22 tokens (16.16 ms per token, 61.86 tokens per second)
+```
+
+61.86 tok/s decoding 4.4 GB of weights implies **~272 GB/s effective memory
+bandwidth** on this RTX 5070 Laptop (8151 MiB GDDR7). Decode on this card is
+memory-bandwidth-bound, not compute-bound, so for any GGUF:
+
+```
+   decode tok/s  ~=  272 / (weights in GB)
+```
+
+Qwen2.5-7B Q4_K_M is therefore **already at the roof** — no tuning makes a 7B
+go faster here. It also means the p50 TTFA of 2172 ms (OQ-45, 0 of 77 turns
+under target) is **mostly not generation time**, and a session that tries to
+fix TTFA by touching the model is aiming at the wrong component.
+
+VRAM budget, measured rather than estimated: 4712 MiB held = ~4506 MiB weights
++ ~224 MiB KV (8192 ctx, q8_0, and Qwen2.5-7B's GQA makes KV cheap) + compute
+buffers. **3026 MiB free.** The dGPU carries no compositor here, so nearly all
+8151 MiB is available.
+
+### Answered this session, from the code (no measurement needed)
+
+- **Is a 3B/4B smarter than a 7B?** No. Same family and generation, parameter
+  count is capability. A *newer-generation* 4B can match an *older* 7B on
+  benchmarks — but Friday's planner turn is GBNF-constrained to a closed tool
+  enum, where model size buys almost nothing, while G8 chat is exactly where a
+  small model degrades and benchmarks do not show it. Downsizing trades the
+  project's stated primary goal for latency it may not even recover.
+- **How do you get out of dictation?** Say "stop / end / exit / disable
+  dictation". `_STOP_DICTATION` (`friday/audio/dictation.py:16`) is checked at
+  `daemon.py:329`, **before** the type-verbatim branch at :335, so it always
+  escapes — and unlike `is_affirmation` (D1) the regex tolerates Whisper's
+  trailing full stop. There is no flag to disable the feature entirely.
+
+### State left behind
+
+**No code changed.** Working tree was clean at session start and only `.md`
+files are touched by this block. `friday.service` was `inactive` and a
+foreground `just voice` (pid 505380) from a parallel session held the mic; the
+two-daemon rule was not violated.
+
+Defect list is now **D1…D15**. New open question: **OQ-46** (bigger model /
+offline hardening). Nothing here changes the standing fix-list order — D2 then
+D1 remains first.
+
+---
+
 ## SESSION 2026-08-29 (night, later) — THE LIVE-VOICE PASS: first full spoken sweep, 9 defects, 2 of them serious. NO CODE CHANGED.
 
 **What this session was.** The live-voice pass the previous four blocks kept

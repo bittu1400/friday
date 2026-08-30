@@ -343,6 +343,16 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 - [ ] **D11/D12 in the typing path:** `wtype` argv lacks a `--` guard, and
       `handle_transcript` runs `subprocess.run(timeout=3)` **on the event
       loop** — Friday is deaf for every dictated chunk.
+- [ ] **D14: "wake paused" is a decided behaviour that no code provides.** ADR-058
+      says the wake word is paused so "hey jarvis" mid-sentence is typed, not
+      fired; the row above and `dictation.py`'s docstring both repeat it.
+      `grep -rn is_dictating` returns exactly two hits — the property and the
+      type-verbatim branch at `daemon.py:335`. The detector is never told.
+- [x] **Escaping dictation works and is punctuation-safe — read 2026-08-30.**
+      "stop / end / exit / disable dictation" (`dictation.py:16`) is matched at
+      `daemon.py:329`, **before** the typing branch at :335, and the trailing
+      `\b` tolerates Whisper's full stop. Unlike `is_affirmation` (D1). There is
+      no flag to disable the feature outright.
 - [ ] A planner-routed phrasing (e.g. "dictation on") also actually toggles the mode
 
 ### A15. Voice I/O plumbing
@@ -397,6 +407,14 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 ## C. Invariants & security to spot-check
 
 - [ ] **#8 loopback only:** `just test-egress` — only 127.0.0.1 on 8080/8888, no 0.0.0.0
+      **D15: this recipe cannot prove it.** `ss -ltnp` lists *listening* sockets;
+      egress is *outbound*. The check duplicates `selftest`'s `socket_binds` and
+      has never been able to observe an egress event. Ask the system instead:
+      `ss -tnp` and assert no non-loopback ESTAB socket belongs to a friday or
+      llama-server pid. Doing exactly that on 2026-08-30 found **D13**.
+- [ ] **egress, actually checked:** `llama-server` has **0** remote sockets
+      (verified 2026-08-30). But `friday.voice_main` opens one ~9 KB HTTPS
+      connection to Hugging Face at every start, from the STT model load (D13).
 - [ ] **#6 CUDA:** only `llama-server` uses the GPU. STT, TTS, wake, AEC, VAD,
       speaker verify are CPU. (`friday.selftest` + no CUDA in the daemon process.)
       Wake fails **closed** if openWakeWord ever lands on CUDA.
@@ -512,6 +530,9 @@ those rows DO pass (a decline is what the system does for everything).
 | D10 | MED | `file_open` reports success on a file that does not exist | `~/notes.md`, `~/todo.md` were never created |
 | D11 | MED | `wtype` argv has no `--` guard; text starting with `-` parses as a flag | `friday/tools/typer.py:25` |
 | D12 | MED | dictation types on the event loop (`subprocess.run(timeout=3)`) — audit H6's class, escaped | `friday/daemon.py:337` |
+| D13 | MED | STT phones home to Hugging Face on every daemon start (~9 KB metadata; no audio/text leaves) | `friday/audio/stt.py:96` — no `local_files_only=True` |
+| D14 | MED | ADR-058's wake-word pause during dictation was never implemented (`is_dictating` has one consumer) | `friday/audio/dictation.py:4` vs `friday/daemon.py:335` |
+| D15 | MED | `just test-egress` inspects **listening** sockets, so it cannot detect egress — every 'egress proof' in the docs traces to it | `justfile:54-58` |
 
 **D3 makes A15's hands-free rows fail outright.** All three wake-initiated
 captures ran the full 15 s cap; one contained no speech at all and the ADR-066
