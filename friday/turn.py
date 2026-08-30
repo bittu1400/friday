@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,15 +43,53 @@ log = logging.getLogger("friday.turn")
 _PLAN_GRAMMAR = (Path(schema.__file__).parent / "grammars" / "plan.gbnf").read_text()
 
 # Deterministic confirm handshake (ADR-037): no second model turn, so no
-# injection surface and "one turn in flight" holds. Anything not an explicit
-# yes cancels — fail safe, no write.
+# injection surface and "one turn in flight" holds. A pending is only ever
+# executed on an explicit affirmative — fail safe, no write.
+#
+# The set is WIDER than the ten bare tokens it started as (ADR-075b). The user
+# was shown the tradeoff — every added phrase is one more way to approve a
+# destructive action by accident — and chose to widen, because the natural
+# spoken answer to "Are you sure?" is rarely the word "yes" alone.
 _AFFIRM = frozenset(
-    {"yes", "y", "yeah", "yep", "yup", "sure", "ok", "okay", "correct", "do it"}
+    {
+        "yes", "y", "yeah", "yep", "yup", "sure", "ok", "okay", "correct",
+        "do it", "go ahead", "please do", "confirm", "yes please",
+        "yeah do it", "do it please", "affirmative", "go for it",
+    }
 )
+# An EXPLICIT no is answered ("Okay, cancelled."). Anything that is neither
+# cancels the pending and is then re-routed as a fresh command (ADR-075c), so
+# the two sets have to be told apart — they are not each other's complement.
+_DECLINE = frozenset(
+    {
+        "no", "n", "nope", "nah", "negative", "cancel", "stop", "don't",
+        "dont", "do not", "never mind", "nevermind", "forget it", "no thanks",
+        "no thank you",
+    }
+)
+# Whisper punctuates EVERY utterance. Matching bare tokens meant `"Yes."` was
+# not an affirmation, so every spoken confirm in Phase 2 declined while every
+# typed one passed (D1, ADR-075a). The one character never in a fixture was
+# the full stop.
+# Inner punctuation matters too: Whisper writes "Yeah, do it." with a comma.
+# The apostrophe is deliberately NOT stripped — it would turn "don't" into
+# "don t" — only normalised from the curly form STT prefers.
+_SPOKEN_PUNCT = re.compile("[.,!?;:\u2026\"\u201c\u201d-]")
+
+
+def _normalise(text: str) -> str:
+    """Casefold and drop the punctuation STT sprinkles through a spoken answer,
+    collapsing what is left to single spaces so the set lookup stays exact."""
+    return " ".join(_SPOKEN_PUNCT.sub(" ", text.casefold().replace("\u2019", "'")).split())
 
 
 def is_affirmation(text: str) -> bool:
-    return text.strip().casefold() in _AFFIRM
+    return _normalise(text) in _AFFIRM
+
+
+def is_decline(text: str) -> bool:
+    """An explicit refusal. NOT `not is_affirmation(...)` — see `_DECLINE`."""
+    return _normalise(text) in _DECLINE
 
 
 @dataclass(frozen=True)
@@ -395,8 +434,13 @@ async def resolve_pending(
     audit: AuditLog | None,
     request_id: str,
     dry_run: bool = False,
-) -> str:
+) -> str | None:
     """Resolve a confirm-first handshake for EITHER pending type, from EITHER UI.
+
+    Returns the line to speak, or **None** when the answer was neither a yes
+    nor a no: the pending has been dropped and audited, and the caller must run
+    the same text as a fresh command (ADR-075c). No second model turn is
+    introduced — it is the text already in hand, re-routed.
 
     Both the voice daemon and the TUI route here so the two can never drift
     apart again. C1 of the 2026-08-26 audit was exactly that drift: the TUI
@@ -407,9 +451,9 @@ async def resolve_pending(
     been migrated; the text path never was. One resolver, one behaviour.
 
     Deterministic (ADR-037): no second model turn, so no injection surface and
-    one-turn-in-flight holds. Anything that is not an explicit affirmation
-    cancels — fail safe. Execute FIRST, then speak (ADR-009): every branch
-    returns the line only after the side effect has actually happened.
+    one-turn-in-flight holds. Nothing but an explicit affirmation executes —
+    fail safe. Execute FIRST, then speak (ADR-009): every branch returns the
+    line only after the side effect has actually happened.
     """
     if pending is None:  # defensive: nothing was held
         return templates.CANCELLED_ACTION
@@ -418,7 +462,10 @@ async def resolve_pending(
         if is_affirmation(answer):
             return await confirm_preference(pending, prefs, audit, request_id=request_id)
         await _audit_declined(audit, request_id, "remember_preference", pending)
-        return templates.cancelled_preference()
+        # Live 2026-08-29: "Open a terminal" was swallowed by a preference
+        # confirm and the terminal never opened. A non-answer still cancels —
+        # it just no longer eats the command (ADR-075c).
+        return templates.cancelled_preference() if is_decline(answer) else None
 
     if not is_affirmation(answer):
         # ADR-072 (OQ-37): a decline is NOT a dispatch, and it still gets a row.
@@ -427,7 +474,7 @@ async def resolve_pending(
         # later read. `outcome='declined'` keeps it out of `mine_habits`, which
         # filters on `outcome='ok'` — a refusal must never become a habit.
         await _audit_declined(audit, request_id, pending.tool_id, pending)
-        return templates.CANCELLED_ACTION
+        return templates.CANCELLED_ACTION if is_decline(answer) else None
 
     # Every branch below EXECUTES, so every branch below audits (FR-58). These
     # are the dangerous dispatches — wifi off, close the window, overwrite the

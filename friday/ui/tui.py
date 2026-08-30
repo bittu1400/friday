@@ -133,6 +133,12 @@ class FridayTUI(App):
 
     @work(exclusive=True)
     async def _do_turn(self, text: str) -> None:
+        await self._turn_body(text)
+
+    async def _turn_body(self, text: str) -> None:
+        """The turn itself, outside the worker so `_resolve_pending` can reuse
+        it when an answer turns out to be a fresh command (ADR-075c) — starting
+        a second exclusive worker from inside one would cancel the caller."""
         log = self.query_one("#log", RichLog)
         db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
         habits_digest = ""
@@ -190,6 +196,9 @@ class FridayTUI(App):
             prefs=self._prefs, audit=self._audit,
             request_id=uuid.uuid4().hex, dry_run=self._dry_run,
         )
+        if spoken is None:  # neither yes nor no: cancelled, now run it (ADR-075c)
+            await self._turn_body(answer)
+            return
         log.write(f"[bold green]friday[/] {spoken}")
         if self._speaker is not None:  # voice the confirm follow-up too (ADR-040)
             import asyncio

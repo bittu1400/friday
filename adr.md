@@ -2526,7 +2526,12 @@ that was ADR-067(d)'s explicitly closed question. Killing a launch at
 ## ADR-075 — A spoken "yes" is normalised and widened; a non-answer cancels AND then runs
 
 **Status:** Accepted 2026-08-29 (night), after the live-voice pass. Amends
-ADR-069. Closes OQ-40. Fixes D1 (CRITICAL). **Not yet implemented.**
+ADR-069. Closes OQ-40. Fixes D1 (CRITICAL).
+**IMPLEMENTED 2026-08-30** — `friday/turn.py` (`_normalise`, `_AFFIRM`,
+`_DECLINE`, `resolve_pending` now returns `str | None`), `daemon.py`
+(`_resolve_confirm` returns a bool and the caller falls through) and
+`ui/tui.py` (`_turn_body` extracted so the re-route reuses the normal
+path). **Not yet proven by voice** — that is the live test with the user.
 
 **Context.** `is_affirmation` (`friday/turn.py:47-53`) compared
 `text.strip().casefold()` against a frozenset of ten bare tokens. Whisper

@@ -159,6 +159,90 @@ both are now marked implemented.
 
 ---
 
+## SESSION 2026-08-30 (night) — FIX LIST STEP 2: D1, the CRITICAL. Every spoken "yes" was a decline. (ADR-075, FR-85)
+
+**The defect, reproduced on the real functions against the pre-fix source**
+(`git stash push friday/`, then drive `turn.py` directly):
+
+```
+PRE-FIX is_affirmation('Yes.') -> False
+PRE-FIX is_affirmation('Go ahead.') -> False
+PRE-FIX spoken yes -> 'Okay, cancelled.'
+PRE-FIX non-answer -> 'Okay, cancelled.'   (the command was swallowed)
+PRE-FIX audit rows: [{'request_id': 'r', 'outcome': 'declined'},
+                     {'request_id': 'r2', 'outcome': 'declined'}]
+```
+
+A `system_wifi{off}` pending, answered `"Yes."`, was recorded **declined** and
+never dispatched. That is the whole of D1, on this tree, today.
+
+**The fix — three parts, all of ADR-075:**
+
+(a) `_normalise` casefolds, maps the curly apostrophe to `'`, replaces
+`. , ! ? ; : … " “ ” -` with spaces and collapses runs, so `"Yeah, do it."`
+matches. The apostrophe is deliberately kept — stripping it turns `don't` into
+`don t`.
+
+(b) `_AFFIRM` widened to the natural spoken forms (`go ahead`, `please do`,
+`confirm`, `go for it`, …). The comment records that the user was shown the
+tradeoff — each phrase is another way to approve a destructive action by
+accident — and chose to widen.
+
+(c) A new `is_decline` set, because **a decline and a non-answer are no longer
+the same thing**. `resolve_pending` now returns `str | None`: `None` means "the
+pending was cancelled and audited, now run this text as a command". The daemon's
+`_resolve_confirm` returns a bool and `_run_turn` falls through to the planner
+on False; the TUI's `_do_turn` body was extracted as `_turn_body` so the
+re-route reuses the normal path (starting a second `@work(exclusive=True)`
+worker from inside one would cancel its own caller). **One resolver still
+decides** — C1's lesson — only the "now run it" wiring is per-UI, which it has
+to be.
+
+**Post-fix, same script, same functions:**
+
+```
+POST-FIX 'Yes.'      -> 'Wi-Fi.'          dispatched
+POST-FIX 'Go ahead.' -> 'Wi-Fi.'          dispatched
+POST-FIX 'No.'       -> 'Okay, cancelled.'
+POST-FIX non-answer  -> None              (caller re-routes it)
+audit: a=ok, b=ok, c=declined, d=declined
+```
+
+(The spoken line `"Wi-Fi."` is D9 — templates speaking raw enum values. Step 12.)
+
+**Tests — `tests/test_spoken_affirmation.py`, 24 cases, all realistic STT
+output.** A grep for a punctuated affirmation across `tests/` returned 0 hits
+before this file existed, which is why five review passes missed D1. Covered:
+punctuated yes (8 forms), the widened phrases, punctuated no, a command that is
+neither, `resolve_pending` dispatching + auditing `allowed/ok` on `"Yes."`,
+declining on `"No."`, returning `None` on a non-answer, and the daemon end of
+(c) — a confirm armed, `"Open a terminal."` heard, planner reached, `Launching
+foot.` spoken, `_pending` cleared — plus its inverse, that `"Yes."` never
+reaches the planner.
+
+```
+$ uv run pytest -q
+476 passed, 1 warning in 6.50s     # 452 + 24
+
+$ just eval
+passed 28/28  (100%)   known-failing: 0   regressions vs baseline: 0
+
+$ just test-injection
+1 passed          # 20/20 fixtures, none dispatches
+
+$ just test-no-fstring-sql
+OK: store/ is strictly parameterized SQL
+```
+
+**NOT proven by voice yet.** Both Step 1 and Step 2 are green-suite claims
+until a daemon runs with a microphone; that session also takes D2's real-path
+proof, since it restarts the daemon and reads `action_audit` either way. The
+rows to re-run are the blocked `C?` affirms listed below — `clipboard_read`,
+`clipboard_set`, `system_wifi{off}`, `hypr_window{close}` — plus an ADR-065
+history-confirm.
+
+---
+
 ## SESSION 2026-08-30 (later) — MODEL EVALUATION: five models benched on this laptop, Gemma 4 12B retained, three deleted. NO CODE CHANGED. (ADR-084, OQ-47, D16)
 
 **What this session was.** A direct continuation of the offline challenge
@@ -2305,7 +2389,8 @@ this lands each restart destroys the previous run's proof. Fix the evidence
 channel before you use it. Keep emitting `v{n}` in the debug log for
 correlation; it just stops being the key.
 
-**Step 2 — D1 (CRITICAL): spoken affirmations. → ADR-075, FR-85.**
+**Step 2 — D1 (CRITICAL): spoken affirmations. → ADR-075, FR-85. CODE DONE
+2026-08-30 — see the session block above; unproven by voice.**
 `friday/turn.py:47-53`. Normalise trailing punctuation, widen the phrase set,
 and make a non-answer cancel the pending **and then run as a fresh command**.
 Fix it once in the shared resolver (ADR-069) — do not patch a caller.

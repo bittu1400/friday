@@ -314,9 +314,10 @@ class Daemon:
                     self.state.reset()
                     return
 
-            # If we were waiting on a spoken yes/no, this utterance is it.
-            if self._pending is not None:
-                await self._resolve_confirm(text, rid)
+            # If we were waiting on a spoken yes/no, this utterance is it —
+            # unless it is neither, in which case the pending is dropped and we
+            # fall through to plan it as a fresh command (ADR-075c).
+            if self._pending is not None and await self._resolve_confirm(text, rid):
                 return
 
             from .audio.dictation import is_start_dictation, is_stop_dictation
@@ -511,7 +512,11 @@ class Daemon:
         # in-flight turn that ends on its own: the 15 s cap (FR-4) ends a
         # capture, `_fail_speak` clears ERROR.
 
-    async def _resolve_confirm(self, text: str, rid: str) -> None:
+    async def _resolve_confirm(self, text: str, rid: str) -> bool:
+        """Answer a live confirm. True if `text` WAS the answer and has been
+        spoken to; False if it was neither yes nor no, in which case the
+        pending is already cancelled and the caller runs `text` as a command
+        (ADR-075c) — the FSM is left untouched so that turn can proceed."""
         pending, self._pending = self._pending, None
         self._disarm_confirm()
         self._disarm_capture_cap()
@@ -522,8 +527,11 @@ class Daemon:
             prefs=self._prefs, audit=self._audit,
             request_id=rid, dry_run=self._dry_run,
         )
+        if spoken is None:
+            return False
         self.state.got_plan(will_speak=True)
         await self._speak(spoken)
+        return True
 
     # --- speaking (cancellable) -------------------------------------------
 
