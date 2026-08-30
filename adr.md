@@ -3048,3 +3048,286 @@ fix and ships a disclosure defect.
 running `just eval` — which would have shipped Qwen3-8B (the obvious "newer,
 faster, Apache 2.0" pick) and with it an out-of-enum hallucination in the
 planner.
+
+---
+
+## ADR-085 — Supertonic-3 `F1` as an engine-level TTS fallback, 2 steps
+
+**Context.** `KOKORO_VOICE_FALLBACK = af_heart` is not an engine fallback. Both
+Kokoro voices are vectors inside the same `model.onnx`, so the fallback covers
+only a missing voice *vector* — the file itself going missing takes both. The
+ADR-041 drill was re-run against the engines that did not exist at G5.
+
+**Measured on this laptop, `balanced`, 8 threads** (`scripts/tts_bench.py`):
+
+```
+                          construct   short reply   paragraph    RTF     RSS
+  kokoro-82M af_bella        642 ms        191 ms      1228 ms  0.134  876 MB
+  supertonic-3 F1 (8 steps)  515 ms        596 ms      1559 ms  0.149  595 MB
+  KittenTTS nano 0.1        1104 ms        413 ms      2533 ms  0.195  572 MB
+```
+
+Kokoro is 3.1x faster than Supertonic on a short reply — the number that
+reaches TTFA — and won the quality comparison at G5. Published rankings put
+Supertonic ahead on speed; with 8 P-cores here, it is not.
+
+Supertonic's `total_steps` was then swept, because pinning an untuned model is
+what ADR-042 exists to prevent:
+
+```
+  steps=2   short  308 ms   para   735 ms   RTF 0.070
+  steps=4   short  432 ms   para  1006 ms   RTF 0.096
+  steps=8   short  545 ms   para  1629 ms   RTF 0.156
+  steps=16  short  754 ms   para  3218 ms   RTF 0.308
+  steps=32  short 1598 ms   para  5408 ms   RTF 0.518
+```
+
+**Decision.**
+
+1. **Kokoro `af_bella` remains the voice.** Nothing measured justifies a swap.
+2. **Supertonic-3 voice `F1` is an engine-level fallback**, reached only when
+   Kokoro cannot speak at all: model file absent, package absent, session
+   construction failed, or loaded-but-neither-voice-present. A missing voice
+   vector still goes to `af_heart` first — it is the same already-loaded model
+   and it is free.
+3. **`total_steps = 2`**, chosen by audition on 2026-08-30. The owner judged
+   the sweep and called `s2` the lowest still-acceptable rendering; everything
+   below it was rejected by ear. That it is also the fastest setting, and
+   faster than Kokoro (RTF 0.070 vs 0.134), is a coincidence and not the
+   reason. Lowering it needs another audition.
+4. **The dependency stays optional.** `supertonic` is deliberately NOT in
+   `pyproject.toml`. `_Supertonic.load()` returns `None` on `ImportError` and
+   Friday degrades to `af_heart` exactly as before.
+5. **KittenTTS is rejected and removed** — package uninstalled, samples
+   deleted, bench code deleted. Slower than Kokoro on every axis.
+
+**Implementation.** `_Supertonic` in `friday/audio/tts.py` duck-types the one
+method `Speaker.say()` uses — `create(text, voice=, speed=, lang=) ->
+(samples, sample_rate)` — so `say()`, barge-in, `stop()` and the AEC reference
+path are untouched. Models are vendored to
+`~/.local/share/friday/models/supertonic` (383 MB) and pinned:
+
+```
+  c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db  onnx/duration_predictor.onnx
+  c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff  onnx/text_encoder.onnx
+  883ac868ea0275ef0e991524dc64f16b3c0376efd7c320af6b53f5b780d7c61c  onnx/vector_estimator.onnx
+  085de76dd8e8d5836d6ca66826601f615939218f90e519f70ee8a36ed2a4c4ba  onnx/vocoder.onnx
+  bbdec6ee00231c2c742ad05483df5334cab3b52fda3ba38e6a07059c4563dbc2  voice_styles/F1.json
+```
+
+**Consequences and the things that will bite.**
+
+- **`supertonic.TTS()` defaults to `auto_download=True`** and
+  `snapshot_download`s from HuggingFace at construction. It is constructed with
+  a pinned local `model_dir` and `auto_download=False`, because otherwise it
+  reproduces **D13** — the same phone-home defect already open against the STT
+  path. Verified: loads offline in 517 ms.
+- **It is NON-DETERMINISTIC.** `np.random.randn` on the global numpy RNG, no
+  seed parameter. Same text, same voice, same settings: max sample difference
+  0.34–0.42 between calls. It cannot be regression-tested by waveform
+  comparison, and the audition sample is one draw, not the definitive sound.
+- Invariant #6 holds by construction: `DEFAULT_ONNX_PROVIDERS` is
+  `['CPUExecutionProvider']`.
+- `say.py` is deliberately NOT wired to the fallback. It is the audition tool;
+  substituting a different engine when the user asks for `af_sky` would be a
+  lie.
+- **The fallback is inert until `uv add supertonic`.** This is the project's
+  own worst pattern (ADR-058, ADR-070, ADR-074, ADR-019: decided, never ran) —
+  the difference is that it is deliberate, tested, and written down. See OQ-55.
+
+**Real-path proof** (not just the four unit tests): Kokoro pointed at a
+nonexistent file, real vendored models, `Speaker.create` returned a Speaker
+with `voice == "F1"` and synthesized 70656 samples @ 44100 Hz (1.60 s) in
+592 ms, peak amplitude 0.233.
+
+**Rejected alternatives.** KittenTTS (slower on every axis). Supertonic as the
+*primary* voice (loses the G5 audition and is 3.1x slower on short replies).
+Making `supertonic` a hard dependency (owner chose the smallest blast radius).
+Seeding numpy's global RNG to force determinism — global state mutated from a
+TTS worker thread, for a fallback that runs rarely.
+
+---
+
+## ADR-086 — Whisper `small.en` stays; Moonshine rejected after equivalent tuning
+
+**Context.** Moonshine uses variable-length windows instead of Whisper's fixed
+30 s chunks and targets exactly Friday's workload: short spoken commands. A
+first pass rejected it at 10/20 misses — but against a Whisper that had already
+had three rounds of tuning (ADR-042). That comparison was not fair.
+
+**Method.** `scripts/moonshine_tune.py` runs the equivalent rounds on the same
+20 DMIC clips with `stt_accel_bench.is_miss` — character for character the rule
+that produced ADR-042's `miss 4/20`. Moonshine's ONNX package has no beam
+search, no hotwords and no `initial_prompt` (`generate()` is a plain greedy
+argmax), so the levers are model/precision, audio preprocessing, and a **domain
+logit bias implemented in the decode loop** — which is what `hotwords` does
+inside faster-whisper.
+
+```
+  R1  tiny float                    p95  182 ms   miss 10/20
+  R1  tiny quantized                p95  172 ms   miss 13/20
+  R1  base float                    p95  318 ms   miss 11/20
+  R1  base quantized                p95  299 ms   miss 10/20
+  R2  base +normalize               p95  485 ms   miss 10/20
+  R2  base +trim                    p95  387 ms   miss 11/20
+  R2  base +normalize +trim         p95  468 ms   miss 11/20
+  R3  base +bias 2                  p95  362 ms   miss 11/20
+  R3  base +bias 5                  p95  516 ms   miss 12/20
+  R3  base +bias 10                 p95 1449 ms   miss  9/20
+  R3  base +bias 5 +norm +trim      p95 1535 ms   miss 12/20
+  --  whisper small.en +hotwords    p95  713-804 ms   miss 4/20
+```
+
+**Decision.** Keep `faster-whisper small.en` (ADR-042 unchanged). Moonshine is
+rejected on accuracy after equivalent tuning.
+
+**Why tuning could not save it.** Three rounds moved it 11/20 → 10/20. The one
+9/20 configuration reached it by over-biasing into runaway decoding: p50
+1390 ms, seven times its own untuned latency and slower than Whisper, for a
+result still more than twice as wrong. The bias works where it can — `neovim`
+and `lo-fi` are recovered at bias 2 — but Moonshine's errors are not near
+misses on rare words. `launch vlc` decodes as `"Lance vs."` and
+`"Longe beals."`; no logit bonus on `VLC` rescues a decode that never
+approached it. `tell me` → `"Turn me"` in **every single configuration**.
+
+Moonshine's own paper documents >100% WER on sub-1-second clips (repeated
+tokens), which lands on the utterance Friday hears most: `"yes"`.
+
+**Consequences.** Moonshine is genuinely 4x faster than the incumbent (p95
+182 ms vs 713–804 ms) and faster than Whisper on the NPU. That speed is real
+and is not enough. Recorded so the next person does not re-derive it.
+
+**Measurement trap, recorded because it nearly inverted the result.**
+`moonshine_onnx.transcribe(path, "moonshine/base")` **rebuilds the model on
+every call**. Timed that way, tiny reports p95 2101 ms and looks 3x *slower*
+than Whisper. Passing the model object gives 200 ms. The first numbers were
+wrong in exactly the direction that would have made the rejection look easy.
+
+---
+
+## ADR-087 — `balanced` is the target power profile; `power-saver` is a capability cap
+
+**Context.** Both external optimization audits (2026-08-30) benchmarked with
+the machine in `power-saver` and neither noticed. All cores pin to ~2.2 GHz
+against 5.3–6.5 GHz buckets.
+
+**Measured**, same clips, same config, `scripts/stt_accel_bench.py fw`:
+
+```
+  power-saver   p50 1214 ms   p95 1310 ms
+  balanced      p50  686-760  p95  713-804 ms
+  performance   p50  686-760  p95  713-804 ms
+```
+
+Alternating runs give balanced 722/734 and performance 713/760 —
+**indistinguishable**. Package temperature stayed 57–69 °C; nothing throttled.
+
+**Decision.**
+
+1. **`balanced` is the profile Friday is optimized for.** It is what the
+   machine normally runs and `performance` may only ever be better.
+2. **`power-saver` is not a baseline.** Any benchmark taken in it is void.
+   Both bench harnesses print `powerprofilesctl get` and mark `power-saver`
+   as not comparable.
+3. **Profile-aware degradation is accepted in principle**, not implemented:
+   in `power-saver` Friday should cap what it *attempts* — cheap intents only,
+   heavier work deferred or declined out loud — rather than running the full
+   path at 2.2 GHz and missing every latency target silently. See OQ-54.
+
+**Consequence, and it is a defect.** At `balanced`/`performance` the STT p95
+spans **713–804 ms across eight runs**, so **FR-11 sits on its 800 ms gate
+rather than under it**. ADR-042's recorded 741 ms does not reproduce as a
+steady-state value on this machine today. `miss 4/20` reproduces exactly, so
+the model and the scorer are unchanged; only the latency moved. Filed as D17.
+
+---
+
+## ADR-088 — Hardware placement: the accelerators stay idle, and that is now measured
+
+**Context.** ADR-019 excluded the Intel NPU and filed it as a Phase-2 option
+for offloading Whisper. OQ-10 confirmed the device exists in 2026-08-22 and
+closed with *"presence is confirmed, throughput is not."* Phase 2 shipped
+without it. **ADR-019 was a fourth dead ADR** (with ADR-058, ADR-070,
+ADR-074). This measures it.
+
+**Decision — where every stage belongs, with the evidence.**
+
+| stage | placement | measured |
+| :-- | :-- | :-- |
+| LLM | dGPU (unchanged) | already correct |
+| STT | **CPU** | see below |
+| TTS | **CPU — cannot move** | NPU: `LLVM ERROR` in `vpux-compiler`, core dumped. iGPU: `Mode 'linear_onnx' supports only 2D or 4D, 5D tensors` |
+| speaker | **CPU — must not move** | NPU is 2x faster (9.1 vs 18.4 ms) but **SIGSEGV on utterances ≤1.9 s** |
+| wake | **CPU — nothing to gain** | 0.78 ms per 80 ms frame, <1% of a core. iGPU 20x slower; classifier will not convert |
+| AEC/VAD | **CPU** | WebRTC C code, no ONNX graph |
+
+**STT placement, measured on the 20 real clips:**
+
+```
+  faster-whisper int8 +hotwords (production)  p95  713-804 ms   miss 4/20
+  openvino-genai on CPU +hotwords             p95  540-547 ms   miss 4/20*
+  openvino-genai on NPU                       p95  456 ms       miss 5/20
+  openvino-genai on iGPU (GPU.0)              p95 1959 ms       miss 6/20
+  faster-whisper on CUDA (FORBIDDEN)          p95  107 ms       miss 4/20*
+```
+
+`*` four real misses plus one comma artifact of the scorer.
+
+**The NPU is faster and loses anyway:** `hotwords` — ADR-042's entire accuracy
+lever — cannot be passed to the NPU pipeline. One short word works; two fail
+with `Check '*roi_end <= *max_dim' failed`, and `initial_prompt` fails the
+same way. The NPU compiles with static shapes and Friday's 14-item vocabulary
+does not fit. The miss it adds is `clip_20`, *"remember my terminal is
+**food**"* — `foot` is one of the five apps. Quality-first rejects it.
+
+**The speaker-verification trap, recorded in full** because it is the shape of
+every NPU failure here. `T` is 10 ms frames of input:
+
+```
+  T = 100 / 150 / 180 / 190   (1.0-1.9 s)  compile fails -> "Falling back to
+                                            OV CPU" -> SIGSEGV, exit 139
+  T = 200 / 250 / 300 / 500 / 800          runs on NPU, 6.2-15.2 ms
+```
+
+Reproducible: 190 crashes every time, 200 never does. The failing zone is
+Friday's shortest utterances — a confirmation `"yes"` is about a second — and
+**the CPU fallback that exists to make this safe is the thing that segfaults**.
+One sentence in Intel's documentation explains this table, the Whisper hotword
+cap and the Kokoro failure: *only models with static shapes are supported on
+NPU.*
+
+**`GPU.1` (the NVIDIA card through OpenVINO/OpenCL) is closed on two grounds.**
+It puts a **second compute process in `nvidia-smi`** holding 128–158 MiB
+alongside `llama-server`, which breaks FR-71's "exactly one compute process";
+and it fails anyway with `[GPU] clEnqueueMapBuffer, error code: -30
+CL_INVALID_VALUE`. The audit prompt's guess was right for Intel devices — an
+NPU/iGPU process never appears in `nvidia-smi` — and wrong for this one.
+
+**Invariant #6 is unchanged, and the prize it forbids is now a number.** STT on
+CUDA is **p95 107 ms, 7.5x the incumbent, at unchanged accuracy**, for 556 MiB.
+ADR-018's three stated reasons, tested rather than argued:
+
+- *Inter-process contention* — `llama-server` p50 over 15 requests: **359 ms
+  alone / 357 ms with a resident CUDA whisper / 359 ms alone again.** No
+  measurable cost. FR-5 already guarantees STT and the planner never compute
+  simultaneously.
+- *VRAM accounting* — one extra `nvidia-smi` row, 556 MiB peak.
+- *Per-process CUDA context* — real, and it is a startup cost: construct
+  1234 ms, first transcription 5566 ms, once per daemon start.
+
+The cost that is not free is headroom, and **it couples to OQ-47**: Qwen leaves
+2486 MiB after it, Gemma 4 12B at `-np 1` leaves 184 MiB, Gemma at stock slots
+does not fit. Amending invariant #6 is a decision, not a finding — OQ-53.
+
+**Proof that "it ran on the NPU" can fail.** `sess.get_providers()` reports what
+was *registered*; the OpenVINO EP silently partitions unsupported subgraphs
+back to the CPU. `/sys/devices/pci0000:00/0000:00:0b.0/npu_busy_time_us` moves
+~230 ms across an NPU run and **exactly 0** across the same run on CPU. Three
+results on this page would otherwise have been wrong in the flattering
+direction. Both harnesses print the delta.
+
+**Rejected alternatives.** Moving TTS or wake to either Intel device (both
+fail or regress, with named errors). Adopting the iGPU for STT on the strength
+of one external audit's LibriSpeech sample — measured on the real corpus at a
+real power profile it is 2.4x *slower* than the CPU and the only backend that
+fails the 800 ms gate.

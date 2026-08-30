@@ -57,6 +57,24 @@ KOKORO_VOICES: Path = _DATA_DIR / "models" / "kokoro" / "voices-v1.0.bin"
 # af_bella primary, af_heart fallback if the primary is missing (OQ-22).
 KOKORO_VOICE: str = os.environ.get("FRIDAY_VOICE", "af_bella")
 KOKORO_VOICE_FALLBACK: str = "af_heart"
+
+# Engine-level TTS fallback (2026-08-30). `KOKORO_VOICE_FALLBACK` only helps
+# when a voice VECTOR is missing from the blob -- it is the same model.onnx, so
+# it cannot survive that file being lost. Supertonic-3 is a separate engine and
+# covers exactly that failure. It is OPTIONAL: if the package is absent Friday
+# degrades to af_heart as before. Models are vendored and pinned, and loaded
+# with auto_download=False, because the package otherwise snapshot_downloads
+# from HuggingFace at construction -- the same phone-home shape as D13.
+SUPERTONIC_DIR: Path = _DATA_DIR / "models" / "supertonic"
+SUPERTONIC_VOICE: str = os.environ.get("FRIDAY_SUPERTONIC_VOICE", "F1")
+# steps: quality/latency knob. Measured 2026-08-30 (short reply, this laptop):
+#   2 -> 308 ms, 4 -> 432 ms, 8 -> 545 ms, 16 -> 754 ms, 32 -> 1598 ms
+# Pinned at 2 by AUDITION, not by the clock -- the owner judged the sweep and
+# called s2 the lowest still-acceptable rendering. At 2 steps the fallback is
+# faster than Kokoro (RTF 0.070 vs 0.134), which is a happy accident, not the
+# reason. Do not lower it without another audition.
+SUPERTONIC_STEPS: int = int(os.environ.get("FRIDAY_SUPERTONIC_STEPS", "2"))
+SUPERTONIC_SPEED: float = float(os.environ.get("FRIDAY_SUPERTONIC_SPEED", "1.05"))
 # 8 = the P-core count; measured optimum, 24 threads is worse (ADR-039).
 KOKORO_THREADS: int = int(os.environ.get("FRIDAY_TTS_THREADS", "8"))
 

@@ -68,7 +68,7 @@ source of truth for the floors; this table is what is actually resolved.
 | `faster-whisper` | 1.2.1 | `faster_whisper` | STT (pulls `ctranslate2` 4.8.1, **not** torch) |
 | `kokoro-onnx` | 0.6.1 | `kokoro_onnx` | TTS (pulls `onnxruntime` 1.29.0) |
 | `openwakeword` | 0.4.0 | `openwakeword` | wake word |
-| `webrtcvad-wheels` | 2.0.14 | **`webrtcvad`** | VAD — note the name mismatch: `uv add webrtcvad` gets you a source package that needs a compiler |
+| `webrtcvad-wheels` | 2.0.14 | **`webrtcvad`** | VAD — note the name mismatch: `uv add webrtcvad` gets you a source package that needs a compiler. **Measured 2026-08-30 as the cause of D3: it emits end-of-speech on only 15 of 20 real clips (OQ-51)** |
 | `pywebrtc-audio` | 0.1.0 | **`pywebrtc_audio`** | WebRTC APM echo canceller (underscores, not the hyphen-to-nothing you might guess) |
 | `sherpa-onnx` | 1.13.6 | `sherpa_onnx` | speaker verification |
 | `sounddevice` | 0.5.6 | `sounddevice` | PortAudio capture + playback |
@@ -191,7 +191,7 @@ memory is SQLite rows and a RAM dialogue buffer, not a vector index.
 
 | Thing | Gate | Status |
 | :-- | :-- | :-- |
-| Intel NPU inclusion (excluded Phase 1, present/verified) | G1 | resolved — ADR-019, Phase 2 option |
+| Intel NPU inclusion (excluded Phase 1, present/verified) | G1 | **MEASURED and REJECTED 2026-08-30 — ADR-088.** ADR-019 filed it as a Phase-2 option and Phase 2 shipped without it; it was a fourth dead ADR. Throughput is now known: Whisper on NPU is 1.6x faster but cannot take `hotwords`; TTS core-dumps; the speaker model SIGSEGVs on utterances ≤1.9 s; wake already costs 0.78 ms/frame. `~/npu-test/model.onnx` is superseded by `scripts/accel_stage_bench.py` |
 | STT CPU-vs-GPU final call | G6 | **RESOLVED — CPU, small.en (ADR-042)** |
 | TTS voice preset | G5 | **RESOLVED — af_bella (ADR-005/040)** |
 | PTT transport (Hyprland bind vs evdev) | G6 | **RESOLVED — bind toggle, XF86Presentation (ADR-044)** |
@@ -221,3 +221,32 @@ follows ADR-029 (re-run the eval baseline; never compare scores across
 artifacts). Friday's own weights live only in
 `~/.local/share/friday/models/` (ADR-023), separate from all of the above.
 
+
+
+## Measured and NOT adopted (2026-08-30 drill — ADR-085…088)
+
+Recorded so the next person does not re-derive them. All benched on this
+laptop at `powerprofilesctl get` = `balanced`, against the real 20-clip DMIC
+corpus where applicable. Harnesses in `scripts/`, full numbers in
+`docs/hardware-placement.md`.
+
+| candidate | for | measured | verdict |
+| :-- | :-- | :-- | :-- |
+| `silero-vad` (v4 / current / If-free) | VAD | end-of-speech **20/20** vs webrtcvad's 15/20, 0.048 ms per 32 ms frame | **WINS — decision owed, OQ-51** |
+| DTLN-aec 128/256/512 (TF-lite, read by OpenVINO) | AEC | 8–20 dB more suppression than WebRTC APM on every capture; preserves 152/243 of the user's frames vs 68 | **WINS — but fix D18 first, OQ-52** |
+| `supertonic` 1.3.1 | TTS fallback | `F1` at `total_steps=2`: 308 ms short reply, RTF 0.070 | **ADOPTED as fallback, ADR-085 — NOT in `pyproject.toml`, OQ-55** |
+| `useful-moonshine-onnx` | STT | 4x faster (p95 182 ms) at **10/20** misses vs Whisper's 4/20, after three tuning rounds | rejected, ADR-086 |
+| `kittentts` 0.1.3 | TTS | slower than Kokoro on every axis | rejected and **removed**, ADR-085 |
+| `openvino-genai` on NPU | STT | p95 456 ms but **cannot take `hotwords`** (static shapes) | rejected on quality, ADR-088 |
+| `openvino-genai` on iGPU | STT | p95 1959 ms — 2.4x slower than CPU | rejected, ADR-088 |
+| `faster-whisper` on CUDA | STT | p95 **107 ms**, 556 MiB, no LLM contention | **forbidden by invariant #6 — OQ-53** |
+| OpenVINO on `GPU.1` (NVIDIA via OpenCL) | any | second `nvidia-smi` compute process **and** `CL_INVALID_VALUE` | closed twice over, ADR-088 |
+
+**Scratch environments** (outside the repo, deletable): `~/.cache/friday-accel-eval/`
+(OpenVINO + openvino-genai + supertonic + moonshine + DTLN-aec models + a
+separate CUDA venv), `~/.cache/whisper-bench/` (**the 20 real DMIC clips, their
+reference transcripts, and the ADR-042 harness — do not delete these**),
+`~/.cache/kokoro-bench/`.
+
+**Vendored into Friday's data dir 2026-08-30:**
+`~/.local/share/friday/models/supertonic/` (383 MB, SHA256s in ADR-085).

@@ -2641,7 +2641,30 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (amended 2026-08-30 night. **Steps 1-2 are DONE in code and UNPROVEN by voice.** Defects D1-D16; D1 and D2 fixed.) <<<
+## >>> START HERE: NEXT SESSION (amended 2026-08-30 afternoon. **Steps 1-2 DONE in code and UNPROVEN by voice.** Defects D1-D18; D1 and D2 fixed.) <<<
+
+### Added 2026-08-30 (afternoon) — read this first, it changes the fix list's ORDER
+
+A full ADR-041 drill ran over every stage (ADR-085…088, OQ-51…55, D17, D18).
+Two things in it bear directly on the fix list below:
+
+1. **D3's root cause is identified.** `webrtcvad` fails to emit end-of-speech on
+   5 of the 20 real DMIC clips because it calls 83–100 % of frames speech,
+   room noise included. Silero VAD ends 20/20 at 0.15 % of one core, and
+   `friday.audio.vad.Vad` is already a `Protocol`. **Step 3 no longer starts
+   with the OQ-39 probe — that measurement is largely done.** What is left is
+   the live confirmation through the AEC path, and the swap decision (OQ-51).
+2. **OQ-32 / ADR-064 moved.** WebRTC APM's apparent cancellation is a gate: it
+   deletes the room and 72 % of the user with it (preservation test, 68 of 243
+   frames vs DTLN's 152). DTLN-aec beat it on all ~20 captures. But absolute
+   suppression is unstable and the likely cause is **D18**, not the canceller —
+   fix the reference path before swapping (OQ-52).
+
+**One production change landed:** the TTS engine fallback (ADR-085/FR-94).
+It is wired, tested, vendored and **inert** until `uv add supertonic` — OQ-55.
+
+**Nothing else in the fix list changed.** D1 and D2 are still unproven by voice
+and that is still the first thing to do.
 
 ### What changed on 2026-08-30 (night) — read this before the older text below
 
@@ -4983,3 +5006,218 @@ Optional, but the honest version of "how long will this take".
    G8     ? h        ____     conversation (primary goal)
    G9     3 h        ____     service
 ```
+
+---
+
+## SESSION 2026-08-30 (afternoon) — the hardware + software drill
+
+Two external optimization audits were checked against the machine, both
+archived as wrong. Then CLAUDE.md rule 7 (the ADR-041 drill) was run over
+**every** stage: is this still the right library, and is this still the right
+silicon? Result: **ADR-085…ADR-088, OQ-51…OQ-55, D17, D18**, one production
+change (the TTS engine fallback), and six new harnesses.
+
+Everything here was measured at `powerprofilesctl get` = `balanced` unless
+stated. `friday.service` was stopped throughout; `friday-llm` stayed up.
+
+### The two audits were archived, with headers saying what each got wrong
+
+`docs/archive/2026-08-30-optimization-{codex,gemini-3.1-pro-high}.md`.
+Both benchmarked in **`power-saver`** and neither noticed; neither found
+`~/.cache/whisper-bench/` (40 real DMIC clips, reference transcripts, and the
+whole ADR-042 harness, on disk the entire time), so neither number was
+comparable to the baseline it had to beat. One benched `whisper-base.en` — the
+model ADR-042 already rejected for botching "launch vlc" — and never named it.
+One reported "Friday's measured steady-state RSS 634 MiB" for a daemon that had
+not run since 2026-08-29 20:20 (`NRestarts=0`, `MemoryCurrent=[not set]`).
+
+### STT — baseline reproduced, then placement measured
+
+```
+$ ~/.cache/whisper-bench/.venv/bin/python scripts/stt_accel_bench.py fw
+20 clips, 94.2s audio
+power profile: balanced
+=== faster-whisper small.en int8 CPU 8t beam1 +hotwords (PRODUCTION) ===
+    clip_06.wav: "Call me Sula's" vs 'call me Subham'
+    clip_10.wav: 'Remember that my favorite editor is Neovim' vs '...favourite...'
+    clip_13.wav: 'Search the wave for...' vs 'search the web for...'
+    clip_14.wav: 'Can you open my browser and source for Arch Linux News?' vs '...search...'
+  n=20 p50=686ms p95=714ms max=731ms mean=679ms
+  RTF=0.144  peakRSS=748MB  miss=4/20  [PASS vs 800ms]
+```
+
+`miss 4/20` is ADR-042's exact number, so the scorer is faithful. **p95 over
+eight runs spans 713–804 ms** — the 800 ms gate is marginal, not met. Filed
+**D17**. Only the power profile changes the answer materially:
+`power-saver` gives p95 **1310 ms**.
+
+Placement, same clips, same scorer:
+
+```
+  faster-whisper int8 +hotwords (production)  p95  713-804 ms   miss 4/20
+  openvino-genai CPU +hotwords                p95  540-547 ms   miss 4/20*
+  openvino-genai NPU                          p95      456 ms   miss 5/20
+  openvino-genai iGPU (GPU.0)                 p95     1959 ms   miss 6/20
+  faster-whisper CUDA (invariant #6)          p95      107 ms   miss 4/20*
+```
+
+The NPU cannot take `hotwords` — one short word works, two give
+`Check '*roi_end <= *max_dim' failed`. The miss it adds is `clip_20`,
+*"my terminal is **food**"*. See ADR-088.
+
+### VAD — the incumbent is the cause of D3
+
+```
+$ uv run python scripts/vad_bench.py
+20 clips + 2.0s room-noise tail each, power=balanced
+  webrtcvad mode=2 (INCUMBENT)  start 20/20  end 15/20   0.0032 ms/frame
+  silero v4                     start 20/20  end 20/20   0.0643 ms/frame
+  silero current, If-free       start 20/20  end 20/20   0.0484 ms/frame
+
+  webrtcvad mode=2: no-end on 5/20 ->
+    clip_01 voiced=0.891  clip_02 voiced=1.000  clip_06 voiced=0.971
+    clip_07 voiced=0.996  clip_08 voiced=0.829
+  silero (both generations): no-end on 0/20
+```
+
+On the failing clips webrtcvad calls 83–100 % of frames speech **including the
+appended room noise**, so `SpeechGate` never emits `end` and the capture runs
+to the 15 s cap — D3's symptom, reproduced offline on real microphone audio.
+OQ-51 owes the decision. This does **not** close OQ-39: it is not through the
+AEC path.
+
+### AEC — DTLN wins on both axes; the reference path is the real suspect
+
+Compute cost (`scripts/accel_stage_bench.py`, OpenVINO TFLite frontend):
+
+```
+  dtln_aec_128   CPU 0.197 ms/hop   NPU 1.583 ms/hop    (8 ms hop)
+  dtln_aec_512   CPU 0.448 ms/hop   NPU 2.278 ms/hop
+```
+
+First Friday-relevant workload that runs on the NPU at all
+(`npu_busy_time_us` +242/+351 ms) — and 8x slower there than on CPU.
+
+Live, `scripts/aec_bench.py`, ~20 captures. **DTLN suppressed 8–20 dB more
+than WebRTC on every single capture**, ordering never inverted. The decisive
+run is the preservation test, with the owner speaking over the playback:
+
+```
+processor                       suppression  VAD speech frames
+none (raw mic)                      +0.0 dB           243 frames
+WebRTC APM (incumbent)              -3.4 dB            68 frames
+DTLN-aec 512 (CPU)                  -2.3 dB           152 frames
+```
+
+(The dB column is meaningless in `--talk` — the mic now contains the user, and
+a good canceller correctly keeps that energy.) WebRTC's `0 frames` on quiet
+captures was **a gate, not cancellation**: it deletes the room and 72 % of the
+user with it. That is a full explanation for ADR-064.
+
+Absolute suppression is NOT established — it swung −11 to −32 dB for DTLN and
+−1.2 to −14.9 dB for WebRTC, and **both degrade on the same captures**. Ruled
+out: estimator resolution (GCC-PHAT at sample resolution), clock drift
+(per-window lag stable at 0.5–2.5 ms), dropped frames (zero XRUNs once the
+callbacks stopped discarding `status`). What remains is **D18**: the device
+runs `s32le 2ch 48000Hz` out and `s32le 4ch 48000Hz` in, while the reference is
+a 16 kHz software copy — resampled out, SOF-DSP processed, resampled back. The
+4 mic channels are `front-left,front-right,rear-left,rear-right`, a mic array,
+**not** a hardware echo reference (checked).
+
+### TTS — Kokoro kept, Supertonic added as an engine fallback
+
+```
+                          construct   short reply   paragraph    RTF     RSS
+  kokoro-82M af_bella        642 ms        191 ms      1228 ms  0.134  876 MB
+  supertonic-3 F1 (8 steps)  515 ms        596 ms      1559 ms  0.149  595 MB
+  KittenTTS nano 0.1        1104 ms        413 ms      2533 ms  0.195  572 MB
+```
+
+KittenTTS rejected and removed entirely. Supertonic swept and pinned at
+`total_steps=2` **by audition** (owner judged `s2` the lowest still-acceptable
+rendering; all ten voices auditioned, `F1` chosen). ADR-085.
+
+Real-path proof, not just the unit tests:
+
+```
+Speaker: <friday.audio.tts.Speaker object> voice: F1
+real synthesis: 70656 samples @ 44100 Hz = 1.60s in 592 ms
+peak amplitude: 0.23309342563152313
+REAL PATH OK — Kokoro absent, Supertonic F1 spoke
+```
+
+And the honest half — in the **project** venv, where `supertonic` is not
+installed by the owner's choice:
+
+```
+_Supertonic.load in PROJECT venv -> None
+fallback in production today     -> None
+```
+
+**The fallback is wired, tested, vendored and inert.** OQ-55.
+
+### Moonshine — rejected after the rounds Whisper got
+
+Three tuning rounds moved it 11/20 → 10/20 misses; the one 9/20 configuration
+got there by over-biasing into runaway decoding (p50 1390 ms). Best usable is
+**p95 182 ms at 10/20** against Whisper's 713–804 ms at **4/20**. `launch vlc`
+→ `"Lance vs."` / `"Longe beals."`; `tell me` → `"Turn me"` in every single
+configuration. ADR-086.
+
+### Verification
+
+```
+$ uv run pytest -q
+480 passed, 1 warning in 5.22s          (was 476; +4 fallback tests)
+
+$ just eval
+passed 28/28  (100%)    known-failing: 0    regressions vs baseline: 0
+
+$ just selftest
+[PASSED] All required system checks passed successfully.   (8/8, llm_on_gpu PASS)
+```
+
+### Decisions put to the owner rather than defaulted
+
+Four rounds of questions, all answered and recorded: CUDA candidates may be
+benched but not adopted; breadth-first over all six stages; TTS alternatives
+benched despite Kokoro leading; `balanced` is the target profile and
+`power-saver` is a capability cap; Supertonic triggers on **engine** failure
+only; the dependency stays out of `pyproject.toml`; Supertonic tuned before
+pinning; `F1` at `s2` chosen by ear.
+
+### New harnesses (all runnable, all print the power profile)
+
+```
+  scripts/stt_accel_bench.py    fw [cpu|cuda] | ov [CPU|NPU|GPU.0] [--hotwords] | moonshine
+  scripts/accel_stage_bench.py  tts|speaker|wake  CPU|NPU|GPU|GPU.1
+  scripts/vad_bench.py          webrtcvad 0-3 vs three Silero generations
+  scripts/tts_bench.py          [--voices] [--tune]
+  scripts/moonshine_tune.py     R1 model/precision, R2 preprocessing, R3 logit bias
+  scripts/aec_bench.py          [--talk] [--sweep] [--drift] [--yes]
+```
+
+### Traps this session walked into, each of which produced a confident wrong number
+
+1. **Both audits benchmarked in `power-saver`.** 1.6x, invisible, and it
+   reversed one audit's iGPU verdict.
+2. **Silero v5+ prepends a 64-sample context** — the graph must see 576
+   samples, not 512. Fed a bare 512 it returns `p≈0.001` on obvious speech,
+   silently. The first run scored the current model at **0/20 starts** and
+   would have "proved" it useless. The bundled v4 needs no context and worked
+   immediately, which made the wrong result look more credible.
+3. **`moonshine.transcribe(path, "name")` rebuilds the model every call.**
+   Timed that way it looked 3x slower than Whisper; it is 4x faster.
+4. **`supertonic.synthesize()` returns `(audio, duration)`, not
+   `(audio, sample_rate)`.** Wrote a `1 Hz` WAV header — an audition file that
+   could not be judged.
+5. **`aec.create()` falls back to `NullAec` on ImportError and only logs it.**
+   The first live AEC run printed a "WebRTC APM" row that was a passthrough,
+   reading `+0.0 dB` — a fake row that looked like a real measurement of a
+   useless canceller. The harness now refuses to print it.
+6. **Both audio callbacks were discarding `status`.** Ignoring XRUNs is how a
+   corrupted capture passes for a real one.
+7. **`get_providers()` cannot fail.** It reports what was *registered*; the
+   OpenVINO EP silently partitions back to CPU. `npu_busy_time_us` is the
+   check that can fail, and three results would otherwise have been wrong in
+   the flattering direction.

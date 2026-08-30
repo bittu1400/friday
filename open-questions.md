@@ -387,6 +387,134 @@ that reads fine takes real seconds to speak.
 
 ---
 
+## Blocking nothing, owed a decision (raised 2026-08-30 by the hardware/software drill)
+
+_Every one of these has its measurement already done — see
+`docs/hardware-placement.md` and ADR-085…ADR-088. What is missing is a choice,
+not a number. None of them blocks the D3–D16 fix list._
+
+### OQ-51 — Do we replace `webrtcvad` with Silero VAD?
+
+**Evidence is decisive and it root-causes D3.** Driven through the real
+`friday.audio.vad.SpeechGate` on the 20 real DMIC clips, each with 2 s of that
+clip's own quietest room noise appended:
+
+```
+  webrtcvad mode 0/1/2/3   start 20/20   end 14 / 14 / 15 / 16 of 20
+  silero v4                start 20/20   end 20/20      0.0643 ms/frame
+  silero current           start 20/20   end 20/20      0.0538 ms/frame
+  silero current, If-free  start 20/20   end 20/20      0.0484 ms/frame
+```
+
+Every detector starts. **Only Silero ever ends.** On the clips webrtcvad fails
+(`clip_01` .891, `clip_02` 1.000, `clip_06` .971, `clip_07` .996,
+`clip_08` .829) it calls 83–100 % of frames speech **including the appended
+room noise**, so trailing silence never accumulates, `SpeechGate` never emits
+`end`, and the capture runs to the 15 s cap. That is D3's reported symptom
+exactly. Silero's voiced fraction never exceeds 0.482 on any clip.
+
+**Cost:** 0.048 ms per 32 ms frame — 0.15 % of one core. `Vad` is already a
+`Protocol`, so a Silero backend drops in behind it; the only integration change
+is 32 ms frames instead of 20 ms, and `SpeechGate` already takes `frame_ms`.
+
+**Pick `silero_vad_op18_ifless.onnx`**: fastest of the three and built without
+the ONNX `If` op — the operator that made openwakeword's classifier
+unconvertible on both Intel devices. Accelerator-portable for free.
+
+**What this does NOT close.** It is offline, on clips recorded through the real
+microphone but **not through the AEC path**. OQ-39 asks for live frames through
+`wake.py:_on_frame`. This identifies the mechanism and makes the live run a
+confirmation rather than an exploration.
+
+**Default if undecided:** swap it. The incumbent is the cause of the top open
+defect.
+
+### OQ-52 — Do we replace WebRTC APM with DTLN-aec, or fix the reference path first?
+
+**What is robust across ~20 live captures:** DTLN-aec 512 suppresses **8–20 dB
+more than WebRTC APM on every single capture**, without exception. The ordering
+never inverted.
+
+**The preservation test (n=1), which is the one that matters for barge-in.**
+With the owner speaking over the playback:
+
+```
+  none (raw mic)            243 frames
+  WebRTC APM (incumbent)     68 frames   -> preserves 28 % of the user
+  DTLN-aec 512              152 frames   -> preserves 63 % of the user
+```
+
+WebRTC's `0 frames` on quiet captures was **a gate, not cancellation** — it
+deletes the room, and it deletes 72 % of the user with it. That is a complete
+explanation for why voice barge-in never worked (ADR-064).
+
+**Cost, measured:** dtln_aec_128 0.197 ms/hop and dtln_aec_512 0.448 ms/hop on
+CPU — 2.5 % and 5.6 % of an 8 ms hop. On the NPU they run (this is the **first
+Friday-relevant workload that does**, `npu_busy_time_us` +242/+351 ms) but 8x
+slower; they belong on the CPU.
+
+**What is NOT established:** absolute suppression. Live values swung −11 to
+−32 dB for DTLN and −1.2 to −14.9 dB for WebRTC, and **both processors degrade
+on the same captures**, which no quality difference can cause. Ruled out:
+estimator resolution (GCC-PHAT at sample resolution did not fix it), clock
+drift (per-window lag is stable at 0.5–2.5 ms), and dropped callback frames
+(zero XRUNs reported once the callbacks stopped discarding `status`).
+
+**The remaining hypothesis, and it may matter more than the swap — see D18.**
+The far reference is a 16 kHz software copy on a 48 kHz SOF-DSP device:
+resampled going out, DSP-processed after that, resampled again coming back.
+Both cancellers are fed a reference that never matches the acoustic path, which
+explains −52 dB synthetic vs −5 dB real far better than canceller quality does.
+Fixing the reference may be worth more than changing the canceller, and it is
+cheaper.
+
+**Default if undecided:** do not swap yet. Test D18 first.
+
+### OQ-53 — Do we amend invariant #6 to let STT use CUDA?
+
+STT on the dGPU is **p95 107 ms against the incumbent's 713–804 ms** — 7.5x, at
+unchanged accuracy — for 556 MiB and no measurable LLM contention (359 / 357 /
+359 ms). TTFA p50 is 2172 ms with ~750 ms of it STT, and **0 of 77 turns have
+ever met the 1400 ms target** (OQ-45). This is the only measured change that
+brings it into reach.
+
+Against it: it breaks invariant #6 and FR-71 as written, it costs 1234 ms
+construct + 5566 ms first-transcription at daemon start, and **it couples to
+OQ-47** — Qwen leaves 2486 MiB after it, Gemma 4 12B at `-np 1` leaves 184 MiB,
+Gemma at stock slots does not fit at all. CUDA STT and the Gemma swap spend the
+same budget.
+
+**Default if undecided:** invariant #6 stands. It has never been amended and an
+invariant that bends under a latency argument is not an invariant.
+
+### OQ-54 — How should Friday behave in `power-saver`?
+
+ADR-087 accepted profile-aware degradation in principle and implemented none of
+it. In `power-saver` all cores pin to ~2.2 GHz and STT p95 goes 804 → 1310 ms;
+every latency target is missed silently. The owner's framing (2026-08-30):
+*power-saver should cap what Friday attempts, not just make everything slower.*
+
+Open: which intents are "cheap", whether Friday says so out loud, whether it
+reads `powerprofilesctl get` or the D-Bus property, and how often.
+
+**Default if undecided:** do nothing. Silent slowness is bad; guessing which
+features to amputate without the owner naming them is worse.
+
+### OQ-55 — Do we arm the Supertonic fallback?
+
+ADR-085 wired, tested and vendored it, and the owner chose to keep the
+dependency out of `pyproject.toml`. So today `_Supertonic.load()` returns
+`None` in the project venv and Friday degrades to `af_heart` exactly as before:
+**the fallback is inert.** One command arms it — `uv add supertonic` — at the
+cost of a second TTS engine in the dependency tree.
+
+This is deliberately the project's own worst pattern (a decision that never
+runs) held in the open where it can be seen, rather than in an ADR that reads
+as though it shipped.
+
+**Default if undecided:** leave it disarmed and re-read this entry before the
+next release.
+
 ## Kept Open (Long-Term / Optional)
 
 ### OQ-28 — Should a meta-question about capability route to chat, not web_search?

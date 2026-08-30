@@ -1,4 +1,5 @@
-"""Voice out: Kokoro-82M via kokoro-onnx, CPU only (ADR-039/040).
+"""Voice out: Kokoro-82M via kokoro-onnx, CPU only (ADR-039/040), with an
+optional Supertonic-3 engine fallback (see `_Supertonic`).
 
 The runtime, model, and thread count are the measured optimum from the G5
 benchmark: `kokoro-onnx` on the onnxruntime `CPUExecutionProvider`, the fp32
@@ -38,6 +39,72 @@ def _resample_16k(samples, sr: int):
     return scipy.signal.resample(samples, int(len(samples) * 16000 / sr)).astype(np.float32)
 
 
+class _Supertonic:
+    """Supertonic-3 as an engine-level fallback for Kokoro (2026-08-30).
+
+    Duck-types the one method `Speaker.say()` uses — `create(text, voice=,
+    speed=, lang=) -> (samples, sample_rate)` — so `say()`, barge-in and the
+    AEC reference path are untouched.
+
+    Chosen by audition (voice `F1`) the way `af_bella` was at G5. It is a
+    FALLBACK, not a competitor: measured on this laptop it is 3.1x slower than
+    Kokoro on a short reply and uses a separate 383 MB model set. What it buys
+    is the failure `af_heart` cannot cover — Kokoro's `model.onnx` being
+    missing or unloadable, since both Kokoro voices live inside that one file.
+
+    Two properties worth knowing before trusting it:
+      * it is NON-DETERMINISTIC (`np.random.randn` on the global numpy RNG,
+        no seed parameter), so the same text is a different waveform each call;
+      * `supertonic.TTS()` defaults to `auto_download=True` and
+        snapshot_downloads from HuggingFace. It is constructed here with a
+        pinned local `model_dir` and `auto_download=False` so a daemon start
+        never touches the network (invariant #8's spirit; D13's shape).
+    """
+
+    def __init__(self, tts: object, style: object, voice: str,
+                 steps: int, speed: float) -> None:
+        self._tts = tts
+        self._style = style
+        self._voice = voice
+        self._steps = steps
+        self._speed = speed
+
+    @classmethod
+    def load(cls, model_dir: Path, voice: str, steps: int, speed: float,
+             threads: int) -> "_Supertonic | None":
+        """Return an engine, or None if the package or the models are absent.
+
+        Absence is not an error: the dependency is optional and Friday is
+        expected to run without it."""
+        if not (model_dir / "onnx").is_dir():
+            return None
+        try:
+            import supertonic as sp
+        except ImportError:
+            return None
+        try:
+            tts = sp.TTS(model_dir=model_dir, auto_download=False,
+                         intra_op_num_threads=threads)
+            return cls(tts, tts.get_voice_style(voice), voice, steps, speed)
+        except Exception:
+            return None
+
+    def get_voices(self) -> list[str]:
+        return [self._voice]
+
+    def create(self, text: str, voice: str | None = None,
+               speed: float | None = None, lang: str | None = None):
+        """`speed` is ignored on purpose. `say()` passes Kokoro's 1.0, which
+        means "normal" for Kokoro; Supertonic's normal is 1.05, so obeying the
+        caller here would slow the fallback down for no reason."""
+        import numpy as np
+
+        audio, _duration = self._tts.synthesize(
+            text, self._style, total_steps=self._steps, speed=self._speed
+        )
+        return np.asarray(audio, dtype=np.float32).reshape(-1), 44100
+
+
 class Speaker:
     """Loads Kokoro once, then voices strings on demand. `say()` blocks;
     `stop()` cancels an in-flight `say()` from another thread (barge-in)."""
@@ -63,18 +130,36 @@ class Speaker:
         fallback: str,
         threads: int = 8,
         far_ref: object | None = None,
+        supertonic_dir: Path | None = None,
+        supertonic_voice: str = "F1",
+        supertonic_steps: int = 8,
+        supertonic_speed: float = 1.05,
     ) -> "Speaker | None":
-        """Build a Speaker, or return None if the model is absent/unloadable.
+        """Build a Speaker, or return None if no engine can speak.
 
-        The voice is resolved against the blob: primary if present, else the
-        fallback, else None (ADR-040 / OQ-22)."""
+        Resolution order (2026-08-30):
+          1. Kokoro with `voice`,
+          2. Kokoro with `fallback` — same model, so this covers only a missing
+             voice VECTOR (ADR-040 / OQ-22),
+          3. Supertonic, if available — a separate engine, so this is the only
+             step that survives Kokoro's model file being lost.
+
+        Step 3 is skipped silently when `supertonic_dir` is None or the
+        optional package is not installed."""
+        def _supertonic() -> "Speaker | None":
+            if supertonic_dir is None:
+                return None
+            engine = _Supertonic.load(supertonic_dir, supertonic_voice,
+                                      supertonic_steps, supertonic_speed, threads)
+            return cls(engine, supertonic_voice, far_ref=far_ref) if engine else None
+
         if not model_path.exists() or not voices_path.exists():
-            return None
+            return _supertonic()
         try:
             import onnxruntime as ort
             from kokoro_onnx import Kokoro
         except ImportError:
-            return None
+            return _supertonic()
 
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
@@ -94,12 +179,14 @@ class Speaker:
                 vocab_config=None,
             )
         except Exception:
-            return None
+            return _supertonic()
 
         available = set(kokoro.get_voices())
         chosen = voice if voice in available else fallback
         if chosen not in available:
-            return None
+            # Kokoro loaded but can voice neither choice — it cannot speak, so
+            # this is an engine failure in every sense that matters here.
+            return _supertonic()
         return cls(kokoro, chosen, far_ref=far_ref)
 
     def say(self, text: str, on_play: Callable[[], None] | None = None) -> bool:

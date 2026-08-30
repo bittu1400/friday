@@ -83,6 +83,10 @@ def _build(args, loop_holder: dict[str, asyncio.AbstractEventLoop]) -> tuple[Dae
             voice=config.KOKORO_VOICE, fallback=config.KOKORO_VOICE_FALLBACK,
             threads=config.KOKORO_THREADS,
             far_ref=far_ref,
+            supertonic_dir=config.SUPERTONIC_DIR,
+            supertonic_voice=config.SUPERTONIC_VOICE,
+            supertonic_steps=config.SUPERTONIC_STEPS,
+            supertonic_speed=config.SUPERTONIC_SPEED,
         )
     if speaker is None:
         logging.getLogger("friday").warning("no TTS: outcomes will be silent")

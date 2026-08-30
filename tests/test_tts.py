@@ -106,3 +106,69 @@ def test_run_turn_speaks_error_line() -> None:
     sp = RecordingSpeaker()
     _turn("not json", sp)  # SchemaError -> "I didn't understand."
     assert sp.said == ["I didn't understand."]
+
+
+# --- engine-level fallback (2026-08-30) --------------------------------------
+# These exist because this project has shipped four decisions that were never
+# actually implemented (ADR-070, ADR-074, ADR-058, ADR-019). A fallback nobody
+# has watched fail is the same bug. Each test FORCES the failure.
+
+def test_supertonic_not_attempted_without_a_dir(tmp_path) -> None:
+    """The dependency is optional: no dir, no attempt, same behaviour as before."""
+    assert Speaker.create(
+        tmp_path / "nope.onnx", tmp_path / "nope.bin",
+        voice="af_bella", fallback="af_heart",
+    ) is None
+
+
+def test_supertonic_takes_over_when_kokoro_model_is_missing(tmp_path, monkeypatch) -> None:
+    """The failure af_heart CANNOT cover: both Kokoro voices live in the one
+    model file, so losing it loses both."""
+    from friday.audio import tts as tts_mod
+
+    made = {}
+
+    class FakeEngine:
+        def get_voices(self):
+            return ["F1"]
+
+        def create(self, text, voice=None, speed=None, lang=None):
+            import numpy as np
+            made["text"] = text
+            return np.zeros(4, dtype="float32"), 44100
+
+    monkeypatch.setattr(tts_mod._Supertonic, "load",
+                        classmethod(lambda cls, *a, **k: FakeEngine()))
+    sp = Speaker.create(
+        tmp_path / "nope.onnx", tmp_path / "nope.bin",
+        voice="af_bella", fallback="af_heart",
+        supertonic_dir=tmp_path,
+    )
+    assert sp is not None
+    assert sp.voice == "F1"
+
+
+def test_supertonic_load_returns_none_without_models(tmp_path) -> None:
+    """An absent model set is not an error — it degrades, it does not raise."""
+    from friday.audio import tts as tts_mod
+
+    assert tts_mod._Supertonic.load(tmp_path, "F1", 8, 1.05, 8) is None
+
+
+def test_supertonic_ignores_the_callers_speed() -> None:
+    """`say()` passes Kokoro's 1.0, which means 'normal' for Kokoro. Supertonic's
+    normal is 1.05, so obeying the caller would slow the fallback for nothing."""
+    from friday.audio import tts as tts_mod
+
+    seen = {}
+
+    class FakeTTS:
+        def synthesize(self, text, style, total_steps=None, speed=None):
+            import numpy as np
+            seen.update(steps=total_steps, speed=speed)
+            return np.zeros(4, dtype="float32"), 0.1
+
+    eng = tts_mod._Supertonic(FakeTTS(), object(), "F1", steps=8, speed=1.05)
+    samples, sr = eng.create("hello", voice="af_bella", speed=1.0, lang="en-us")
+    assert sr == 44100
+    assert seen == {"steps": 8, "speed": 1.05}

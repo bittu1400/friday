@@ -14,7 +14,10 @@ review passes AND the live-voice pass. The 2026-08-26 audit is FULLY FIXED (all
 The LIVE-VOICE PASS ran on 2026-08-29 (night) and found 16 MORE defects
 (D1–D16) — none from the audit, none visible to any test. On 2026-08-30 the
 FIRST TWO were fixed in code: D2 (the audit log overwriting itself) and D1 (the
-CRITICAL). Defects D3–D16 remain, and the fix list order is unchanged.**
+CRITICAL). Defects D3–D16 remain, and the fix list order is unchanged.
+On 2026-08-30 (afternoon) a full ADR-041 drill over every stage added
+**ADR-085…088, OQ-51…55, D17 and D18** — and **root-caused D3**. See
+`docs/hardware-placement.md`.**
 
 **What is fixed, and what that does NOT mean.** `is_affirmation` now normalises
 STT punctuation, a widened `_AFFIRM` covers natural spoken forms, and a new
@@ -306,6 +309,38 @@ finding that out: the 1222-token system prefix is **already cached**
 Grammar compilation was tested as a cost and is **0.3 ms**, not a lever.
 Raised **OQ-48**.
 
+**2026-08-30 (afternoon) — the hardware + software drill.** CLAUDE.md rule 7 run
+over all six stages: is this the right library, and the right silicon?
+Everything measured at `powerprofilesctl get` = **`balanced`**, which is now the
+target profile (ADR-087) — `power-saver` pins all cores to ~2.2 GHz and takes
+STT p95 from 804 to **1310 ms**, and both external audits benchmarked in it
+without noticing. Results:
+
+- **D3 is root-caused. `webrtcvad` is the cause.** It emits end-of-speech on
+  only **15 of 20** real DMIC clips, because on the failures it calls 83–100 %
+  of frames speech *including room noise*, so silence never accumulates and the
+  capture runs to the 15 s cap. **Silero ends 20/20** at 0.15 % of one core, and
+  `Vad` is already a `Protocol`. OQ-51 owes the decision.
+- **ADR-064 is explained. WebRTC APM does not cancel, it gates.** With a human
+  speaking over playback it keeps **68 of 243** frames; DTLN-aec keeps **152**.
+  It deletes the room *and 72 % of the user*. DTLN beat it on all ~20 captures.
+- **D18: the AEC reference is a 16 kHz software copy on a 48 kHz SOF-DSP
+  device** — resampled out, DSP-processed, resampled back. Likely worth more
+  than swapping the canceller. OQ-52.
+- **D17: FR-11 no longer clears its gate.** STT p95 spans **713–804 ms** over
+  eight runs against an 800 ms limit. `miss 4/20` reproduces exactly, so only
+  latency moved.
+- **The accelerators stay idle, and now it is measured** (ADR-088). ADR-019 was
+  a fourth dead ADR. NPU Whisper is 1.6x faster and **cannot take `hotwords`**;
+  TTS core-dumps on it; the speaker model **SIGSEGVs on utterances ≤1.9 s**;
+  wake already costs 0.78 ms/frame. `GPU.1` is closed twice over. **STT on CUDA
+  is p95 107 ms — 7.5x — with zero LLM contention**, and stays forbidden
+  (OQ-53).
+- **TTS: Kokoro kept, Supertonic-3 `F1` added as an engine-level fallback**
+  at `total_steps=2`, chosen by audition (ADR-085/FR-94). KittenTTS benched and
+  removed. Moonshine rejected after the three tuning rounds Whisper got —
+  4x faster, **10/20 misses** vs 4/20 (ADR-086).
+
 **2026-08-30 (later) — the verification round overturned the VRAM half of the
 paragraph above.** The "214 MiB free" was measured with `--parallel` unset,
 which llama.cpp resolves to **4 slots** — and Gemma's SWA KV cache
@@ -439,8 +474,8 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  84 ADRs
-                      (ADR-001..ADR-084; the count was wrong at 74 for weeks
+   adr.md             decisions + why + what they cost.  88 ADRs
+                      (ADR-001..ADR-088; the count was wrong at 74 for weeks
                       -- verify with `grep -c '^## ADR-' adr.md`).
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
@@ -467,7 +502,17 @@ evidence, not defaults. A dependency added without this drill is not done.
    diagrams/          ASCII.  02-tool-call-loop.md and 04-trust-boundaries.md
                       are the important ones.  (Until 2026-08-30 this line
                       named two titles that match no file.)
-   docs/aec-probe.md  the OQ-32 measurement harness (runnable)
+   docs/hardware-placement.md
+                      WHERE each stage runs and WHAT library it should be, both
+                      measured 2026-08-30 on the real 20-clip corpus at the real
+                      power profile.  Carries the D3 root cause, the ADR-064
+                      explanation, D17/D18, and the numbers-to-beat for every
+                      stage.  Harnesses live in scripts/ and all print the
+                      power profile.  Read before touching STT, TTS, VAD or AEC.
+   docs/aec-probe.md  the OQ-32 measurement harness (runnable).  Superseded for
+                      candidate comparison by scripts/aec_bench.py, which drives
+                      three processors over one capture and has a --talk
+                      preservation mode.
    docs/systemd-setup.md, docs/searxng-setup.md
                       deployment procedures for the three user units
    docs/superpowers/  the Phase-2 design + per-gate plans (historical)
@@ -642,6 +687,15 @@ just prefs list|forget  # manage stored preferences
 | "The analysis cites a real GitHub issue, so the claim is real" | `docs/archive/2026-08-30-gemma-ling-flash.md` cited a genuine llama.cpp discussion and then asserted "Q8 KV cache kills draft acceptance" — the cited source **recommends** `q8_0` KV. Acting on it would have cost 284 MiB for nothing. Check the claim against the source, not against the bibliography. |
 | "28/28 on `just eval`, so the planner is fine" | Two models scored 28/28 and still emitted `action=none` for "copy that to the clipboard" / "close this window" (D16). The fixtures do not cover those rows. The gate that would approve a model swap cannot see the regression it would admit. |
 | "Set `reasoning_format: \"none\"` to stop the model thinking" | It does the opposite of what it looks like: thinking is NOT suppressed, the raw `<|channel>thought` text is moved INTO `message.content`. Friday would then write raw model thought into history and audit rows — invariant #7 (FR-26/57). Use `--reasoning off` or `chat_template_kwargs: {"enable_thinking": false}`. |
+| "The VAD says it's speech, so it's speech" | `webrtcvad` calls 83-100% of frames speech on 5 of 20 real clips, room noise included, so `SpeechGate` never emits `end` and the capture burns the full 15 s cap. That is D3. Check what the gate DID, not what the detector returned. |
+| "The canceller reports zero VAD frames, so it cancelled the echo" | Or it deleted the room. WebRTC APM gates: 0 frames when Friday speaks alone, and only 68 of 243 when a human speaks over her. A suppression number cannot tell those apart -- only a preservation test can. |
+| "The bench says the new model is useless" | Silero v5+ prepends a 64-sample context, so the graph must see 576 samples, not 512. Fed a bare 512 it returns `p~0.001` on obvious speech, silently, on every frame -- scoring 0/20. The bundled v4 needs no context and worked first try, which made the wrong result look MORE credible. |
+| "`sess.get_providers()` says NPU, so it ran on the NPU" | It reports what was REGISTERED. The OpenVINO EP silently partitions unsupported subgraphs back to the CPU. `/sys/devices/pci0000:00/0000:00:0b.0/npu_busy_time_us` moves ~230 ms on a real NPU run and exactly 0 on CPU -- that is the check that can fail. |
+| "It compiled and ran on the NPU, so the stage can move there" | Only at the shapes you tried. The speaker model runs at T>=200 frames and **SIGSEGVs at T<=190** -- 1.9 s of audio -- and the CPU fallback that exists to make it safe is the thing that crashes. The NPU needs static shapes; Friday's utterances are not. |
+| "The benchmark numbers moved, so the change worked" | Check the power profile first. `power-saver` pins every core to ~2.2 GHz and costs 1.6x on STT. Two external audits measured there and neither noticed; it silently reversed one of their verdicts. `balanced` is the target (ADR-087). |
+| "`transcribe(path, \"model-name\")` -- simple API, use it" | It rebuilds the model on every call. Moonshine timed that way looks 3x SLOWER than Whisper; passing the model object makes it 4x faster. Check whether the convenience wrapper is inside your timing loop. |
+| "The AEC row printed a number, so the AEC was measured" | `aec.create()` returns `NullAec` on ImportError and only logs it. The first live AEC run printed a "WebRTC APM" row that was a passthrough reading +0.0 dB -- a fake row that looks exactly like a real measurement of a useless canceller. |
+| "sounddevice gave me the audio, so the capture is good" | Both callbacks take a `status` argument. Discard it and a dropped input block shifts everything after it, so the reference stops lining up and BOTH cancellers score badly on the same capture -- which reads as canceller instability. |
 | "`pgrep -f foo` to find the process, then kill it" | `pgrep -f` matches its OWN command line. Twice on 2026-08-30 a cleanup one-liner killed the shell running it (exit 144). Bracket the pattern: `pgrep -f "[f]oo"`. |
 | "`just test-egress` passes, so nothing leaves the machine" | It inspects `ss -ltnp` — **listening** sockets. Egress is outbound. The recipe named `test-egress` looks at the one category that cannot contain an egress event, and duplicates `selftest`'s `socket_binds`. Every "egress proof" in these docs traces to it. Asking `ss -tnp` instead found D13 in one command (D15). |
 | "RAM and CPU look normal, so no local model is running" | Wrong meter. A GPU-resident model lives in **VRAM**: 4712 MiB held, 519 MB RSS, 0 % GPU between turns, 6 min CPU over 2 days. Idle is what correct looks like. `nvidia-smi --query-compute-apps` is the meter. |

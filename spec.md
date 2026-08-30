@@ -78,7 +78,7 @@ limitation to be lifted later.
 | ID | Requirement | Acceptance |
 | :-- | :-- | :-- |
 | FR-10 | `faster-whisper` `small.en`, `language="en"` hardcoded, no detection pass, `beam_size=1`, hotwords-biased to the domain vocab (ADR-042; `large-v3-turbo` failed the latency target on this CPU) | Config asserted at startup; `language` is not `None` |
-| FR-11 | STT runs on CPU (`device="cpu"`, `compute_type="int8"`, `cpu_threads=8`). Measured p95 741 ms < 800 ms (ADR-042), so it stays on CPU — no GPU arm | Benchmark table in `progress.md` G6 |
+| FR-11 | STT runs on CPU (`device="cpu"`, `compute_type="int8"`, `cpu_threads=8`). ADR-042 measured p95 741 ms < 800 ms. **Re-measured 2026-08-30 at `balanced`/`performance`: p95 spans 713–804 ms over eight runs — the gate is MARGINAL, not met (D17).** `miss 4/20` reproduces exactly, so the model and scorer are unchanged; only latency moved. Placement re-confirmed against NPU/iGPU/CUDA in ADR-088 | `scripts/stt_accel_bench.py fw` · `docs/hardware-placement.md` |
 | FR-12 | VAD filtering enabled; empty transcript returns to IDLE silently. This holds in the no-STT degraded mode too: `_transcribe` does not perform the TRANSCRIBING->IDLE transition its caller already owns (audit H4, fixed 2026-08-29) | Silence input produces no turn and no speech; `test_no_stt_mode_returns_to_idle_silently` drives a full capture with `transcriber=None` and asserts no `IllegalTransition` and no error speech |
 | FR-13 | Transcript is capped at 500 tokens; longer input is refused, not truncated | Fixture with a 3000-char transcript returns `action=none` |
 
@@ -238,6 +238,9 @@ nowhere else. See ADR-027 and threat T2.
 | FR-91 | Dictation: spoken commands win over Whisper punctuation, are matched only when standalone, support a `literal <word>` escape, auto-capitalise after sentence end, and provide `scratch that` / `new paragraph` | ADR-082 · **NOT YET IMPLEMENTED** |
 | FR-92 | The Wayland typer passes `--` before user text, and dictation typing runs off the event loop | ADR-082 · **NOT YET IMPLEMENTED** (D11, D12 — audit H6's class, escaped) |
 | FR-93 | An utterance that is not clearly imperative is routed to a confirm rather than dispatched | ADR-083 · **NOT YET IMPLEMENTED** (D8) |
+| FR-94 | TTS degrades in three steps: Kokoro `af_bella` → Kokoro `af_heart` (missing voice vector) → Supertonic-3 `F1` (Kokoro unusable at all). The third step is skipped silently when the optional `supertonic` package is absent | ADR-085 · `tests/test_tts.py::test_supertonic_takes_over_when_kokoro_model_is_missing` · **ARMED ONLY AFTER `uv add supertonic`** (OQ-55) |
+| FR-95 | No TTS engine may reach the network at construction. Supertonic is built with a pinned local `model_dir` and `auto_download=False` | ADR-085 · verified: offline load in 517 ms with no HF request |
+| FR-96 | Any latency benchmark records `powerprofilesctl get`. A measurement taken in `power-saver` is void | ADR-087 · both bench harnesses print it and flag `power-saver` |
 
 ---
 

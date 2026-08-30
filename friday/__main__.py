@@ -64,6 +64,10 @@ def main(argv: list[str] | None = None) -> int:
             voice=config.KOKORO_VOICE,
             fallback=config.KOKORO_VOICE_FALLBACK,
             threads=config.KOKORO_THREADS,
+            supertonic_dir=config.SUPERTONIC_DIR,
+            supertonic_voice=config.SUPERTONIC_VOICE,
+            supertonic_steps=config.SUPERTONIC_STEPS,
+            supertonic_speed=config.SUPERTONIC_SPEED,
         )
 
     # Connected by default (ADR-046); --local is the opt-out.
