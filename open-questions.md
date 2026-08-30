@@ -259,8 +259,10 @@ the user on 2026-08-30 to keep that session single-purpose, and remains OPEN.
 
 ### OQ-50 — Do we set `--parallel 1` on `friday-llm.service`?
 
-**Decider:** USER · **Blocks:** the Gemma swap (OQ-47) · **Status:** OPEN
-(raised 2026-08-30 by the verification round)
+**Decider:** USER · **Blocks:** the Gemma swap (OQ-47) · **Status:** **CLOSED
+2026-08-30 — TAKEN.** `--parallel 1` shipped with the swap (ADR-090). Measured
+after the swap on the live service: 7008 MiB held, **739 MiB free**, exactly
+reproducing the 740 MiB prediction. `just selftest` 8/8.
 
 One line in one service file. Measured, not estimated:
 
@@ -291,6 +293,32 @@ a commit.
 
 **If nobody decides:** the flag stays `auto`, and 514 MiB silently disappears the
 day Gemma lands. Full measurement: `gemma-brief.md` §3-§4.
+
+---
+
+### OQ-56 — What is TTFA on Gemma 4, and where does ADR-080 re-baseline to?
+
+**Decider:** MEASUREMENT, then USER · **Blocks:** ADR-080's NFR-1 number ·
+**Status:** OPEN (raised 2026-08-30 by the model swap, ADR-090)
+
+ADR-080 re-baselined the TTFA target to **2200 ms** from a live sample on the
+incumbent (n=77, p50 2172 ms, p95 4900 ms, **0 of 77** turns under the old
+1400 ms goal). The swap makes the planner ~2x slower — measured, 765 ms p50
+against ~337 — so TTFA moves further from that target.
+
+**What is NOT being done here: arithmetic.** Adding 430 ms to 2172 gives
+~2600 ms, and this project has been wrong about this model by 380-390 MiB on
+five loads and by 20x on the context lever. The projection is written down in
+ADR-090 as a projection and nothing depends on it.
+
+**What settles it:** the microphone session that is already the next task —
+the `C?` affirm rows for D1/D2 — logs TTFA per turn for free. Take n>=30 in
+`balanced` (FR-96) with `llm_on_gpu` confirmed, then either re-baseline ADR-080
+to the measured p50 or, if the number is genuinely unpleasant, reopen the
+model choice with a real figure instead of an estimate.
+
+**If nobody decides:** NFR-1 carries a target the system knowingly misses, which
+is the state ADR-080 existed to end.
 
 ---
 
@@ -365,8 +393,26 @@ Full measurement: `~/.cache/friday-model-eval/RESULTS-mtp-feasibility.md`.
 
 ### OQ-47 — Do we swap to Gemma 4 12B, and what has to be true first?
 
-**Decider:** USER · **Blocks:** nothing today · **Status:** OPEN (raised
-2026-08-30 by the model evaluation, ADR-084)
+**Decider:** USER · **Status:** **CLOSED 2026-08-30 — SWAPPED.** The user
+decided: *"Swap model first, then we begin anything else."* Executed the same
+day as **ADR-090**, after **D16 was fixed first (ADR-089)** because it was the
+one hard precondition.
+
+**How it actually came out, on the widened 49-fixture gate:** Gemma **49/49**
+vs the incumbent's **46/49**, 0 regressions. The three the incumbent misses are
+live defects the old 28 fixtures could not see (D19, D20, D21) and Gemma fixes
+all three. **The D16 regression this OQ was gated on — `action=none` on "copy
+that to the clipboard" — was Gemma being RIGHT**: the incumbent dispatches
+`clipboard_set{text:"that"}` and overwrites the user's clipboard with the
+literal pronoun. The fixture was corrected, not the model (ADR-089).
+
+**The cost, unchanged and real:** planner p50 **765 ms** (measured post-swap,
+better than the 891 ms this OQ predicted, because `-np 1` and `--reasoning off`
+were not in that measurement) against ~337 ms; chat ~1.7 s against ~854 ms.
+Precondition 4 — re-baselining ADR-080 — is deliberately NOT done from
+arithmetic; it is **OQ-56**, from a real TTFA sample at the microphone.
+
+*(Original text below, kept for the reasoning.)*
 
 Gemma 4 12B QAT survived the evaluation as the only candidate that ties the
 incumbent on `just eval` (28/28, 0 regressions) **and** clearly beats it on

@@ -30,9 +30,10 @@ Style constraints (from CLAUDE.md): type hints on every public function,
 
 | Piece | Choice | Owner |
 | :-- | :-- | :-- |
-| Model | Qwen2.5-7B-Instruct **Q4_K_M** (GGUF) — re-confirmed 2026-08-30 against four candidates | ADR-002, **ADR-084** |
+| Model | **Gemma 4 12B IT QAT `UD-Q4_K_XL`** (GGUF), swapped in 2026-08-30. sha256 `90fd44e2…c940c370`. Runs with `--parallel 1 -fa on --reasoning off` — all three load-bearing | **ADR-090**, ADR-089 |
+| Model (rollback) | Qwen2.5-7B-Instruct **Q4_K_M** (GGUF) — kept in the same directory. NOTE: reverting reintroduces D19/D20/D21 | ADR-002, ADR-084 |
 | Model candidate (NOT running) | Gemma 4 12B QAT `UD-Q4_K_XL`, 6405 MiB, on disk at `~/.cache/friday-model-eval/`. Ties on `just eval`, better chat, but 891 ms planner p50 vs 373 and only 214 MiB VRAM spare. Needs `--reasoning off`. | **ADR-084**, OQ-47 |
-| Artifact | `bartowski/Qwen2.5-7B-Instruct-GGUF`; `Qwen/…` first-party = fallback | ADR-029 |
+| Artifact | `unsloth/gemma-4-12B-it-qat-GGUF` (the QAT quant is load-bearing: bartowski's ordinary Q4_K_M of the same 12B is 7305 MiB and does not fit). Rollback: `bartowski/Qwen2.5-7B-Instruct-GGUF` | ADR-090, ADR-029 |
 | Server | `llama.cpp` / `llama-server`, built for **sm_120** (Blackwell) | ADR-002, ADR-021 |
 | Context | 8192 tokens, KV cache `q8_0` (k and v) | ADR-003 |
 | Structured output | GBNF grammar **and** application-side validator, both always | ADR-006 |

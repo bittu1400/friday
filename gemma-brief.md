@@ -11,6 +11,27 @@ each archived file's header.
 
 **Read this before analysing the model question. Do not re-derive it.**
 
+> **STATUS 2026-08-30 (last): THE SWAP HAPPENED. This file is now the brief that
+> justified it, not a description of an open question.** Gemma 4 12B QAT is the
+> live model (**ADR-090**); Qwen2.5-7B is the rollback. OQ-47 and OQ-50 are
+> CLOSED. Everything measured here still holds and was reproduced on the live
+> service — `-np 1` gives 7008 MiB held / **739 free**, to the megabyte.
+>
+> **Three corrections this file could not have known:**
+> 1. §7's "measured liability #2" — the `action=none` on *"copy that to the
+>    clipboard"* — **was Gemma being right.** The incumbent dispatches
+>    `clipboard_set{text:"that"}` and overwrites the clipboard with the literal
+>    pronoun. The fixture was wrong (D21, ADR-089).
+> 2. §7's "liability #1", latency, is **smaller than stated**: planner p50 is
+>    **765 ms**, not 891, because this file measured without `-np 1` and
+>    `--reasoning off`.
+> 3. The widened gate found **three live defects in the incumbent** this file
+>    credits as the correctness leader (D19, D20, D21). On the 50-fixture gate
+>    it is **46/49 to Gemma's 49/49**.
+>
+> §6's five-model table is a 28-fixture result. Do not cite it as a current
+> correctness comparison; the gate it was taken on could not see 20 actions.
+
 ---
 
 ## 0. The question for the next round
@@ -201,7 +222,7 @@ per-process number.
 | G5 | `-np 1` + `q4_0` KV | 6856 | **892** | 171 | KV precision — **UNTESTED** |
 | G7 | `-np 1` + f16 KV | 7292 | 456 | 608 | none, but costs 284 MiB |
 
-### Qwen2.5-7B-Instruct Q4_K_M (incumbent, = live `friday-llm.service`)
+### Qwen2.5-7B-Instruct Q4_K_M (was the incumbent; since 2026-08-30 the ROLLBACK)
 
 | # | configuration | held | **free** | KV | note |
 | :-- | :-- | --: | --: | --: | :-- |

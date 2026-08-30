@@ -241,6 +241,9 @@ nowhere else. See ADR-027 and threat T2.
 | FR-94 | TTS degrades in three steps: Kokoro `af_bella` → Kokoro `af_heart` (missing voice vector) → Supertonic-3 `F1` (Kokoro unusable at all). The third step is skipped silently when the optional `supertonic` package is absent | ADR-085 · `tests/test_tts.py::test_supertonic_takes_over_when_kokoro_model_is_missing` · **ARMED ONLY AFTER `uv add supertonic`** (OQ-55) |
 | FR-95 | No TTS engine may reach the network at construction. Supertonic is built with a pinned local `model_dir` and `auto_download=False` | ADR-085 · verified: offline load in 517 ms with no HF request |
 | FR-96 | Any latency benchmark records `powerprofilesctl get`. A measurement taken in `power-saver` is void | ADR-087 · both bench harnesses print it and flag `power-saver` |
+| FR-97 | The eval fixture set covers **every** action name in `PARAM_SCHEMA`. A new action ships with a fixture or the gate cannot see it | ADR-089 · 49 fixtures; D16 was the 20 G12 actions having none |
+| FR-98 | The model config in `deploy/systemd/friday-llm.service` and in the `justfile` `serve` recipe are equivalent. Two copies of one config is the defect (C1) | ADR-090 · both carry `--parallel 1`, `-fa on`, `--reasoning off` |
+| FR-99 | The planning/chat model runs with thinking disabled via `--reasoning off`, never `--reasoning-format none`, which relocates raw thought into `message.content` and breaks FR-26/57 | ADR-090 · verified live: no thought text across three chat turns |
 
 ---
 

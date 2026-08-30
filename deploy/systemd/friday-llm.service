@@ -19,11 +19,39 @@ Environment=PATH=/opt/cuda/bin:/usr/local/bin:/usr/bin:/bin
 # StartLimitIntervalSec=0 keeps retrying until the driver is up. `just selftest`
 # (llm_on_gpu) is the second layer that catches a fallback if one still happens.
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do nvidia-smi -L >/dev/null 2>&1 && exit 0; sleep 2; done; echo "GPU not ready after 60s" >&2; exit 1'
+# Model: Gemma 4 12B IT QAT (UD-Q4_K_XL), swapped in 2026-08-30 (ADR-089, OQ-47).
+# sha256 90fd44e29e0d7cffeb0fd00dc73cfdab9ed0b0e95306ecf7821ea634c940c370
+# The previous model, Qwen2.5-7B-Instruct-Q4_K_M.gguf, is kept in the same
+# directory as the rollback: change the --model line back and restart.
+#
+# Three flags here are load-bearing and were each measured (gemma-brief.md §4):
+#
+#   --parallel 1   Gemma is a hybrid sliding-window model: 40 of its 48 layers
+#                  are SWA @1024. The SWA KV cache is sized n_seq_max x n_swa +
+#                  n_ubatch, so it GROWS WITH THE SLOT COUNT. Left unset,
+#                  --parallel resolves to 4 and the cache is 4x1024+512 = 4608
+#                  cells (765 MiB) instead of 1536 (323 MiB) -- 514 MiB held by
+#                  three slots that FR-5 (one turn in flight, ever) guarantees
+#                  can never be used. Measured: 226 MiB free without it, 739
+#                  with. This flag is a no-op on Qwen (full GQA, one unified
+#                  cache), so it is safe across the rollback.
+#
+#   -fa on         Buys no memory; removes an ambiguity. With quantized V it is
+#                  force-enabled anyway, but a silent auto-resolve is exactly
+#                  how the 2026-08-25 CPU-serving incident happened. Explicit.
+#
+#   --reasoning off  Gemma 4 is a reasoning model by default and burns ~63 of
+#                  85 tokens thinking. Do NOT "fix" this with
+#                  --reasoning-format none: that does the opposite of what it
+#                  looks like -- it leaves raw thought in message.content, which
+#                  would write model thought into history and audit rows and
+#                  break invariant #7 (FR-26/57).
 ExecStart=/opt/llama.cpp/build/bin/llama-server \
-  --model %h/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
+  --model %h/.local/share/friday/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf \
   --host 127.0.0.1 --port 8080 \
-  --ctx-size 8192 --n-gpu-layers 99 \
-  --cache-type-k q8_0 --cache-type-v q8_0 \
+  --ctx-size 8192 --n-gpu-layers 99 --parallel 1 \
+  --cache-type-k q8_0 --cache-type-v q8_0 -fa on \
+  --reasoning off \
   --no-webui
 Restart=always
 RestartSec=5s

@@ -1,5 +1,5 @@
 {
-  "revision": "a661efe50529",
+  "revision": "cbf807a3072f",
   "results": {
     "E01": true,
     "E02": true,
@@ -28,6 +28,28 @@
     "E25": true,
     "E26": true,
     "E27": true,
-    "E28": true
+    "E28": true,
+    "E29": true,
+    "E30": true,
+    "E31": true,
+    "E32": true,
+    "E33": true,
+    "E34": true,
+    "E35": true,
+    "E36": true,
+    "E37": true,
+    "E38": true,
+    "E39": true,
+    "E40": true,
+    "E41": true,
+    "E42": true,
+    "E43": true,
+    "E44": true,
+    "E45": true,
+    "E46": true,
+    "E47": true,
+    "E48": true,
+    "E49": true,
+    "E50": true
   }
 }

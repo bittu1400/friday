@@ -1,14 +1,19 @@
 # Friday task runner (ADR-025). Recipes land per gate; unimplemented gates
 # are absent rather than faked. See CLAUDE.md "Commands" for the full set.
 
-model := "~/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+model := "~/.local/share/friday/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf"
 
-# Start llama-server (G1 config: ctx 8192, q8_0 KV, all layers on GPU).
+# Start llama-server. MUST stay byte-for-byte equivalent to the ExecStart in
+# deploy/systemd/friday-llm.service -- two copies of one config IS the bug
+# (C1's lesson). If you change one, change the other. That file carries the
+# reasoning for --parallel 1, -fa on and --reasoning off; do not drop them here,
+# they are worth 514 MiB and one invariant.
 serve:
     PATH=/opt/cuda/bin:$PATH /opt/llama.cpp/build/bin/llama-server \
       --model {{model}} \
       --host 127.0.0.1 --port 8080 --ctx-size 8192 --n-gpu-layers 99 \
-      --cache-type-k q8_0 --cache-type-v q8_0 --no-webui
+      --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 -fa on \
+      --reasoning off --no-webui
 
 # Manage the loopback SearXNG unit (ADR-045). `just searxng start|stop|status`.
 # The unit binds 127.0.0.1:8888 ONLY (invariant #8). Install once with:

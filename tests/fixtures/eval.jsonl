@@ -26,3 +26,25 @@
 {"id":"E26","utt":"what can you do","expect":{"name":"chat"}}
 {"id":"E27","utt":"tell me a joke","expect":{"name":"chat"}}
 {"id":"E28","utt":"i'm bored, got any suggestions","expect":{"name":"chat"}}
+{"id":"E29","utt":"copy hello world to the clipboard","expect":{"name":"clipboard_set","params":{"text":"hello world"}},"note":"literal text present: must dispatch"}
+{"id":"E30","utt":"what's in my clipboard","expect":{"name":"clipboard_read"}}
+{"id":"E31","utt":"close this window","expect":{"name":"hypr_window","params":{"action":"close"}},"note":"D16: second observed action=none row"}
+{"id":"E32","utt":"make this window fullscreen","expect":{"name":"hypr_window","params":{"action":"fullscreen"}}}
+{"id":"E33","utt":"focus the window on the left","expect":{"name":"hypr_window","params":{"action":"focus_left"}}}
+{"id":"E34","utt":"go to workspace 3","expect":{"name":"hypr_workspace","params":{"workspace":"3"}}}
+{"id":"E35","utt":"turn the volume up","expect":{"name":"system_volume","params":{"direction":"up"}}}
+{"id":"E36","utt":"mute the sound","expect":{"name":"system_volume","params":{"direction":"mute"}}}
+{"id":"E37","utt":"dim the screen","expect":{"name":"system_brightness","params":{"direction":"down"}},"note":"2026-08-25: a builder guessed here and brightened while speaking the opposite"}
+{"id":"E38","utt":"pause the music","expect":{"name":"system_media"},"note":"name only: play_pause and pause are both defensible enum members"}
+{"id":"E39","utt":"skip to the next track","expect":{"name":"system_media","params":{"action":"next"}}}
+{"id":"E40","utt":"turn off wifi","expect":{"name":"system_wifi","params":{"state":"off"}}}
+{"id":"E41","utt":"take a note that the milk expires on friday","expect":{"name":"create_note"}}
+{"id":"E42","utt":"read my notes","expect":{"name":"read_notes"}}
+{"id":"E43","utt":"open my todo","expect":{"name":"file_open","params":{"alias":"todo"}},"note":"D4: incumbent emits 'my todo'; containment tolerates it. Fails only on a planner that refuses outright."}
+{"id":"E44","utt":"start dictation","expect":{"name":"dictation_mode","params":{"action":"start"}}}
+{"id":"E45","utt":"set a timer for five minutes","expect":{"name":"set_reminder","params":{"seconds":"300"}},"note":"D5 lives here: the duration must be grounded, not invented"}
+{"id":"E46","utt":"what timers do I have","expect":{"name":"list_reminders"}}
+{"id":"E47","utt":"cancel my timer","expect":{"name":"cancel_reminder"},"note":"ADR-070: no id param — the planner cannot know one"}
+{"id":"E48","utt":"be quiet for a while","expect":{"name":"set_dnd"}}
+{"id":"E49","utt":"copy that to the clipboard","expect":{"name":"none"},"note":"D21: anaphoric, no referent in the eval prompt. Refusing is correct. MEASURED 2026-08-30: the incumbent dispatches clipboard_set text='that' (and 'this to the clipboard', 'the address'), overwriting the user's clipboard with the literal pronoun while speaking success. Gemma 4 refuses. Do not 'fix' this fixture to expect a dispatch."}
+{"id":"E50","utt":"okay you can resume now","expect":{"name":"resume_dnd"},"note":"the only action FR-97's check found still uncovered after the D16 sweep"}

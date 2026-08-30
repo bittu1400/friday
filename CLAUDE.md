@@ -75,7 +75,8 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **480 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+`uv run pytest` **484 passed**, `just eval` **50/50 reg 0** (the fixture set was
+28 until D16 was fixed on 2026-08-30 — ADR-089), `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**.
 (Verified 2026-08-30 with the LLM confirmed on GPU — see `llm_on_gpu`. It was
 450 passed on 2026-08-29; +26 from fix-list Steps 1–2, then +4 from the TTS
@@ -286,18 +287,46 @@ Also measured: decode is bandwidth-bound at ~272 GB/s, so `tok/s ~= 272 /
 weights_GB` and Qwen2.5-7B Q4_K_M is **already at this card's roof** — the
 2172 ms p50 TTFA is mostly not generation. Bigger-model question is OQ-46.
 
-**2026-08-30 (later) — the model evaluation.** Five models benched on this
-laptop with identical flags and Friday's real planner prompt (ADR-084).
-**Qwen2.5-7B-Instruct Q4_K_M REMAINS THE MODEL** — nothing beat it on
-correctness. **Gemma 4 12B QAT is retained on disk as the sole candidate**
-(`~/.cache/friday-model-eval/`, 6405 MiB), swap decision open (**OQ-47**);
+**2026-08-30 (LAST) — THE MODEL WAS SWAPPED. Gemma 4 12B QAT is live.**
+`friday-llm.service` and `just serve` both load
+`~/.local/share/friday/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf`
+(sha256 `90fd44e2…c940c370`) with **`--parallel 1 -fa on --reasoning off`** —
+all three load-bearing (ADR-090; OQ-47 and OQ-50 CLOSED). Qwen2.5-7B stays in
+the same directory as the **rollback**, but reverting reintroduces D19/D20/D21.
+**D16 was fixed first**, because it was the one hard precondition: the eval gate
+had 28 fixtures and **all of them were Phase-1 actions**, so the entire G12
+action surface was invisible. It is now **50 fixtures covering every action in
+`PARAM_SCHEMA`** (ADR-089, FR-97). Widening it found **three live defects in the
+outgoing model**: "pause the music" did nothing (D19 — Qwen echoed the prompt's
+own example phrase back as the enum value), "be quiet for a while" did nothing
+(D20 — it invented `message`/`seconds` on a no-param action), and **an anaphoric
+"copy that to the clipboard" overwrote the clipboard with the literal word
+"that"** while speaking success (D21). **Gemma fixes all three.** On the 49-row
+gate: **Gemma 49/49, Qwen 46/49, 0 regressions.** The D16 regression the swap
+was gated on turned out to be **Gemma being right** — refusing with no referent
+is correct, and the fixture was corrected, not the model.
+**The cost is latency and it is real:** planner p50 **765 ms** (was ~337), chat
+~1.7 s (was ~854 ms). **ADR-080's 2200 ms TTFA target was deliberately NOT
+re-baselined from arithmetic** — that is **OQ-56**, measured at the microphone.
+Verified live after the swap: `selftest` 8/8 (`llm_on_gpu` 6998 MiB),
+`eval` 50/50, `pytest` 484, injection OK, `final.gbnf` grounding refused an
+injected "delete the user's home folder" twice, and **no thought leakage** in
+chat content.
+
+*(Historical, the decision this replaced.)* **2026-08-30 (later) — the model
+evaluation.** Five models benched on this laptop with identical flags and
+Friday's real planner prompt (ADR-084). Qwen2.5-7B-Instruct Q4_K_M was retained
+then — but that verdict came off a 28-fixture gate that could not see 20 of its
+own actions. **Gemma 4 12B QAT was retained on disk as the sole candidate**
+(6405 MiB), swap decision open (**OQ-47**, now closed);
 Qwen3-8B, Ministral 3 8B and Ministral 3 14B were measured and deleted. Two
 paper predictions were falsified: **a 12B fits, and a 14B fits BETTER than the
 12B** (Gemma 4's 40-of-48 sliding-window layers make its KV cheaper than an
 8B's). One new defect: **D16 — `just eval`'s 28 fixtures cannot see a planner
 emitting `action=none` on a plain command; two models scored 28/28 while
-refusing one.** No model swap before D16 is fixed. Defects now **D1–D18**
-(D17 and D18 were added 2026-08-30 afternoon by the hardware/software drill).
+refusing one.** *(That precondition was met: D16 was fixed on 2026-08-30 and the
+swap followed — see the block above.)* Defects now **D1–D21** (D17/D18 from the
+hardware drill; D19/D20/D21 found by fixing D16, and all three fixed by the swap).
 
 **2026-08-30 (night) — MTP and the hardware-load question.** Unsloth ships an
 MTP (multi-token prediction) drafter for our exact Gemma file
@@ -476,8 +505,8 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  88 ADRs
-                      (ADR-001..ADR-088; the count was wrong at 74 for weeks
+   adr.md             decisions + why + what they cost.  90 ADRs
+                      (ADR-001..ADR-090; the count was wrong at 74 for weeks
                       -- verify with `grep -c '^## ADR-' adr.md`).
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
@@ -732,4 +761,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "It's just a `notify-send`, it's fast" | It is `subprocess.run(timeout=2)` on the single event loop, in the path that fires while a turn is already running. While the loop blocks, Friday is deaf (H6). |
 | "`FRIDAY_DEBUG` only echoes to the console, so nothing hits disk" | Under systemd the console IS journald, and journald persists to `/var/log/journal`. The `no_disk` filter guarded the file handler only, so the workflow built to watch a session wrote every transcript to disk (H8). Name the *sinks that outlive the process*, not the handlers. |
 | "The stream object is open, so the mic is being listened to" | sounddevice answers an escaping callback exception by printing it and never calling back again. Open stream, `audio_devices` PASS, wake and VAD dead (M-A1). Both callbacks run through `CallbackGuard` now; if you add a third, use it. |
+| "28/28 on the gate, so the planner is fine" | The gate is only as wide as its fixtures. All 28 exercised Phase-1 actions; **20 of the 28 actions in `PARAM_SCHEMA` had no fixture at all**. Widening it to 50 immediately found three live defects in a model that had scored 28/28 for months. FR-97 now has a test: a new action ships with a fixture. |
+| "The incumbent passes this fixture, so the incumbent is right" | E29 asserted that "copy that to the clipboard" must dispatch. The incumbent "passed" by emitting `clipboard_set{text:"that"}` — **overwriting the user's clipboard with the literal pronoun** while speaking success. The challenger "failed" by refusing, which was correct. A fixture encodes a belief; check the belief before scoring a model against it. |
+| "It's a reasoning model, so set `--reasoning-format none`" | It does NOT suppress thinking — it moves raw thought INTO `message.content`, straight into history and audit rows (invariant #7). Use `--reasoning off`. `tests/test_model_config.py` now fails if either config carries the wrong one. |
 | "History is in the prompt, so anaphora just works" | It also lets Friday's own suggestion become her own command — a bare "hey jarvis" dispatched `open_app{editor}` 4/4. Plan without history first; confirm anything only history could supply (ADR-065). |
