@@ -243,6 +243,89 @@ history-confirm.
 
 ---
 
+## SESSION 2026-08-30 (night, later) — MTP FEASIBILITY + where a Gemma 4 turn goes. NO CODE CHANGED, NO CONFIG CHANGED. (OQ-48)
+
+The user asked whether Unsloth's MTP (multi-token prediction) variant exists
+for our Gemma 4 file, and for the best ways to reduce hardware load without
+compromising quality. Constraints they set for this round: **do not download
+the drafter yet, and change no config — measure what we currently have.**
+`friday-llm` was stopped for the bench and restored afterwards (selftest 8/8).
+
+### The drafter exists and our toolchain can already run it
+
+`unsloth/gemma-4-12B-it-qat-GGUF` carries `mtp-gemma-4-12B-it.gguf` at the repo
+root (253,708,800 B, the native 4-bit QAT drafter that `-hf` auto-discovers)
+plus Q4_0 / Q8_0 / F16 / BF16 variants under `MTP/`. Our llama.cpp is
+`b1-b21e4de` (2026-08-22), after the MTP merge of 2026-06-07, and
+`--spec-type draft-mtp` / `--spec-draft-n-max` are in this binary's help.
+**No rebuild needed.**
+
+### But "1.5-2x without increasing VRAM" is not true here
+
+Unsloth's own MTP page says plan for **~2 GB additional VRAM headroom**.
+Measured, stock flags: Gemma 4 12B holds **7534 MiB and leaves 214 MiB free**
+of 8151 — reproduced to the megabyte from ADR-084. The drafter's weights alone
+are 242 MiB. **MTP cannot be tried until memory is freed.**
+
+### Where a turn actually goes — the number that matters
+
+The system prompt is 4627 chars = 1222 tokens, and llama-server **already
+reuses it**: `cache_n 1222` of 1235, 13 new tokens per turn. So `prompt_ms` is
+not prompt processing at all — it is fixed per-request cost.
+
+```
+planner, n=15:  wall p50 915.7 ms (ADR-084 said 891 — reproduced)
+  one turn:     prompt 193.6 ms | decode 538.6 ms (22 tok) | unaccounted 10.5
+                -> decode is 72% of the turn
+chat, n=3:      wall 1798 / 2166 / 1959 ms
+                -> decode 86-89% of each turn, 39.5 tok/s, 62-77 tokens
+```
+
+**MTP attacks exactly that fraction.** At 1.4-2.0x on the decode leg a chat
+turn falls 1959 -> 1466-1097 ms, a planner turn 916 -> 762-647 ms.
+
+### One hypothesis raised and killed in the same session
+
+`plan.gbnf` is passed on every planner request, so grammar compilation looked
+like a candidate for the 193 ms fixed cost. It is not:
+
+```
+  with plan.gbnf   wall 742.6 | prompt_ms 193.6 (n=13) | predicted_ms 538.6 (n=22)
+  no grammar       wall 748.6 | prompt_ms 193.9 (n=13) | predicted_ms 541.5 (n=22)
+```
+
+1012 chars of GBNF cost 0.3 ms. Recorded so nobody pays to re-test it.
+
+### Predictions, pre-registered before loading
+
+Written to `~/.cache/friday-model-eval/PREDICTIONS-mtp.md` before the model was
+loaded. **P5 (free VRAM 214 +/- 60) was exact. P7 was confirmed and that is
+bad news** — the prefix is already cached, so `--cache-reuse` is not the free
+win I hoped for; the lever is already spent. **P4 was falsified:**
+`--parallel -1` resolves to **4 slots**, not 1 (`kv_unified = true`, so they
+share one KV cache — assumed, not verified; `-np 1` is untested).
+P1/P2/P3 are **unresolved**: this build prints no layer or flash-attention
+detail at default verbosity, so the Unsloth-docs claim that the 12B is "dense,
+256K" still stands unchecked against our GGUF. It needs `-lv N`, not a guess.
+
+### Incidentals worth keeping
+
+- `--reasoning off` verified on this build: 20 completion tokens, no
+  `reasoning_content` key, clean prose. It does **not** trigger the
+  `reasoning_format: "none"` trap that would put raw thought on disk.
+- `/props`: `modalities: {vision:false, video:false, audio:false}` — no mmproj
+  loaded, so Gemma 4's multimodality costs nothing today.
+- The server's sampling defaults already match Google's Gemma 4 recommendation:
+  temp 1.0, top_k 64, top_p 0.95.
+- `model_ftype` reports `Q4_0` for the UD-Q4_K_XL file.
+
+Full numbers: `~/.cache/friday-model-eval/RESULTS-mtp-feasibility.md`.
+Open question raised: **OQ-48** (adopt MTP, and what do we spend to fit it).
+Baseline restored afterwards: `just selftest` 8/8, `llm_on_gpu` PASS at
+4696 MiB.
+
+---
+
 ## SESSION 2026-08-30 (later) — MODEL EVALUATION: five models benched on this laptop, Gemma 4 12B retained, three deleted. NO CODE CHANGED. (ADR-084, OQ-47, D16)
 
 **What this session was.** A direct continuation of the offline challenge

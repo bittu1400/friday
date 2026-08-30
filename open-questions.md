@@ -222,6 +222,42 @@ the user on 2026-08-30 to keep that session single-purpose, and remains OPEN.
 
 ---
 
+### OQ-48 — Do we adopt MTP speculative decoding, and what do we spend to fit it?
+
+**Decider:** USER · **Blocks:** nothing today; entangled with OQ-47 ·
+**Status:** OPEN (raised 2026-08-30, measured the same day)
+
+Unsloth ships an MTP drafter for **this exact** model
+(`unsloth/gemma-4-12B-it-qat-GGUF`, root `mtp-gemma-4-12B-it.gguf`, 254 MB),
+and our llama.cpp (`b1-b21e4de`, 2026-08-22) already supports
+`--spec-type draft-mtp`. Claimed 1.4-2.2x generation speed.
+
+**Why it is worth wanting.** Measured on this laptop: decode is **72% of a
+planner turn** and **86-89% of a chat turn**. That is exactly what MTP
+attacks. At 1.4-2.0x on the decode leg, a chat turn goes 1959 ms ->
+1466-1097 ms.
+
+**Why it is not free.** Two obstacles, both measured or sourced:
+
+1. **VRAM.** Gemma 4 12B at stock flags holds 7534 MiB and leaves **214 MiB**
+   free of 8151. The drafter's weights alone are 242 MiB, and Unsloth's own
+   guidance is "~2 GB additional headroom". It cannot be tried until memory is
+   freed, which means spending context, KV precision, or batch size — the
+   trade table the user asked to see explained before deciding.
+2. **Acceptance under a grammar is unknown.** Unsloth reports 0.70 acceptance
+   for this model on a B200; the repo's own MTP README reports **0.51**. The
+   planner emits ~22 grammar-constrained tokens, which is the worst case for
+   speculative decoding. The chat path is where it would pay.
+
+**What would settle it:** free ~2 GB by whatever trade the user authorises,
+load the drafter, and measure acceptance and wall time on both the
+grammar-constrained planner path and the free-text chat path. Numbers, not the
+datasheet — ADR-084's whole lesson.
+
+**If nobody decides:** do nothing. MTP is a speed optimisation for a model we
+have not adopted (OQ-47), on a machine where it does not currently fit.
+Full measurement: `~/.cache/friday-model-eval/RESULTS-mtp-feasibility.md`.
+
 ### OQ-47 — Do we swap to Gemma 4 12B, and what has to be true first?
 
 **Decider:** USER · **Blocks:** nothing today · **Status:** OPEN (raised
