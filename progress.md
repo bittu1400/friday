@@ -88,6 +88,206 @@ a human at a keyboard.
 
 ---
 
+## SESSION 2026-08-30 (night, last) — VERIFICATION ROUND: four Gemma analyses checked against the machine, all four archived, `--parallel` found holding 514 MiB. NO CODE CHANGED, NO CONFIG CHANGED.
+
+**The user's ask:** *"I think there are four gemma-analysis.md reports. Check all
+four of them. Tell me what do you think? … This is a check phase."* Then, mid-round,
+a re-framing that changed the whole objective:
+
+> *"MTP is not the important part, the most available breathing room this laptop
+> can get is. The better the breathing room, the smoother the workflow."*
+
+and, on scope:
+
+> *"VRAM is primary, but if we can also optimize others, then even better.
+> However, quality is our top priority and so is VRAM. Though quality wins in all."*
+
+**Method.** Nine `llama-server` loads on `:8081` with `-lv 5`, `friday-llm`
+stopped for the duration, VRAM read from `nvidia-smi` at steady state after
+`/health` returned. Two models, six configurations for Gemma and three for Qwen.
+Plus two network lookups (HF API, one llama.cpp discussion) and one read of the
+llama.cpp source. **No code, service file, or model config was touched.**
+
+### THE FINDING: `--parallel` was left at `auto` and it was costing 514 MiB
+
+Gemma 4 12B, stock flags, from the load log:
+
+```
+llama_kv_cache_iswa: creating non-SWA KV cache, size = 8192 cells
+llama_kv_cache: size =   68.00 MiB ( 8192 cells,  8 layers, 4/1 seqs)
+llama_kv_cache_iswa: creating     SWA KV cache, size = 4608 cells
+llama_kv_cache: size =  765.00 MiB ( 4608 cells, 40 layers, 4/1 seqs)   <- 92% of KV
+```
+
+`4608 = 4 x 1024 + 512`, i.e. `n_seq_max x n_swa + n_ubatch`. **The
+sliding-window cache grows with the sequence count**, and `--parallel` auto
+resolves to 4. At `-np 1` it is `1 x 1024 + 512 = 1536` cells in all five
+single-slot probes, at the same 0.166 MiB/cell. `kv_unified = true` covers the
+global cache only. FR-5 guarantees three of those slots can never be used.
+
+### The headroom table (card usable: 7745 MiB)
+
+| # | Gemma 4 12B QAT | held | **free** | KV | cost |
+| :-- | :-- | --: | --: | --: | :-- |
+| G1 | stock — auto slots, q8_0 KV, ctx 8192 | 7522 | **226** | 833 | *(status quo)* |
+| **G2** | **`-np 1`** | 7008 | **740** | 323 | **none** |
+| **G9** | **`-np 1 --ctx-size 16384`** | 7084 | **664** | 391 | **none — 2x the context** |
+| G3 | `-np 1 --ctx-size 4096` | 6970 | 778 | 289 | halves the window |
+| G5 | `-np 1` + q4_0 KV | 6856 | **892** | 171 | KV precision — UNTESTED |
+| G7 | `-np 1` + f16 KV | 7292 | 456 | 608 | none, costs 284 MiB |
+
+| # | Qwen2.5-7B (live service) | held | **free** | KV | note |
+| :-- | :-- | --: | --: | --: | :-- |
+| Q1 | stock | 4706 | **3042** | 238 | |
+| Q2 | `-np 1` | 4706 | **3042** | 238 | **no change at all** |
+| Q3 | `-np 1` + q4_0 KV | 4594 | 3154 | 126 | +112 MiB |
+
+Qwen is full GQA — one unified cache at `4/1 seqs` and `1/1 seqs` alike. Gemma is
+hybrid sliding-window and the SWA half is per-sequence. **`-np 1` is a
+sliding-window lever**, and it exists because of the same architecture that let a
+12B fit on this card at all.
+
+### Two predictions falsified, in opposite directions
+
+- **P4.** `docs/archive/2026-08-30-gemma-opus.md` §10.2 and `ling-flash` §6.2(c) both reasoned
+  "`kv_unified = true` suggests they share one cache, so `-np 1` is probably a
+  no-op." It is worth **514 MiB**.
+- **P8.** All four files rank `--ctx-size 8192->4096` as **"(a) the biggest single
+  saving, estimated 600-900 MiB."** Measured: **38 MiB**, and it halves the
+  window. It is the worst lever on the list. Going the other way, 8192->16384
+  costs 76 MiB — so Gemma can have **double the context AND triple the headroom**.
+
+Both errors have one cause: reasoning about a **40-of-48 sliding-window** model
+as if attention were dense.
+
+### Resolved from our own `-lv 5` log
+
+`docs/archive/2026-08-30-gemma-opus.md` §10.3 flagged an "unresolved contradiction" (vendor says
+dense/256K, our load appeared to show 40/48 sliding-window). **Both are true:**
+
+```
+n_ctx_train            = 262144
+n_layer                = 48
+n_swa                  = 1024
+sliding_window_pattern = [true,true,true,true,true,false, ...]   (48 entries)
+```
+
+Five sliding then one global: **40 SWA @1024 + 8 global.** Also closed: P2
+(`n_ctx_train` = 262144) and P3 (flash attention **on** at both KV precisions —
+force-enabled by the quantized V cache, and `resolve_fused_ops: Flash Attention
+enabled` at f16).
+
+**Also corrected:** `opus` §3 says "~406 MiB held by the desktop with no model
+loaded". The number is right (8151 - 7745); the attribution is not. **Measured
+with no model: 2 MiB used, 7745 free** — nothing is allocated to the desktop. The
+406 MiB is reserved, not held by a process, and **I did not determine what
+reserves it**. Supporting and also measured: an Intel Arrow Lake-S iGPU is
+present (`00:02.0`, own `/dev/dri` render node) and `nvidia-smi` shows one
+**compute** client on the dGPU and no graphics clients — consistent with the
+desktop rendering on the iGPU, though Hyprland's render node was not read
+directly. The practical fact is measured either way: **nothing but Friday uses
+the dGPU.**
+
+### Verdicts on the four analyses — all four ARCHIVED
+
+Moved to `docs/archive/2026-08-30-gemma-{opus,gpt,ling-flash,gemini}.md`, each
+with a header stating what it got wrong. Replaced by **`gemma-brief.md`** (repo
+root), which is written to be the *input to the next analysis round* rather than
+a fifth analysis. The raw run is
+`docs/archive/2026-08-30-gemma-verification-run.md`.
+
+- **opus** — the only file with first-hand measurements, and most of it survived:
+  the five-model bench, the SHA256 pins, the turn anatomy, the killed
+  grammar-compile hypothesis (0.3 ms). Its **lever ranking is inverted**, per
+  P4/P8 above.
+- **gpt** — honest, accurate, **zero fabrication and zero new information**. A
+  faithful summary of opus that inherited opus's wrong ranking. Its priority-7
+  row ("set one request slot only if measurement shows slots consume separate KV
+  … but measure first") was the correct instinct about the single biggest lever
+  on this machine, ranked seventh. One stale claim: it reports `nvidia-smi`
+  cannot reach the driver. It works.
+- **ling-flash** — ~70% verbatim opus. Its citations are **real**: llama.cpp
+  discussion **#25357** ("MTP speculative decoding on 8GB GPUs …", 2026-07-06)
+  exists and does contain the `--parallel 1` KV-funding recipe, which this
+  session reproduced independently. But three of its own claims are false: the
+  MTP filenames do not exist (the HF API matches opus exactly), §11 contradicts
+  its own §4.3 and the llama.cpp source, and **its "critical Gotcha: Q8 KV cache
+  kills draft acceptance" is fabricated — the source it cites *recommends*
+  `q8_0` KV.** Acting on it would have cost 284 MiB for nothing.
+- **gemini** — analyses the **wrong model generation** (logit soft-capping and
+  4096/8192 alternating attention are Gemma 2 traits). Its VRAM table is
+  arithmetic and wrong in every row; it claims "+971 MiB slack, MTP fits" where
+  the measured figure was 226 MiB free. Also: says the drafter is packaged inside
+  the GGUF (separate 254 MB file), invents a CPU core partition that exists
+  nowhere in this codebase, recommends two flags that are already on by default,
+  and proposes a service file naming a nonexistent GGUF that would not start.
+  **Kept, not deleted** — it reached its conclusion by sizing a model with
+  arithmetic, the exact mistake ADR-084 exists to prevent.
+
+### What this does to the model question
+
+The loudest argument against Gemma was *"214 MiB headroom on a machine that also
+drives a display."* Both halves were wrong. **Real headroom is 740 MiB, or 664
+MiB at double the context window.** Latency is untouched and is now the live
+objection (planner p50 891-916 ms vs 373 ms), and **D16 remains a hard
+precondition for any swap.** MTP, though no longer the point, now plausibly fits
+(740 - 242 = ~500 MiB); the llama.cpp source shows the drafter builds its **own**
+small KV cache filtered to the nextn layer
+(`src/llama-model.cpp:2154,2207,2326`), settling a contradiction ling-flash had
+in both directions.
+
+### New open questions
+
+- **OQ-49** — does `q4_0` KV hold quality? G5's +152 MiB is measured; the quality
+  is not. Needs `just eval` 28/28 **and** chat judged by ear. **Quality wins over
+  VRAM by the user's explicit instruction**, so this is a real gate.
+- **OQ-50** — adopt `-np 1` on `friday-llm.service`? One line. No-op for Qwen
+  today, correct by FR-5 either way, worth 514 MiB the day Gemma lands.
+
+### Evidence — baseline restored and proved
+
+```
+$ nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader
+4706 MiB, 3042 MiB
+$ systemctl --user is-active friday-llm friday-searxng
+active
+active
+$ just selftest
+[PASS] llama-server    Reachable at http://127.0.0.1:8080 (status: ok)
+[PASS] searxng         Reachable at http://127.0.0.1:8888 (HTTP 200)
+[PASS] gpu_arch        NVIDIA GeForce RTX 5070 Laptop GPU (compute 12.0 - sm_120 verified)
+[PASS] llm_on_gpu      llama-server pid 536902 holds 4696 MiB VRAM (GPU offload live)
+[PASS] database        SQLite at ~/.local/state/friday/memory.db (mode 0600, dir 0700, schema v3)
+[PASS] audio_devices   Input: default | Output: default
+[PASS] panic_switch    Disarmed (normal dispatch allowed)
+[PASS] socket_binds    Services bound to 127.0.0.1 loopback only
+[PASSED] All required system checks passed successfully.
+```
+
+8/8 before the round and 8/8 after, at the same VRAM. Nothing was left changed.
+
+### Decisions taken this session, and why
+
+1. **Verify before summarising.** The user asked what I thought of four reports.
+   Reading them would have produced a fifth opinion; loading the model produced
+   two falsified predictions. The measurements cost ~25 minutes and overturned
+   the headline number in every file.
+2. **Sweep both models, not just the candidate.** After the re-framing, headroom
+   for the *incumbent* was worth knowing. The answer (`-np 1` does nothing for
+   Qwen) is what proved the mechanism is architectural rather than a flag quirk.
+3. **Archive all four, including opus** — *the user's decision*, asked as a
+   question and answered *"Archive all four of them, extract opus claims in a new
+   file, I am going to analyze again. I think last time everyone focused too
+   heavily on MTP."* Hence `gemma-brief.md` is framed on headroom-with-quality,
+   not MTP, and its §0 states the question for the next round.
+4. **Keep the wrong files rather than delete them.** Same treatment and same
+   reasoning as `docs/archive/review-gemini.md` / `review-gpt.md`. The failure
+   mode is the asset; four un-labelled analyses at repo root were the hazard.
+5. **Change nothing.** `-np 1` is worth 514 MiB and is correct by FR-5, and it is
+   still a config change in a check phase. It is OQ-50, not a commit.
+
+---
+
 ## SESSION 2026-08-30 (night) — FIX LIST STEP 1: D2, the audit log that ate itself. DONE. (ADR-076, FR-86)
 
 First code change since 2026-08-29. Step 1 of the 12-defect live-voice fix
@@ -298,7 +498,8 @@ pass did not.
 
 **Written this session:** `opus-gemma-analysis.md` (repo root) — the complete
 model analysis, including SHA256 pins for both GGUFs, which nothing in this
-repo had before.
+repo had before. **(Archived 2026-08-30 to
+`docs/archive/2026-08-30-gemma-opus.md`; superseded by `gemma-brief.md`.)**
 
 ---
 
@@ -2427,6 +2628,9 @@ Gemma 4's drafter exists and our llama.cpp can run it, but it does not fit in
 214 MiB of free VRAM. Raised **OQ-48**. Full write-up:
 `opus-gemma-analysis.md` in the repo root, numbers in
 `~/.cache/friday-model-eval/RESULTS-mtp-feasibility.md`.
+**(The 214 MiB was later shown to be an artefact of an unset `--parallel`; see
+the verification block below. Real headroom is 740 MiB. The analysis file is now
+`docs/archive/2026-08-30-gemma-opus.md`, superseded by `gemma-brief.md`.)**
 
 ### THE FIRST THING TO DO IS NOT CODE
 

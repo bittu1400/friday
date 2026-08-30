@@ -35,13 +35,24 @@ made: ADR-075…ADR-083, FR-85…FR-93, NFR-1 re-baselined. **Only OQ-39 is open
 and it is a MEASUREMENT** (the webrtcvad voiced-fraction probe), not an opinion.
 
 **A model question is also live, and no code depends on it.** Gemma 4 12B QAT
-is a retained candidate (OQ-47), Unsloth's MTP drafter exists for it but does
-not fit in this card's VRAM (OQ-48), and `just eval` cannot currently see the
-regression a swap would admit (D16). The whole analysis — model identity and
-SHA256 pins, the five-model bench, where a turn's milliseconds actually go, the
-MTP arithmetic, and every hardware-load lever with its cost — is
-**`opus-gemma-analysis.md`**. Read that before touching the model; do not
-re-derive it.
+is a retained candidate (OQ-47) and `just eval` cannot currently see the
+regression a swap would admit (D16). The verified brief — model identity and
+SHA256 pins, the hardware envelope, the architecture, the measured headroom
+table, where a turn's milliseconds actually go, and what is settled vs open —
+is **`gemma-brief.md`**. Read that before touching the model; do not re-derive
+it.
+
+**On 2026-08-30 four competing `*-gemma-analysis.md` files were verified against
+the machine and ALL FOUR were archived** to
+`docs/archive/2026-08-30-gemma-{opus,gpt,ling-flash,gemini}.md`, each with a
+header saying what it got wrong. They are superseded by `gemma-brief.md`. Do not
+cite them. The headline correction: **`--parallel` was left at `auto`, which
+resolved to 4 slots and cost 514 MiB**, because Gemma's sliding-window KV cache
+grows with the slot count. Gemma's real headroom is **740 MiB, not 214** — or
+664 MiB at *double* the context. Meanwhile `--ctx-size 8192→4096`, which every
+one of the four files ranked as "the biggest single saving, 600–900 MiB", is
+worth **38 MiB**. The whole ranking was inverted by reasoning about a 40-of-48
+sliding-window model as if attention were dense.
 
 `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
@@ -293,7 +304,18 @@ finding that out: the 1222-token system prefix is **already cached**
 (`cache_n 1222` of 1235), so `--cache-reuse` is a spent lever, and **decode is
 72% of a planner turn and 86–89% of a chat turn** — which is what MTP attacks.
 Grammar compilation was tested as a cost and is **0.3 ms**, not a lever.
-Raised **OQ-48**. Everything is in `opus-gemma-analysis.md`.
+Raised **OQ-48**.
+
+**2026-08-30 (later) — the verification round overturned the VRAM half of the
+paragraph above.** The "214 MiB free" was measured with `--parallel` unset,
+which llama.cpp resolves to **4 slots** — and Gemma's SWA KV cache
+(765 of 833 MiB) **grows with the slot count**, so three unusable slots were
+holding 514 MiB. With `-np 1`, Gemma has **740 MiB free**; at `--ctx-size 16384`
+it has **664 MiB free with double the context window**. MTP was never the point
+(the user re-framed the goal as headroom, quality first) but it does now
+plausibly fit. `--ctx-size 8192→4096` is worth **38 MiB**, not the 600–900 every
+analysis claimed. Everything verified is in **`gemma-brief.md`**; the raw
+measurements are in `docs/archive/2026-08-30-gemma-verification-run.md`.
 
 
 **Was blocked by D1, now RUNNABLE and still never once observed working:**
@@ -428,14 +450,20 @@ evidence, not defaults. A dependency added without this drill is not done.
                       the 2026-08-26 audit.  A SNAPSHOT: its line numbers are
                       stale and some point into deleted code.  Read its
                       fix-status table (bottom), not its line numbers.
-   opus-gemma-analysis.md
-                      the model question, complete: Gemma 4 12B's exact
-                      identity + SHA256 pins, the five-model bench, where a
-                      turn's milliseconds actually go, MTP availability and
-                      why it does not fit, every hardware-load lever with its
-                      cost, and the decisions taken.  Read it before touching
+   gemma-brief.md     the model question, verified: Gemma 4 12B's exact
+                      identity + SHA256 pins, the hardware envelope, the
+                      architecture (40/48 sliding-window -- this is the fact
+                      that drives everything), the MEASURED headroom table for
+                      both models, where a turn's milliseconds actually go,
+                      and what is settled vs open.  Read it before touching
                       the model.  Measurements, not a code snapshot -- it does
-                      not go stale the way Alpha-ox does.
+                      not go stale the way Alpha-ox does.  It replaced four
+                      competing analyses on 2026-08-30; see its section 0 for
+                      the question the next analysis round is meant to answer.
+   docs/archive/2026-08-30-gemma-*.md
+                      the four superseded analyses + the verification run that
+                      settled them.  HISTORICAL.  Each carries a header saying
+                      what it got wrong.  Do not cite as current.
    diagrams/          ASCII.  02-tool-call-loop.md and 04-trust-boundaries.md
                       are the important ones.  (Until 2026-08-30 this line
                       named two titles that match no file.)
@@ -609,6 +637,9 @@ just prefs list|forget  # manage stored preferences
 | "The last session's block says that was already fixed" | It says `just enroll` was corrected in the docstrings; it corrected one file and missed `daemon.py`, in the one warning that fires when speaker verification is failing OPEN. A find-and-replace reported as done. Diff the claim against the tree — `just --list`, `grep`, run it — before believing it. |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
 | "The arithmetic says it won't fit in VRAM" | Load it and read `nvidia-smi`. A 12B and a 14B were both ruled out on paper; both fit, and the 14B fits with MORE headroom than the 12B. The weights+KV model was wrong by 380-390 MiB every time, in unpredictable directions (ADR-084). Decode `tok/s ~= 272 / weights_GB` DOES hold; memory does not. |
+| "`kv_unified = true`, so the extra slots are free" | Not on a sliding-window model. Gemma's SWA cache is sized `n_seq_max x n_swa + n_ubatch`, so it grows with the slot count — `--parallel` auto gave 4 slots and `4x1024+512 = 4608` cells against `1536` at `-np 1`, i.e. **3x the SWA KV**: 765 MiB of an 833 MiB total, while FR-5 guarantees 3 of those slots can never be used. `-np 1` is **+514 MiB for nothing**. On Qwen (full GQA) the same flag changes nothing at all. Two files reasoned from the flag *name* and both got it backwards. |
+| "Cut the context window to free VRAM" | Measure which cache you are cutting. On Gemma, `--ctx-size` scales only the 68 MiB **global** cache; the 765 MiB **sliding-window** cache is `n_seq_max x n_swa + n_ubatch` and ignores it. 8192→4096 frees **38 MiB** and halves your window. Four analyses called it "the biggest single saving, 600–900 MiB". Going the other way, 8192→16384 costs 76 MiB. |
+| "The analysis cites a real GitHub issue, so the claim is real" | `docs/archive/2026-08-30-gemma-ling-flash.md` cited a genuine llama.cpp discussion and then asserted "Q8 KV cache kills draft acceptance" — the cited source **recommends** `q8_0` KV. Acting on it would have cost 284 MiB for nothing. Check the claim against the source, not against the bibliography. |
 | "28/28 on `just eval`, so the planner is fine" | Two models scored 28/28 and still emitted `action=none` for "copy that to the clipboard" / "close this window" (D16). The fixtures do not cover those rows. The gate that would approve a model swap cannot see the regression it would admit. |
 | "Set `reasoning_format: \"none\"` to stop the model thinking" | It does the opposite of what it looks like: thinking is NOT suppressed, the raw `<|channel>thought` text is moved INTO `message.content`. Friday would then write raw model thought into history and audit rows — invariant #7 (FR-26/57). Use `--reasoning off` or `chat_template_kwargs: {"enable_thinking": false}`. |
 | "`pgrep -f foo` to find the process, then kill it" | `pgrep -f` matches its OWN command line. Twice on 2026-08-30 a cleanup one-liner killed the shell running it (exit 144). Bracket the pattern: `pgrep -f "[f]oo"`. |

@@ -1,3 +1,26 @@
+> **ARCHIVED 2026-08-30. SUPERSEDED by `gemma-brief.md` in the repo root.**
+>
+> This was the measurement record of the Gemma 4 evaluation and MTP feasibility
+> session, and **most of it was right** — the five-model bench, the SHA256 pins,
+> the turn anatomy, the killed grammar-compile hypothesis, and the decisions
+> ledger all survived verification and have been carried into the brief.
+>
+> **What it got wrong, and why it is archived rather than patched:** its lever
+> ranking is inverted. §7.2(a) calls `--ctx-size 8192->4096` "the biggest single
+> saving, estimated 600-900 MiB" (measured: **38 MiB**), and §10.2 guesses
+> `-np 1` is probably a no-op because `kv_unified = true` (measured: **514 MiB**).
+> Both estimates came from a dense-attention model of a 40/48 sliding-window
+> architecture. Its §10.3 "unresolved contradiction" is also resolved: both
+> vendor claims are true at once.
+>
+> It is also framed around MTP, which the user has since demoted -- headroom is
+> the goal, MTP was only ever one way to spend it.
+>
+> Verification run: `2026-08-30-gemma-verification-run.md` (same directory).
+> Do not cite this file as current. Cite `gemma-brief.md`.
+
+---
+
 # opus-gemma-analysis.md — Gemma 4 12B on this laptop: everything measured, everything decided
 
 **Written 2026-08-30 (night). Author: the Opus 5 session that ran the MTP

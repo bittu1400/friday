@@ -223,6 +223,70 @@ the user on 2026-08-30 to keep that session single-purpose, and remains OPEN.
 
 ---
 
+### OQ-50 — Do we set `--parallel 1` on `friday-llm.service`?
+
+**Decider:** USER · **Blocks:** the Gemma swap (OQ-47) · **Status:** OPEN
+(raised 2026-08-30 by the verification round)
+
+One line in one service file. Measured, not estimated:
+
+| model | stock free | with `-np 1` | delta |
+| :-- | --: | --: | --: |
+| Qwen2.5-7B (live today) | 3042 MiB | 3042 MiB | **0** |
+| Gemma 4 12B QAT | 226 MiB | **740 MiB** | **+514** |
+
+**Why it does nothing for Qwen and everything for Gemma.** Qwen is full GQA: one
+unified 238 MiB KV cache at `4/1 seqs` and `1/1 seqs` alike. Gemma is hybrid
+sliding-window — 40 of 48 layers @1024 — and llama.cpp allocates the SWA cache
+with the sequence count: `4608 cells = n_seq_max x n_swa + n_ubatch =
+4 x 1024 + 512`, against `1 x 1024 + 512 = 1536` at `-np 1`. `kv_unified = true`
+covers the global cache only. `--parallel` unset resolves to **4 slots**.
+
+**What it costs: nothing that exists.** FR-5 is "one turn in flight. Ever." Slots
+1-3 can never be reached under any code path.
+
+**The argument for taking it now, before any swap:** a flag left at `auto` is a
+decision nobody made, and this project has been bitten by exactly that before —
+the CPU-serving incident of 2026-08-25 was an auto-resolution nobody observed.
+`--n-gpu-layers 99` is explicit for the same reason. Taking it while Qwen is live
+is a no-op that can be verified safely (`just selftest` 8/8), which is a better
+time to take it than during a model swap.
+
+**The argument for waiting:** it changes nothing today, and a check phase is not
+a commit.
+
+**If nobody decides:** the flag stays `auto`, and 514 MiB silently disappears the
+day Gemma lands. Full measurement: `gemma-brief.md` §3-§4.
+
+---
+
+### OQ-49 — Does `q4_0` KV cache hold quality?
+
+**Decider:** USER, on evidence · **Blocks:** an extra 152 MiB of headroom ·
+**Status:** OPEN (raised 2026-08-30 by the verification round)
+
+Measured on Gemma 4 12B with `-np 1` at ctx 8192: `q8_0` KV leaves 740 MiB free,
+`q4_0` KV leaves **892 MiB**. KV drops 323 -> 171 MiB. The **size** is measured.
+The **quality is not tested at all.**
+
+**Why this is a real gate and not a formality.** The user's standing instruction,
+2026-08-30: *"quality is our top priority and so is VRAM. Though quality wins in
+all."* A lever that buys memory by costing quality loses by definition.
+
+**What would settle it:**
+1. `just eval` must stay **28/28, 0 regressions** — necessary, not sufficient.
+2. **Chat judged by ear.** `just eval` structurally cannot see chat quality, and
+   chat is the entire reason Gemma is a candidate (G8, the primary goal). This is
+   the same blind spot as D16 and it cannot be closed by the fixtures.
+
+KV quantization error accumulates with context depth; Friday's working set is
+~1235 tokens, so the effect *should* be near-nil — and "should" is precisely what
+this project punishes.
+
+**If nobody decides:** keep `q8_0`. 740 MiB is already ample and costs nothing.
+
+---
+
 ### OQ-48 — Do we adopt MTP speculative decoding, and what do we spend to fit it?
 
 **Decider:** USER · **Blocks:** nothing today; entangled with OQ-47 ·
@@ -240,11 +304,17 @@ attacks. At 1.4-2.0x on the decode leg, a chat turn goes 1959 ms ->
 
 **Why it is not free.** Two obstacles, both measured or sourced:
 
-1. **VRAM.** Gemma 4 12B at stock flags holds 7534 MiB and leaves **214 MiB**
-   free of 8151. The drafter's weights alone are 242 MiB, and Unsloth's own
-   guidance is "~2 GB additional headroom". It cannot be tried until memory is
-   freed, which means spending context, KV precision, or batch size — the
-   trade table the user asked to see explained before deciding.
+1. **VRAM — SUPERSEDED 2026-08-30 by the verification round. It now fits.**
+   The "214 MiB free" was measured with `--parallel` unset, which llama.cpp
+   resolves to **4 slots** — and Gemma's sliding-window KV cache (765 of
+   833 MiB) **grows with the slot count**, so three slots FR-5 guarantees can
+   never be used were holding 514 MiB. With `-np 1` Gemma has **740 MiB free**;
+   at `--ctx-size 16384` it has **664 MiB with double the context**. The
+   drafter's Q4_0 weights are 242 MiB and its own KV cache is one filtered
+   layer (`/opt/llama.cpp/src/llama-model.cpp:2154,2207,2326`), so ~500 MiB
+   remains. **No context, KV precision, or batch size needs to be spent at
+   all.** Unsloth's "~2 GB headroom" is generic guidance, not a measurement of
+   this configuration. See `gemma-brief.md` §4.
 2. **Acceptance under a grammar is unknown.** Unsloth reports 0.70 acceptance
    for this model on a B200; the repo's own MTP README reports **0.51**. The
    planner emits ~22 grammar-constrained tokens, which is the worst case for
@@ -275,7 +345,7 @@ What a swap would cost, measured not estimated:
 | :-- | --: | --: |
 | planner p50 | 373 ms | 891 ms (+518) |
 | chat p50 | 854 ms | 2340 ms |
-| VRAM free | 3441 MiB | **214 MiB** |
+| VRAM free (stock) | 3441 MiB | ~~214 MiB~~ **740 MiB with `-np 1`** |
 | projected TTFA p50 | 2172 ms | **~2690 ms** |
 
 **Preconditions, if the answer is yes.** These are not optional:
@@ -290,13 +360,25 @@ What a swap would cost, measured not estimated:
    `message.content` → invariant #7 (FR-26/57). It looks like the fix.
 4. **ADR-080 must be re-baselined again**, one day after it was set from
    measurement, or the swap knowingly breaks the NFR.
-5. **Decide the 214 MiB headroom.** llama.cpp's own auto-fit wanted to reduce
-   GPU layers and proceeded only because `--n-gpu-layers 99` is explicit.
-   Options: accept it, or cut `--ctx-size` to buy margin (costs G8 history).
+5. ~~**Decide the 214 MiB headroom.**~~ **LARGELY RETIRED 2026-08-30.** The
+   figure was an artefact of an unset `--parallel`; with `-np 1` Gemma has
+   **740 MiB free**, or **664 MiB at `--ctx-size 16384`** — double the window it
+   has today, which also retires the "a web-search turn overflows the context"
+   worry. Cutting `--ctx-size` to buy margin turns out to be worth **38 MiB**
+   (it scales only the 68 MiB global cache), so that option was never the one to
+   take. **`-np 1` must ship with the swap** — see OQ-50. The remaining live
+   objection to Gemma is **latency**, not memory.
 
 **If nobody decides:** Qwen2.5-7B stays, which is the safe answer — it is the
 fastest, ties on correctness, and leaves 3441 MiB spare. The 6.3 GB candidate
 sits on disk unused.
+
+**Updated 2026-08-30 (verification round).** The memory objection is much weaker
+than the table above suggested — Gemma's real headroom is 740 MiB, not 214, and
+it can run a 16384-token window for 76 MiB. Nothing about latency changed, and
+**D16 is still the hard precondition.** The full verified record is
+`gemma-brief.md`; the four analyses this OQ was written against are archived in
+`docs/archive/2026-08-30-gemma-*.md` and should not be cited.
 
 **Sub-question the evaluation did not answer:** chat quality was judged by
 reading three transcripts. The user chose to be the judge (2026-08-30). Nobody
