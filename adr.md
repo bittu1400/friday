@@ -2901,3 +2901,130 @@ reasoning). Searching for a non-Lua route to the compositor: a socket write to
 `$XDG_RUNTIME_DIR/hypr/$HIS/.socket.sock` would trade one version-coupled
 format for another, less documented one.
 
+
+## ADR-084 — Model evaluation on this laptop: Gemma 4 12B QAT retained as the sole candidate; Qwen2.5-7B stays the model
+
+**Status:** Accepted (2026-08-30). Supersedes nothing. Does **not** change the
+running model — see Decision.
+
+**Context.** The user asked two questions in one session: whether the model is
+really local (yes — see the offline-challenge block in `progress.md`), and
+whether something stronger than Qwen2.5-7B-Instruct Q4_K_M would fit this
+laptop. An 8B and a 12B were requested explicitly, and when the first analysis
+ruled the 12B out on paper the user overruled it: *"we can't just rule it out
+just because of our thinking."* That instruction was correct and is the reason
+this ADR exists — the paper analysis was wrong twice.
+
+The ADR-041 dependency drill applies: enumerate real options, check the true
+footprint before installing, benchmark the survivors on THIS laptop, pick from
+evidence, record the rejected alternatives.
+
+**What was measured.** Five models, identical flags
+(`--ctx-size 8192 --n-gpu-layers 99 --cache-type-k q8_0 --cache-type-v q8_0`),
+identical bench (Friday's real `plan.gbnf` + `assemble_system`, 15 planner
+utterances + 3 chat), same machine, `llm_on_gpu` PASS throughout. Candidate on
+port 8081 with `friday-llm` stopped, restored after each run.
+
+| metric | **Qwen2.5-7B** (current) | Gemma 4 12B QAT | Qwen3-8B | Ministral 3 8B | Ministral 3 14B Q3 |
+| :-- | --: | --: | --: | --: | --: |
+| VRAM held | 4710 | 7534 | 5324 | 5508 | 7208 MiB |
+| VRAM free | **3441** | 214 | 2404 | 2230 | 530 MiB |
+| decode | **61.3** | 41.0 | 58.7 | 54.8 | 36.8 tok/s |
+| prompt proc @6k | **2467** | 1454 | 2241 | 2152 | 1308 tok/s |
+| planner p50 | **373** | 891 | 389 | 423 | 615 ms |
+| chat p50 | **854** | 2340 | 1159 | 1990 | 2336 ms |
+| `just eval` | **28/28** | **28/28** | 27/28 | 26/28 | **28/28** |
+| regressions | 0 | 0 | E24 | E04, E20 | 0 |
+
+**Decision.**
+
+1. **Qwen2.5-7B-Instruct Q4_K_M remains the running model.** Nothing measured
+   beat it on correctness, and only Qwen3-8B stays inside ADR-080's
+   re-baselined p50 of 2200 ms. Gemma 4 12B projects TTFA to ~2690 ms.
+2. **Gemma 4 12B QAT (`unsloth/gemma-4-12B-it-qat-GGUF`, UD-Q4_K_XL, 6405 MiB)
+   is retained on disk as the sole candidate**, at
+   `~/.cache/friday-model-eval/gguf/`. The swap decision is deliberately left
+   open — it is OQ-47, not this ADR.
+3. **The other three are deleted.** 16.4 GB reclaimed.
+4. **No swap happens before the eval harness can see the failures it currently
+   misses** (D16). This is a precondition, not a preference.
+
+**Why Gemma 4 and not the others.**
+
+- *Gemma 4 12B QAT* — the only candidate that both ties the incumbent on
+  fixtures (28/28, 0 regressions) and clearly beats it on chat, which is the
+  project's stated primary goal (G8) and the one thing `just eval` cannot
+  measure. Its answers are rich but disciplined: concrete analogies, a specific
+  offered follow-up, no padding. Quantization-aware training means its 6405 MiB
+  Q4 is *both smaller and better* than bartowski's ordinary Q4_K_M (7305 MiB,
+  which does not fit at all). Apache 2.0.
+- *Qwen3-8B* — REJECTED despite being nearly free on latency (+16 ms planner,
+  within noise) and leaving 2404 MiB spare. It hallucinated `app='mpv'`,
+  **outside the closed enum** (E24). For a planner whose entire job is choosing
+  from a closed set, that is the one failure that disqualifies. The validator
+  caught it and failed closed — invariant #5 working — but the incumbent and
+  Gemma 4 both get it right. Its chat was also the most generic of the four.
+- *Ministral 3 8B* — REJECTED, worst correctness (26/28). Its two failures are
+  **in-enum** (`open_app{vlc}`, a wrong `web_search`), so the validator passes
+  them through: they are wrong actions that EXECUTE, not caught hallucinations
+  that fail closed. That is worse than Qwen3-8B's E24 in practice. Separately,
+  it is the wrong *shape* for voice — emoji, markdown italics, 2–3 paragraphs
+  per answer that Kokoro must speak aloud.
+- *Ministral 3 14B (UD-Q3_K_XL)* — REJECTED, but it is the honourable mention
+  and the reason the user's instruction was right. It **fits** (530 MiB free,
+  *more* headroom than the 12B) and scores **28/28 at Q3**. Rejected for
+  planner quality outside the fixtures (see below) and 615 ms planner p50, not
+  for the reasons predicted.
+
+**Two predictions this evaluation falsified, recorded so they are not repeated.**
+
+- *"A 12B does not fit in 8 GB"* and *"a 14B is dead on arrival."* Both fit.
+  The 14B fits **better** than the 12B. The original arithmetic assumed
+  Mistral-Nemo-style attention; Gemma 4 interleaves 40 sliding-window(1024)
+  layers with 8 full ones, so its KV at 8k is ~441 MiB — cheaper than either
+  8B's ~610 MiB despite being half again the size.
+- *"Q3 on a 14B loses to Q4 on an 8B."* False on this fixture set. Both Q4 8Bs
+  regressed; the Q3 14B did not.
+
+**A sizing model that is now retired.** `decode tok/s ≈ 272 / weights_GB` held
+well (predicted 40 for Gemma 4, measured 41.0) and every weights byte-count was
+exact to within 2 MiB. But **total VRAM was wrong every single time by
+380–390 MiB, in unpredictable directions** (Gemma 4 −388 optimistic, Qwen3-8B
++383 pessimistic, Ministral 14B +381 pessimistic). Per-model compute and graph
+buffers are not captured by weights + KV. **Do not use arithmetic to decide
+whether a model fits. Load it and read `nvidia-smi`.**
+
+**Gemma 4 is a reasoning model — the operational trap.** By default it emits
+`reasoning_content` before every answer: *"Say hello in one sentence."* cost 85
+completion tokens, 63 of them thinking, 2102 ms. The first bench run returned
+**empty chat answers** because thinking consumed the whole 220-token budget.
+Disable with the server flag `--reasoning off`, or per-request
+`chat_template_kwargs: {"enable_thinking": false}` — both verified, 85 → 3
+tokens. Every number in the table above is with reasoning OFF.
+
+**`reasoning_format: "none"` is a trap and must never be used.** It does not
+suppress thinking; it leaks the raw `<|channel>thought` text into
+`message.content`. Friday would then place raw model thought into history and
+audit rows, violating invariant #7 (FR-26/57: `thought` and raw model output
+NEVER on disk). Anyone wiring Gemma 4 in will meet this flag; it looks like the
+fix and ships a disclosure defect.
+
+**Consequences.**
+
+- The running system is unchanged. `friday-llm` still serves Qwen2.5-7B; three
+  stop/start cycles were performed for benching and `just selftest` is 8/8
+  after restore.
+- 6.3 GB stays on disk for a candidate that may never ship. Accepted — a
+  re-download is ~35 minutes and the measurement is not reproducible without it.
+- Adopting Gemma 4 later means accepting 214 MiB of VRAM headroom, at which
+  llama.cpp itself emits `common_fit_params: failed to fit params to free
+  device memory … abort` and proceeds only because `--n-gpu-layers 99` is
+  explicit. It ran stably (flat 7534 MiB across the whole bench, a 6035-token
+  prompt fine, no OOM), but it is not margin.
+- Adopting it also means re-baselining TTFA again, one day after ADR-080 set it
+  from measurement.
+
+**Rejected process alternative.** Swapping on benchmark reputation without
+running `just eval` — which would have shipped Qwen3-8B (the obvious "newer,
+faster, Apache 2.0" pick) and with it an out-of-enum hallucination in the
+planner.

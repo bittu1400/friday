@@ -212,6 +212,60 @@ bandwidth roof.
 (28 fixtures) plus a TTFA sample on this laptop, and an ADR recording the
 rejected alternatives.
 
+**UPDATE 2026-08-30 — part (b) is MEASURED and closed; part (a) is still open.**
+Five models were benched on this laptop (ADR-084). The table above was wrong in
+both directions: a 12B *and* a 14B both fit, and the 14B fits with more headroom
+than the 12B. Nothing beat Qwen2.5-7B on correctness. Gemma 4 12B QAT is
+retained as the sole candidate and the swap decision moved to **OQ-47**.
+Part (a) — the D13 phone-home and the D15 dead egress check — was deferred by
+the user on 2026-08-30 to keep that session single-purpose, and remains OPEN.
+
+---
+
+### OQ-47 — Do we swap to Gemma 4 12B, and what has to be true first?
+
+**Decider:** USER · **Blocks:** nothing today · **Status:** OPEN (raised
+2026-08-30 by the model evaluation, ADR-084)
+
+Gemma 4 12B QAT survived the evaluation as the only candidate that ties the
+incumbent on `just eval` (28/28, 0 regressions) **and** clearly beats it on
+chat, which is the primary goal and the one thing the fixtures cannot measure.
+The user's standing decision is *candidate retained, decision still open*.
+
+What a swap would cost, measured not estimated:
+
+| | Qwen2.5-7B (current) | Gemma 4 12B QAT |
+| :-- | --: | --: |
+| planner p50 | 373 ms | 891 ms (+518) |
+| chat p50 | 854 ms | 2340 ms |
+| VRAM free | 3441 MiB | **214 MiB** |
+| projected TTFA p50 | 2172 ms | **~2690 ms** |
+
+**Preconditions, if the answer is yes.** These are not optional:
+
+1. **D16 first.** Fixtures must exist for the rows the current 28 cannot see —
+   Gemma 4 emits `action=none` for "copy that to the clipboard" while scoring
+   28/28. Swapping before the gate can see that is swapping blind.
+2. **`--reasoning off` must be in `friday-llm.service`.** Gemma 4 thinks by
+   default; without the flag, chat answers come back EMPTY once thinking eats
+   the token budget. Verified.
+3. **Never `reasoning_format: "none"`.** It leaks raw `<|channel>thought` into
+   `message.content` → invariant #7 (FR-26/57). It looks like the fix.
+4. **ADR-080 must be re-baselined again**, one day after it was set from
+   measurement, or the swap knowingly breaks the NFR.
+5. **Decide the 214 MiB headroom.** llama.cpp's own auto-fit wanted to reduce
+   GPU layers and proceeded only because `--n-gpu-layers 99` is explicit.
+   Options: accept it, or cut `--ctx-size` to buy margin (costs G8 history).
+
+**If nobody decides:** Qwen2.5-7B stays, which is the safe answer — it is the
+fastest, ties on correctness, and leaves 3441 MiB spare. The 6.3 GB candidate
+sits on disk unused.
+
+**Sub-question the evaluation did not answer:** chat quality was judged by
+reading three transcripts. The user chose to be the judge (2026-08-30). Nobody
+has heard Gemma 4 through Kokoro, and voice changes the calculus — verbosity
+that reads fine takes real seconds to speak.
+
 ---
 
 ## Kept Open (Long-Term / Optional)

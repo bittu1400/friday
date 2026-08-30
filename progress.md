@@ -83,6 +83,237 @@ a human at a keyboard.
 
 ---
 
+## SESSION 2026-08-30 (later) — MODEL EVALUATION: five models benched on this laptop, Gemma 4 12B retained, three deleted. NO CODE CHANGED. (ADR-084, OQ-47, D16)
+
+**What this session was.** A direct continuation of the offline challenge
+above. Having established that the model really is local, the user asked what a
+*better* model would be for what Friday actually does, and asked for an 8B and
+a 12B specifically. When the first (paper-only) analysis ruled out the 12B, the
+user overruled it:
+
+> *"we can't just rule it out just because of our thinking... find the best one
+> in the current date for both of them. One that is latest."*
+
+and later, on the 14B:
+
+> *"check for 14B too, let's see if we get a surprise or we are splashed with
+> water... We need real evaluations, not speculation."*
+
+**That instruction was right and this block exists because of it.** The paper
+analysis was wrong twice. A 12B fits. A 14B fits, and fits BETTER than the 12B.
+
+### The bottom line
+
+**Qwen2.5-7B-Instruct Q4_K_M remains the model.** Nothing measured beat it on
+correctness, and only one candidate stayed inside ADR-080's re-baselined TTFA.
+**Gemma 4 12B QAT is retained on disk as the sole candidate** with the swap
+decision deliberately left open (OQ-47). The other three are deleted, 16.4 GB
+reclaimed.
+
+### Measured — five models, identical flags, identical bench, same machine
+
+Flags on every run, matching `friday-llm.service` exactly:
+`--ctx-size 8192 --n-gpu-layers 99 --cache-type-k q8_0 --cache-type-v q8_0`.
+Candidate on `127.0.0.1:8081` with `friday-llm` stopped; restored after each.
+Bench imports Friday's **real** `plan.gbnf` and `assemble_system`, so the
+planner numbers are the actual hot path, not a synthetic prompt.
+
+| metric | **Qwen2.5-7B** (current) | Gemma 4 12B QAT | Qwen3-8B | Ministral 3 8B | Ministral 3 14B Q3 |
+| :-- | --: | --: | --: | --: | --: |
+| weights | 4506 | 6405 | 4795 | 4958 | 6610 MiB |
+| VRAM held | 4710 | 7534 | 5324 | 5508 | 7208 MiB |
+| VRAM free | **3441** | 214 | 2404 | 2230 | 530 MiB |
+| decode | **61.3** | 41.0 | 58.7 | 54.8 | 36.8 tok/s |
+| prompt proc @6k | **2467** | 1454 | 2241 | 2152 | 1308 tok/s |
+| planner p50 (n=15) | **373** | 891 | 389 | 423 | 615 ms |
+| chat p50 (n=3) | **854** | 2340 | 1159 | 1990 | 2336 ms |
+| `just eval` | **28/28** | **28/28** | 27/28 | 26/28 | **28/28** |
+| regressions | 0 | 0 | E24 | E04, E20 | 0 |
+| 6035-token prompt | OK | OK | OK | OK | OK |
+
+Projected TTFA p50 (only the planner leg changes; current p50 is 2172 ms):
+Qwen3-8B ~2188, Ministral 8B ~2222, Ministral 14B ~2414, **Gemma 4 ~2690 ms**.
+ADR-080's re-baselined target is 2200 ms — **only Qwen3-8B stays under it**.
+
+Full numbers, all chat transcripts and the pre-registered predictions are in
+`~/.cache/friday-model-eval/` (`RESULTS-gemma4-12b.md`, `PREDICTIONS.md`).
+That directory is outside the repo on purpose — it is 6.3 GB.
+
+### Why each was rejected, and why Gemma 4 survived
+
+Full reasoning is ADR-084. Short form:
+
+- **Gemma 4 12B QAT — RETAINED.** The only candidate that ties the incumbent on
+  fixtures *and* clearly beats it on chat, which is G8, the primary goal, and
+  the one thing `just eval` structurally cannot measure. Rich but disciplined:
+  concrete analogies, a specific offered follow-up, no padding. QAT means its
+  6405 MiB Q4 is **both smaller and better** than bartowski's ordinary Q4_K_M
+  (7305 MiB, which does not fit at all).
+- **Qwen3-8B — REJECTED**, despite being nearly free on latency (+16 ms planner,
+  within noise) and leaving 2404 MiB spare. It emitted `app='mpv'`, **outside
+  the closed enum** (E24). For a planner whose entire job is picking from a
+  closed set, that disqualifies. The validator caught it and failed closed —
+  invariant #5 doing exactly its job — but the incumbent and Gemma 4 both get
+  it right. This was the obvious "newer, faster, Apache 2.0" pick and the eval
+  is the only thing that stopped it.
+- **Ministral 3 8B — REJECTED**, worst correctness (26/28). Its failures are
+  **in-enum** (`open_app{vlc}`, a wrong `web_search`), so the validator passes
+  them: **wrong actions that EXECUTE**, not caught hallucinations that fail
+  closed. Worse than E24 in practice. Also the wrong *shape* for voice — emoji,
+  markdown italics, 2–3 paragraphs per answer that Kokoro must speak aloud.
+- **Ministral 3 14B UD-Q3_K_XL — REJECTED, and the honourable mention.** It
+  **fits** with 530 MiB free (more than the 12B) and scores **28/28 at Q3**.
+  Rejected for planner quality outside the fixtures and 615 ms planner p50 —
+  not for any reason predicted.
+
+### D16 (MEDIUM) — the eval harness cannot see the failure it would let through
+
+The most important finding here, and it is about our gate, not the models.
+
+A 15-utterance probe set (Friday's real manifest rows) caught failures the 28
+fixtures do not cover:
+
+```
+  utterance                    | 7B        | Gemma4 | Qwen3-8B | Min-8B      | Min-14B
+  "open my todo"               | "my todo" | "todo" | "todo"   | "todo"      | "my todo"
+                               |  (D4)     |  FIX   |  FIX     |  FIX        |  (D4)
+  "copy that to the clipboard" | ok        | NONE   | ok       | ok          | ok
+  "close this window"          | ok        | ok     | ok       | ok          | NONE
+  "play some music on youtube" | "some     |"music" | "music"  | "play some  | "music"
+                               |  music"   |        |          |  music"     |
+```
+
+**Two models score a perfect 28/28 and still emit `action=none` on a plain
+command** — Gemma 4 on clipboard, Ministral 14B on close-window. The gate that
+would approve a model swap cannot see the regression it would admit.
+
+Straight into the ledger beside `gpu_arch` passing through a GPU outage and
+`test-egress` inspecting the wrong socket category. Recorded as **D16** at the
+user's direction (they were asked and chose "defect, not just an OQ").
+
+Incidental: **both 8Bs and Gemma 4 fix D4's alias symptom** (`open my todo` →
+`"todo"`, which the registry can match). The incumbent and the 14B do not.
+That is a data point for D4's fix, independent of any swap.
+
+### Gemma 4 is a reasoning model — the operational trap
+
+It emits `reasoning_content` before every answer by default:
+
+```
+  "Say hello in one sentence."  ->  85 completion tokens, 63 of them thinking,
+                                    2102 ms, to produce the word "Hello!"
+```
+
+The first bench run returned **empty chat answers** — thinking consumed the
+whole 220-token budget before any content was emitted. Disable with server flag
+`--reasoning off`, or per-request `chat_template_kwargs: {"enable_thinking":
+false}`. Both verified: 85 -> 3 tokens. Every number in the table is with
+reasoning OFF, i.e. Gemma 4's best case.
+
+**`reasoning_format: "none"` is a trap. Never use it.** It does not suppress
+thinking — it leaks the raw `<|channel>thought` text into `message.content`.
+Friday would then write raw model thought into history and audit rows:
+**invariant #7** (FR-26/57 — `thought` and raw model output NEVER on disk).
+Anyone wiring Gemma 4 in will meet this flag and it looks like the fix.
+
+### The sizing model that is now retired
+
+Pre-registered in `PREDICTIONS.md` before any measurement, deliberately, so the
+comparison would be a real test.
+
+**Held:** `decode tok/s ~= 272 / weights_GB` (predicted 40 for Gemma 4,
+measured 41.0). Every weights-on-disk byte count, exact to within 2 MiB. And
+the riskiest assumption of all — that llama.cpp trims Gemma 4's sliding-window
+KV — held; without it Gemma 4 needs ~8.2 GB and never loads.
+
+**Failed:** **total VRAM, every single time, by 380–390 MiB in unpredictable
+directions** — Gemma 4 −388 (optimistic), Qwen3-8B +383 (pessimistic),
+Ministral 14B +381 (pessimistic). Per-model compute and graph buffers are not
+captured by weights + KV.
+
+> **Do not use arithmetic to decide whether a model fits. Load it and read
+> `nvidia-smi`.** Two models were nearly rejected on paper that both fit fine.
+
+### Decisions taken this session, and why
+
+Six were put to the user rather than defaulted; all six answers are recorded.
+
+1. **Bench scope** — user chose to add the 14B ("let's see if we get a surprise
+   or we are splashed with water") rather than accept it being ruled out. It
+   was the surprise: 28/28 at Q3, fits better than the 12B.
+2. **Chat judged by the user, side by side** — chosen over writing new
+   chat-quality fixtures (new code, and grading our own homework) or ignoring
+   chat entirely (structurally blind to the only real reason to upgrade).
+3. **~1000 MiB VRAM spare declared acceptable** — this was answered *before*
+   measurement showed Gemma 4 actually leaves **214 MiB**. The answer was given
+   against a number that turned out wrong, so OQ-47 re-opens it explicitly
+   rather than treating it as settled.
+4. **D13/D15 deliberately NOT fixed** — user kept the session single-purpose:
+   *"We do not change anything here other than just evaluate."* They remain
+   open in OQ-46(a).
+5. **Gemma 4 retained as candidate, decision open** — chosen over "adopted" and
+   over "reference only". Next session can decide with the numbers present.
+6. **Next session's priority unchanged** — the standing D2-then-D1 fix list
+   still comes first. Model work is parked. A better chat model matters less
+   than a confirm path where every spoken "yes" is recorded as a decline, and
+   changing the model underneath a known-broken confirm path would invalidate
+   any voice testing done on top of it.
+
+### Process notes worth keeping
+
+- **A README now exists** (`eb41462`). The repo had none. Writing it caught
+  three claims in `CLAUDE.md` that contradict the tree — corrected this session,
+  see the doc-hygiene note below.
+- **The bench imports the real prompt path.** `bench.py` loads `plan.gbnf` the
+  way `turn.py` does and calls `assemble_system`, so a planner number here is
+  comparable to a live turn. A synthetic prompt would have measured nothing.
+- **A tail-latency reading nearly condemned Ministral 8B unfairly.** Its first
+  run showed planner max 2424 ms / mean 555 against a p50 of 423. Re-measured
+  over 40 runs of one utterance: p50 467, p90 474, p95 477, max 861. The
+  outlier was a cold prompt-cache miss, not a property of the model. **One
+  reading is not a measurement.**
+- **HF's Xet transport failed mid-download** with a CAS client error and killed
+  the downloader. `HF_HUB_DISABLE_XET=1` forces plain HTTP and was stable for
+  all four files. Worth knowing before the next 6 GB pull.
+- **`pgrep -f <pattern>` matches its own command line.** Twice this session a
+  cleanup command killed the shell running it (exit 144). Use a bracketed
+  pattern: `pgrep -f "[l]lama-server"`.
+
+### State left behind — verified, not assumed
+
+```
+friday-llm            RUNNING, serving Qwen2.5-7B, 4696 MiB VRAM
+just selftest         8/8 PASS (run after the final restore)
+uv run pytest         450 passed
+working tree          clean except the docs in this commit
+```
+
+`friday-llm` was stopped and restarted three times for benching. It is up and
+`llm_on_gpu` PASSes. Kept on disk:
+`~/.cache/friday-model-eval/gguf/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf` (6405 MiB)
+plus `RESULTS-gemma4-12b.md`, `PREDICTIONS.md`, `bench.py`, `logs/`.
+Deleted: Qwen3-8B, Ministral 3 8B, Ministral 3 14B (16.4 GB).
+
+Defect list is now **D1–D16**. New: **ADR-084**, **OQ-47**; **OQ-46(b)**
+answered by measurement, **OQ-46(a)** still open.
+
+### Doc hygiene — three false claims in CLAUDE.md, corrected
+
+Found while verifying the README against the tree rather than copying from
+`CLAUDE.md`. All three are now fixed:
+
+| CLAUDE.md said | The tree says |
+| :-- | :-- |
+| "74 ADRs" | **83** at the time (84 now with ADR-084); ADR-001…ADR-083, no duplicates. ADR-075…083 landed in `cf900a0` and the doc map was never updated. |
+| cites `gemini-thoughts.md`, `gpt-thoughts.md` | **Neither exists**, in the tree or anywhere in git history. The real files are `docs/archive/review-gemini.md` and `review-gpt.md`. |
+| diagram 02 "injection trust boundary", 04 "zones + privilege ladder" | The files are `02-tool-call-loop.md` and `04-trust-boundaries.md`. |
+
+Same pattern this repo keeps finding in itself: a document asserting something
+nobody re-checked. The 2026-08-29 doc-readiness pass verified ADR/OQ **ids** and
+symbols; it did not verify **prose claims about file names and counts**.
+
+---
+
 ## SESSION 2026-08-30 — THE OFFLINE CHALLENGE: the user asked whether the model is really local. It is. Two new defects found proving the question was worth asking. NO CODE CHANGED.
 
 **What this session was.** The user asked a blunt question: *"Are you sure the
@@ -1866,7 +2097,64 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (rewritten 2026-08-29 after the LIVE-VOICE PASS. The manifest has now been SPOKEN. There are 9 defects and a fix list.) <<<
+## >>> START HERE: NEXT SESSION (amended 2026-08-30. Fix list UNCHANGED — D2 then D1. Defects are now D1–D16.) <<<
+
+### READ THIS FIRST — what changed on 2026-08-30, after this block was written
+
+Two sessions ran on 2026-08-30. **Neither changed a single line of code.** Both
+have full session blocks at the top of this file. The fix list below is
+**unchanged and still your job**, in the same order.
+
+**1. THE OFFLINE CHALLENGE.** The user asked whether the model is really local.
+**It is** — `llama-server` has 0 remote sockets, binds 127.0.0.1:8080, holds
+4712 MiB of VRAM, 4.4 GB GGUF on local disk. Proving it properly found three
+new defects, because every offline claim in this repo rested on a check that
+cannot fail:
+
+- **D13** — `friday/audio/stt.py:96` passes a model *name* to `WhisperModel`
+  with no `local_files_only=True`, so `huggingface_hub` contacts Hugging Face
+  at **every daemon start**. Measured: 1899 B out / 7637 B in. No audio, no
+  transcript, no user text leaves — what leaks is that this machine loaded
+  `Systran/faster-whisper-small.en`.
+- **D14** — ADR-058's wake-word pause during dictation **was never
+  implemented**. `grep -rn is_dictating` returns two hits: the property, and
+  the type-verbatim branch at `daemon.py:335`. The detector is never told.
+  Third time an ADR has been mistaken for an implementation.
+- **D15** — **`just test-egress` cannot detect egress.** It inspects
+  `ss -ltnp` — *listening* sockets. Egress is outbound. It duplicates
+  `selftest`'s `socket_binds` and has never been able to observe an egress
+  event. This is why D13 survived. Asking `ss -tnp` instead found D13 in one
+  command.
+
+D13/D15 were deliberately **not fixed** — the user kept that session
+single-purpose. They are OQ-46(a).
+
+**2. MODEL EVALUATION.** Five models benched on this laptop (ADR-084).
+**Qwen2.5-7B stays the model.** Gemma 4 12B QAT is retained on disk as the sole
+candidate, decision open (**OQ-47**). Three others deleted. It also produced:
+
+- **D16** — **`just eval`'s 28 fixtures cannot see a planner that emits
+  `action=none` on a plain command.** Two models scored 28/28 while refusing
+  one. The gate that would approve a model swap cannot see the regression it
+  would admit. **No model swap before this is fixed.**
+- **`decode tok/s ≈ 272 / weights_GB`** on this card, verified. But the VRAM
+  half of that model was wrong by 380–390 MiB **every time, in unpredictable
+  directions**. Do not size a model with arithmetic — load it and read
+  `nvidia-smi`.
+- Both 8B candidates and Gemma 4 emit `"todo"` for *"open my todo"* where the
+  incumbent emits `"my todo"` — i.e. **they fix D4's symptom**. Useful when you
+  get to D4, independent of any swap.
+
+**Baseline re-verified 2026-08-30 after three `friday-llm` stop/start cycles:**
+`just selftest` 8/8, `uv run pytest` 450 passed, `friday-llm` running on GPU.
+
+**A README now exists** (`eb41462`). Writing it caught **three false claims in
+`CLAUDE.md`** — a stale ADR count, two cited files that never existed, and two
+wrong diagram titles. All three are corrected. The 2026-08-29 doc-readiness
+pass verified ADR/OQ *ids* and symbols; it did not verify *prose claims about
+file names and counts*. Assume that class of drift still exists elsewhere.
+
+---
 
 ### Where the project actually is
 

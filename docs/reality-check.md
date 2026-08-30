@@ -533,6 +533,7 @@ those rows DO pass (a decline is what the system does for everything).
 | D13 | MED | STT phones home to Hugging Face on every daemon start (~9 KB metadata; no audio/text leaves) | `friday/audio/stt.py:96` — no `local_files_only=True` |
 | D14 | MED | ADR-058's wake-word pause during dictation was never implemented (`is_dictating` has one consumer) | `friday/audio/dictation.py:4` vs `friday/daemon.py:335` |
 | D15 | MED | `just test-egress` inspects **listening** sockets, so it cannot detect egress — every 'egress proof' in the docs traces to it | `justfile:54-58` |
+| D16 | MED | `just eval`'s 28 fixtures cannot see a planner emitting `action=none` on a plain command — two models scored 28/28 while refusing one | `friday/eval_harness.py` fixture set |
 
 **D3 makes A15's hands-free rows fail outright.** All three wake-initiated
 captures ran the full 15 s cap; one contained no speech at all and the ADR-066

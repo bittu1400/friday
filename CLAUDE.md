@@ -234,6 +234,19 @@ Also measured: decode is bandwidth-bound at ~272 GB/s, so `tok/s ~= 272 /
 weights_GB` and Qwen2.5-7B Q4_K_M is **already at this card's roof** — the
 2172 ms p50 TTFA is mostly not generation. Bigger-model question is OQ-46.
 
+**2026-08-30 (later) — the model evaluation.** Five models benched on this
+laptop with identical flags and Friday's real planner prompt (ADR-084).
+**Qwen2.5-7B-Instruct Q4_K_M REMAINS THE MODEL** — nothing beat it on
+correctness. **Gemma 4 12B QAT is retained on disk as the sole candidate**
+(`~/.cache/friday-model-eval/`, 6405 MiB), swap decision open (**OQ-47**);
+Qwen3-8B, Ministral 3 8B and Ministral 3 14B were measured and deleted. Two
+paper predictions were falsified: **a 12B fits, and a 14B fits BETTER than the
+12B** (Gemma 4's 40-of-48 sliding-window layers make its KV cheaper than an
+8B's). One new defect: **D16 — `just eval`'s 28 fixtures cannot see a planner
+emitting `action=none` on a plain command; two models scored 28/28 while
+refusing one.** No model swap before D16 is fixed. Defects now **D1–D16**.
+
+
 **Blocked or failed live:** every `C?` affirm path — blocked by D1, including
 the two hold-outs the user asked to have ticked (`system_wifi{off}` affirm and
 `hypr_window{close}` affirm; both were attempted, both recorded `declined`,
@@ -348,7 +361,9 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  74 ADRs.
+   adr.md             decisions + why + what they cost.  84 ADRs
+                      (ADR-001..ADR-084; the count was wrong at 74 for weeks
+                      -- verify with `grep -c '^## ADR-' adr.md`).
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
                       keeps the reasoning behind every answered question)
@@ -357,8 +372,9 @@ evidence, not defaults. A dependency added without this drill is not done.
                       the 2026-08-26 audit.  A SNAPSHOT: its line numbers are
                       stale and some point into deleted code.  Read its
                       fix-status table (bottom), not its line numbers.
-   diagrams/          ASCII.  02 (injection trust boundary) and 04 (zones +
-                      privilege ladder) are the important ones.
+   diagrams/          ASCII.  02-tool-call-loop.md and 04-trust-boundaries.md
+                      are the important ones.  (Until 2026-08-30 this line
+                      named two titles that match no file.)
    docs/aec-probe.md  the OQ-32 measurement harness (runnable)
    docs/systemd-setup.md, docs/searxng-setup.md
                       deployment procedures for the three user units
@@ -378,9 +394,11 @@ in it is complete** — G0–G13 all shipped — so read it as the record of how
 build was sequenced, never as a to-do list, and never in preference to
 `progress.md`, which is the only file that says what is true now.
 
-`gemini-thoughts.md` and `gpt-thoughts.md` ARE archived inputs and contain wrong
-technical claims (see ADR-021, ADR-003, ADR-022). **Do not cite them as
-current.** (Before 2026-08-29 this paragraph lumped `friday.md` in with them,
+`docs/archive/review-gemini.md` and `docs/archive/review-gpt.md` ARE archived
+inputs and contain wrong technical claims (see ADR-021, ADR-003, ADR-022).
+**Do not cite them as current.** (Until 2026-08-30 this paragraph called them
+`gemini-thoughts.md` and `gpt-thoughts.md` -- two filenames that have never
+existed in this repo or its history. Found while writing the README.) (Before 2026-08-29 this paragraph lumped `friday.md` in with them,
 while the doc map called it the build plan — the two statements contradicted
 each other for weeks.)
 
@@ -526,6 +544,10 @@ just prefs list|forget  # manage stored preferences
 | "The log shows the action, so the action happened" | The live-pass log reads like every confirm worked. `nmcli radio wifi`, `wl-paste` and `action_audit` all said `declined`. Ask the system, every single time. |
 | "The last session's block says that was already fixed" | It says `just enroll` was corrected in the docstrings; it corrected one file and missed `daemon.py`, in the one warning that fires when speaker verification is failing OPEN. A find-and-replace reported as done. Diff the claim against the tree — `just --list`, `grep`, run it — before believing it. |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
+| "The arithmetic says it won't fit in VRAM" | Load it and read `nvidia-smi`. A 12B and a 14B were both ruled out on paper; both fit, and the 14B fits with MORE headroom than the 12B. The weights+KV model was wrong by 380-390 MiB every time, in unpredictable directions (ADR-084). Decode `tok/s ~= 272 / weights_GB` DOES hold; memory does not. |
+| "28/28 on `just eval`, so the planner is fine" | Two models scored 28/28 and still emitted `action=none` for "copy that to the clipboard" / "close this window" (D16). The fixtures do not cover those rows. The gate that would approve a model swap cannot see the regression it would admit. |
+| "Set `reasoning_format: \"none\"` to stop the model thinking" | It does the opposite of what it looks like: thinking is NOT suppressed, the raw `<|channel>thought` text is moved INTO `message.content`. Friday would then write raw model thought into history and audit rows — invariant #7 (FR-26/57). Use `--reasoning off` or `chat_template_kwargs: {"enable_thinking": false}`. |
+| "`pgrep -f foo` to find the process, then kill it" | `pgrep -f` matches its OWN command line. Twice on 2026-08-30 a cleanup one-liner killed the shell running it (exit 144). Bracket the pattern: `pgrep -f "[f]oo"`. |
 | "`just test-egress` passes, so nothing leaves the machine" | It inspects `ss -ltnp` — **listening** sockets. Egress is outbound. The recipe named `test-egress` looks at the one category that cannot contain an egress event, and duplicates `selftest`'s `socket_binds`. Every "egress proof" in these docs traces to it. Asking `ss -tnp` instead found D13 in one command (D15). |
 | "RAM and CPU look normal, so no local model is running" | Wrong meter. A GPU-resident model lives in **VRAM**: 4712 MiB held, 519 MB RSS, 0 % GPU between turns, 6 min CPU over 2 days. Idle is what correct looks like. `nvidia-smi --query-compute-apps` is the meter. |
 | "The ADR says the wake word is paused during dictation" | ADR-058 decided it; `grep -rn is_dictating` returns two hits, one of which is the property itself. Nothing tells the detector. Third time an ADR was mistaken for an implementation (see `cancel_reminder`/ADR-070 and both Hyprland tools/ADR-074) — D14. |
