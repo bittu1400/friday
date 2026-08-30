@@ -83,13 +83,50 @@ def _normalise(text: str) -> str:
     return " ".join(_SPOKEN_PUNCT.sub(" ", text.casefold().replace("\u2019", "'")).split())
 
 
+# Heads that may LEAD a longer answer (D25, ADR-091). Whole-string matching
+# fixed `"Yes."` but not `"Yes, I am sure"` — which is what a user actually
+# says to "Are you sure?", and which ADR-075c then treated as a non-answer,
+# cancelling a `system_wifi{off}` the user had just emphatically approved.
+# Observed live 2026-08-30 (audit: two `declined` rows, Wi-Fi still enabled).
+#
+# Deliberately NOT every member of _AFFIRM: "do" and "go" are excluded because
+# "do not" and "go back" lead with them. Those phrases still match exactly.
+_AFFIRM_HEADS = frozenset(
+    {"yes", "y", "yeah", "yep", "yup", "sure", "ok", "okay", "correct",
+     "confirm", "affirmative"}
+)
+_DECLINE_HEADS = frozenset({"no", "n", "nope", "nah", "negative", "cancel", "stop"})
+# A single negative word anywhere VETOES a leading yes. This gate approves
+# destructive actions, so "yes, but not now" and "yeah actually cancel that"
+# must not read as approval — they fall through to ADR-075c, which cancels the
+# pending and re-runs the words as a command. Ambiguity resolves to not-acting.
+_NEGATIVE_WORDS = frozenset(
+    {"no", "not", "nope", "nah", "negative", "cancel", "stop", "don't", "dont",
+     "never", "nevermind", "forget"}
+)
+
+
 def is_affirmation(text: str) -> bool:
-    return _normalise(text) in _AFFIRM
+    norm = _normalise(text)
+    if norm in _AFFIRM:
+        return True
+    words = norm.split()
+    if not words or words[0] not in _AFFIRM_HEADS:
+        return False
+    return not _NEGATIVE_WORDS.intersection(words)
 
 
 def is_decline(text: str) -> bool:
-    """An explicit refusal. NOT `not is_affirmation(...)` — see `_DECLINE`."""
-    return _normalise(text) in _DECLINE
+    """An explicit refusal. NOT `not is_affirmation(...)` — see `_DECLINE`.
+
+    Head-matching needs no veto here: declining is the fail-safe direction, so
+    reading "no problem, go ahead" as a refusal costs one repeated question,
+    while the reverse mistake dispatches something irreversible."""
+    norm = _normalise(text)
+    if norm in _DECLINE:
+        return True
+    words = norm.split()
+    return bool(words) and words[0] in _DECLINE_HEADS
 
 
 @dataclass(frozen=True)

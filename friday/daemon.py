@@ -326,19 +326,28 @@ class Daemon:
 
             if is_start_dictation(text):
                 self._dictation.start()
-                self.state.got_plan(will_speak=True)
-                await self._speak("Dictation mode enabled.")
+                await self._finish_intercept(rid, "dictation_mode", "Dictation mode enabled.")
                 return
 
             if is_stop_dictation(text):
                 self._dictation.stop()
-                self.state.got_plan(will_speak=True)
-                await self._speak("Dictation mode disabled.")
+                await self._finish_intercept(rid, "dictation_mode", "Dictation mode disabled.")
                 return
 
             if self._dictation.is_dictating:
-                # Verbatim typing directly into focused window; bypasses planner
-                self._dictation.handle_transcript(text)
+                # Verbatim typing directly into focused window; bypasses planner.
+                # Typing is a real side effect on the user's screen, so it is
+                # audited like any other one — but the transcript itself never
+                # reaches the row (invariant #7); only its length does.
+                # to_thread, not inline: `type_text` is a subprocess whose
+                # timeout now scales with the sentence, so on the loop it would
+                # make Friday deaf for seconds. This is the last of H6's class
+                # of blocking call sites (D12).
+                typed = await asyncio.to_thread(self._dictation.handle_transcript, text)
+                await self._audit_intercept(
+                    rid, "dictation_type", {"chars": str(len(text))},
+                    outcome="ok" if typed else "error",
+                )
                 self.state.reset()
                 return
 
@@ -346,16 +355,18 @@ class Daemon:
             if self._dnd.is_dnd:
                 if is_resume_phrase(text):
                     self._dnd.clear_dnd()
-                    self.state.got_plan(will_speak=True)
-                    await self._speak("Quiet mode disabled. How can I help?")
+                    await self._finish_intercept(
+                        rid, "resume_dnd", "Quiet mode disabled. How can I help?"
+                    )
                     return
                 self._dnd.clear_dnd()
 
             # Conversational DND hush phrases
             if is_hush_phrase(text):
                 self._dnd.set_dnd()
-                self.state.got_plan(will_speak=True)
-                await self._speak("Quiet mode enabled. Let me know when you need me.")
+                await self._finish_intercept(
+                    rid, "set_dnd", "Quiet mode enabled. Let me know when you need me."
+                )
                 return
 
             # Voice sign-off close summary ("goodnight", "bye")
@@ -366,7 +377,8 @@ class Daemon:
                     generate_signoff_summary, self._dialogue.render(), self._client
                 )
                 self.state.got_plan(will_speak=True)
-                if await self._speak(spoken):  # ADR-069: heard, or not history
+                await self._audit_intercept(rid, "signoff_summary", {})
+                if await self._speak(spoken, measure=True):  # ADR-069
                     self._dialogue.add(text, spoken)
                 return
 
@@ -529,11 +541,71 @@ class Daemon:
         )
         if spoken is None:
             return False
+        # The confirm-affirm path is where an irreversible action ACTUALLY
+        # runs, and until 2026-08-30 it was the one dispatch with no `action=`
+        # line and no TTFA sample — `resolve_pending` wrote the audit row and
+        # nothing else. So a `system_wifi{off}` that really fired left a log
+        # that looked identical to one that never did (D23's family; the whole
+        # reason "ask the system, never Friday" had to exist).
+        if config.DEBUG:
+            log.info(
+                "[debug] %s confirm-dispatch %s spoken=%r",
+                rid, pending.tool_id if pending else "?", spoken,
+                extra={"no_disk": True},
+            )
         self.state.got_plan(will_speak=True)
-        await self._speak(spoken)
+        await self._speak(spoken, measure=True)
         return True
 
     # --- speaking (cancellable) -------------------------------------------
+
+    async def _audit_intercept(
+        self,
+        rid: str,
+        tool_id: str,
+        params: dict[str, str],
+        *,
+        outcome: str = "ok",
+    ) -> None:
+        """Write the audit row for a turn that never reaches the planner.
+
+        **D23.** Six conversational paths in `_handle_transcript` complete a
+        turn and return early: start/stop dictation, verbatim dictation typing,
+        the DND hush and resume phrases, and the sign-off summary. Every one of
+        them changed state or produced a side effect, and not one of them wrote
+        an audit row, a `[debug] action=` line, or a TTFA sample.
+
+        That is worse than missing telemetry. This project's stated method for
+        verifying anything is "ask the system, never Friday" (the live pass read
+        exactly as though every confirm had worked while `action_audit` said
+        `declined`). A whole class of turn that the audit table cannot see is a
+        hole in the one instrument used to check the others — and it is how
+        "be quiet for a while does nothing" was diagnosed from the log on
+        2026-08-30 when DND had in fact been set correctly all along.
+        """
+        if self._audit is None:
+            return
+        await self._audit.arecord(
+            request_id=rid,
+            tool_id=tool_id,
+            params=params,
+            policy_decision="allowed",
+            outcome=outcome,
+            duration_ms=0,
+        )
+
+    async def _finish_intercept(self, rid: str, tool_id: str, spoken: str) -> None:
+        """Complete a pre-planner turn the way the planner path completes one:
+        audit row, debug line, and a MEASURED speak so TTFA covers it too."""
+        await self._audit_intercept(rid, tool_id, {})
+        if config.DEBUG:
+            log.info(
+                "[debug] %s action=%s dispatched=%s spoken=%r",
+                rid, tool_id, False, spoken,
+                extra={"no_disk": True},
+            )
+        self.state.got_plan(will_speak=True)
+        await self._speak(spoken, measure=True)
 
     async def _speak(self, text: str, *, measure: bool = False) -> bool:
         """Speak `text`. Returns True if it was delivered to the end, False if

@@ -509,16 +509,38 @@ rows: bare `Yes` → `allowed/ok` (v37); `Yes.`/`Yes!` → `declined` (v48, v50,
 v52, v54, v97, and run 2's v3). Confirmed against the system: `nmcli radio
 wifi` still `enabled`, `wl-paste` still empty.
 
-**FIXED IN CODE 2026-08-30 (ADR-075, FR-85), NOT YET PROVEN BY VOICE.**
-`friday/turn.py:80-92` now normalises STT punctuation before the set lookup,
+**FIXED IN CODE 2026-08-30 (ADR-075, FR-85) — AND PROVEN AT THE MICROPHONE THE
+SAME DAY.** `friday/turn.py` normalises STT punctuation before the set lookup,
 the accepted set covers natural spoken forms, and a `_DECLINE` set separates an
 explicit "no" from a non-answer — a non-answer cancels the pending and is then
 re-routed as an ordinary command instead of being swallowed.
 
-**Consequence for this file:** every `C?` row is now RUNNABLE and none has ever
-been seen to work. Run them first. The decline halves already passed (a decline
-is what the system did for everything), so the half that carries information is
-the affirm half.
+### >>> 2026-08-30: EVERY `C?` AFFIRM ROW IS NOW TICKED <<<
+
+Read back from the system, never from what Friday said:
+
+| row | spoken answer | audit | system says |
+| :-- | :-- | :-- | :-- |
+| `clipboard_read` | `'Yes!'` | `allowed` / `ok` | content spoken |
+| `clipboard_set` | `'yes'` | `allowed` / `ok` | **`wl-paste` → `hello world`** |
+| `clipboard_read` | **`'Yes.'`** | `allowed` / `ok` | the exact character that caused D1 |
+| `hypr_window{close}` | `'Yes.'` | `allowed` / `ok` | **window gone from `hyprctl clients`** |
+| `system_wifi{off}` | **`"Yes, I'm sure"`** | `allowed` / `ok` | **`nmcli radio wifi` → disabled, then restored** |
+
+**These were the highest-value rows in the project** — the only evidence that
+ADR-075 fixed anything — and before 2026-08-30 every one of them had recorded
+`declined`, every single time it had ever been attempted.
+
+**`system_wifi{off}` failed twice more before it passed, for a NEW reason.** The
+user answered **"Yes, I am sure"**, and `is_affirmation` matched whole strings,
+so a leading yes with a trailing clause was a non-answer. That is **D25**, fixed
+by head-matching with a negative-word veto (**ADR-093, FR-104**) and then proven
+on the retry. D1 fixed how an answer is *punctuated*; D25 fixed how it is
+*shaped*.
+
+**D2 is proven too, on the same session:** 108 audit rows across a deliberate
+daemon restart, **0 duplicate `request_id`s**, and the pre-restart UUIDs all
+still present after the debug `v{n}` counter reset to `v1`.
 
 ### Verified LIVE and ticked (read back from the system)
 
@@ -608,13 +630,43 @@ hard-fail breaches are `web_search` (network + grounding); the fourth is not.
 Raised as OQ-45 — the target moves or something gets optimised, and that is the
 user's call.
 
+**RE-MEASURED 2026-08-30 after the Gemma 4 swap (n=38, `balanced`, OQ-56):**
+
+```
+all turns   p50 2289   p95 10187   max 13277   (ms)      0/38 at or under 1400
+```
+
+**The planner regression is nearly invisible** — p50 moved 2172 → 2289 ms,
+~117 ms, where the planner arithmetic predicted ~430. **The cost is verbosity,
+and it splits by action class:**
+
+```
+direct actions (hypr_*, system_*, notes)   1858-2466 ms
+chat                                       6974-10187 ms
+web_search                                 5553-13277 ms
+```
+
+TTFA includes synthesizing the WHOLE reply before the first sound, so a long
+answer is a slow one. ADR-094 capped the reply at 2 sentences / 200 chars;
+re-measured live, **chat p50 7177 → 4715 ms**, max 10187 → 6289. Whether
+ADR-080's 2200 ms target is re-baselined, restated per action class, or left
+alone is the open half of **OQ-56**.
+
 ### Still NOT verified, and why
 
-- **Every `C?` affirm path** — was blocked by D1, **now unblocked in code
-  (2026-08-30) and still never once observed working**. Includes both rows the
-  user asked to have ticked: `system_wifi{off}` affirm and `hypr_window{close}`
-  affirm. These are the highest-value rows in this file: they are the only
-  evidence that ADR-075 actually fixed anything.
+- ~~**Every `C?` affirm path**~~ — **ALL TICKED 2026-08-30**, including both
+  rows the user asked for (`system_wifi{off}` and `hypr_window{close}`). See
+  the table above. Row closed.
+- **Dictation over ~74 characters** was silently truncated for the whole life
+  of the feature and left a key auto-repeating (**D22, ADR-092**). Fixed and
+  proven the same day — six `dictation_type` rows all `ok`, four of them past
+  the old 74-char ceiling (137, 122, 121, 91). What is NOT yet checked is whether `new line` / `period` become
+  punctuation cleanly, which is still Step 9's formatter work.
+- **The G12 words themselves may not survive STT.** `wifi` came back as
+  **wife / weapon / way / life** on four consecutive turns before it was heard
+  (**D26, ADR-094**). Hotwords were widened and re-benched for non-regression
+  only — the 20-clip corpus has no G12 utterance in it, so efficacy is
+  **OQ-57**, not a tick.
 - **ADR-069 barge-over-confirm** — the pass tested this WRONG (a normal `ptt`
   capture after the question, not a `ptt-barge` during it), so the row stands
   untested. The observed cancel was correct behaviour.

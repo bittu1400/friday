@@ -298,8 +298,45 @@ day Gemma lands. Full measurement: `gemma-brief.md` §3-§4.
 
 ### OQ-56 — What is TTFA on Gemma 4, and where does ADR-080 re-baseline to?
 
-**Decider:** MEASUREMENT, then USER · **Blocks:** ADR-080's NFR-1 number ·
-**Status:** OPEN (raised 2026-08-30 by the model swap, ADR-090)
+**Decider:** MEASUREMENT, then USER · **Status:** **MEASURED 2026-08-30 at the
+microphone. The re-baseline number is the USER's call and is still open.**
+
+**n=38 live turns, Gemma 4 12B, `balanced`, `llm_on_gpu` confirmed:**
+
+```
+all turns   p50 2289 ms   p95 10187 ms   max 13277 ms   0/38 under 1400 ms
+```
+
+**The planner regression is almost invisible and that was a surprise.** TTFA
+p50 moved **2172 → 2289 ms**, about 117 ms, against the ~430 ms the planner
+arithmetic predicted. Arithmetic about this model has now been wrong three
+times, in both directions.
+
+**The cost is verbosity, not the planner** — and it splits cleanly by action:
+
+| | TTFA |
+| :-- | --: |
+| direct actions (`hypr_*`, `system_*`, notes) | 1858-2466 ms |
+| **chat** | **6974-10187 ms** |
+| web_search | 5553-13277 ms |
+
+TTFA includes synthesizing the **whole** reply before the first sound, and
+Gemma wrote 157-376 characters where the prompt asked for four short sentences.
+ADR-094 capped the reply at 2 sentences / 200 characters and re-measured live:
+**chat p50 7177 → 4715 ms**, max 10187 → 6289 ms; live replies mean 279 → 146
+chars (n=5 vs n=9).
+
+**What is still open:** whether ADR-080's 2200 ms target is re-baselined to the
+measured 2289 ms all-turn p50, or restated per action class (direct actions
+already clear it at 1858-2466 ms; chat does not at 4715 ms), or left as-is with
+chat treated as out of scope for TTFA. **That is a judgement about what the
+target is FOR, so it is the user's.** The measurement no longer blocks it.
+
+**The real lever if chat must get faster is streaming TTS** (ADR-020, deferred
+at G6 "measure first"). This is the measurement: 86-89 % of a chat turn is
+decode plus synthesis of text the user is waiting on serially.
+
+*(Original text below.)*
 
 ADR-080 re-baselined the TTFA target to **2200 ms** from a live sample on the
 incumbent (n=77, p50 2172 ms, p95 4900 ms, **0 of 77** turns under the old
@@ -319,6 +356,41 @@ model choice with a real figure instead of an estimate.
 
 **If nobody decides:** NFR-1 carries a target the system knowingly misses, which
 is the state ADR-080 existed to end.
+
+---
+
+### OQ-57 — Do the widened hotwords actually fix the G12 vocabulary?
+
+**Decider:** MEASUREMENT · **Blocks:** nothing; D26 is already better than it
+was · **Status:** OPEN (raised 2026-08-30 by ADR-094)
+
+`STT_HOTWORDS` carried only Phase-1 vocabulary, and the cost was four
+consecutive live turns lost to *"wifi"* coming back as **wife**, **weapon**,
+**way** and **life**. The G11/G12 control vocabulary has been added and
+re-benched per ADR-042: **p95 749 ms, miss 4/20, PASS** — identical misses, no
+latency cost.
+
+**That measures non-regression, not efficacy.** The 20-clip corpus in
+`~/.cache/whisper-bench/` is itself Phase-1 only — every clip is an app launch,
+a search, or a preference — so it contains no utterance that exercises a G12
+word and **cannot show that "wifi" is now heard correctly.** The bench that
+would catch this is as narrow as the fixture set D16 was.
+
+**What settles it:** record a handful of G12 clips into the corpus with
+`~/.cache/whisper-bench/record.sh` — "turn off my wifi", "make this fullscreen",
+"go to workspace three", "copy that to the clipboard", "start dictation" — add
+their reference transcripts, and re-run `just bench-stt`. That also permanently
+widens the STT gate the same way FR-97 widened the planner gate, which is the
+more valuable half.
+
+**Note the pattern before dismissing it as small:** this is the third artifact
+found frozen at Phase 1 in two days — the eval fixtures (D16, 20 of 28 actions
+uncovered), `CHAT_SYSTEM`'s toolset (D24, `system_wifi` missing since G12), and
+now the hotwords and the STT corpus. **Assume there are more.** Anything
+enumerating "what Friday can do" that predates G12 is suspect.
+
+**If nobody decides:** the hotwords help or they do not, and nobody finds out
+until a user loses four turns to it again.
 
 ---
 

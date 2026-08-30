@@ -3472,3 +3472,259 @@ the window. *`--ctx-size 16384`* — genuinely affordable at 76 MiB and doubles
 the window, but it is a second change riding a swap; take it deliberately, with
 its own before/after. *Swapping before ADR-089* — that is swapping blind, and
 it was the one precondition the whole question was gated on.
+
+---
+
+## ADR-091 — Every turn writes an audit row and a latency sample, including the ones that never reach the planner
+
+**Context.** `action_audit` is this project's instrument of record. The working
+agreement's hardest-won rule is *"ask the system, never Friday"* — written after
+the 2026-08-29 live pass produced a log that read exactly as though every
+confirm had worked while the table said `declined`.
+
+On 2026-08-30 that instrument was found to have a blind spot. **Seven paths
+complete a turn without writing an audit row, a `[debug] action=` line, or a
+TTFA sample:** start dictation, stop dictation, verbatim dictation typing, the
+DND hush phrase, the DND resume phrase, the sign-off summary, and — worst —
+`_resolve_confirm`, the path on which an irreversible action ACTUALLY executes.
+
+The cost was immediate and concrete. Reading the live log, *"be quiet for a
+while"* appeared to do nothing at all: no action, no error, no row. It was
+written up as a defect. **It was not one** — `is_hush_phrase("Be quiet for a
+while")` is `True`, DND was set correctly, and Friday spoke the right line. The
+feature worked and the instrument was blind. A method built on distrusting the
+system's own speech cannot afford a class of turn the system does not record.
+
+**Decision.** Two helpers on the daemon, and every pre-planner path goes
+through one of them:
+
+- `_audit_intercept(rid, tool_id, params, *, outcome="ok")` — writes the row.
+- `_finish_intercept(rid, tool_id, spoken)` — row, `[debug] action=` line, and
+  `_speak(..., measure=True)` so the turn contributes a TTFA sample like any
+  other.
+
+`_resolve_confirm` gains the debug line and `measure=True` (it already wrote its
+row inside `resolve_pending`).
+
+**Two sub-decisions worth stating, because both could have gone the other way:**
+
+1. **Synthetic `tool_id`s are allowed.** `dictation_type` and `signoff_summary`
+   are not members of `PARAM_SCHEMA` and never will be — they are side effects
+   without a planner action. Nothing constrains `action_audit.tool_id` to the
+   registry, and forcing these through a fake schema entry to keep the column
+   "pure" would put an unreachable action in the planner's enum to satisfy a
+   log. The column records *what happened*, not *what the model may choose*.
+2. **Dictation typing is audited by LENGTH, never content** —
+   `{"chars": "137"}`. The typed text is the user's own speech; invariant #7
+   (FR-26/57) keeps transcripts off disk, and an audit row is disk. The length
+   is what makes the row useful (it is exactly the quantity D22 was truncating)
+   and it discloses nothing.
+
+**Also taken here, because it is the same call site:** verbatim dictation typing
+moved to `asyncio.to_thread`. It was the last member of H6's class of blocking
+calls on the event loop (**D12**, previously Step 4 of the fix list) and it
+matters more now that the typer's timeout scales with sentence length — inline,
+a long sentence would make Friday deaf for seconds.
+
+**Consequences.** DND, dictation and sign-off turns now appear in
+`action_audit`, and `dictation_type` rows are what proved ADR-092's fix on the
+real path (137, 122, 121 and 91 characters, all `ok`, all past the old ceiling).
+
+**Rejected alternatives.** *Routing the intercepts through the planner* so they
+pick up instrumentation for free — they exist precisely to avoid a model
+round-trip on a fixed phrase, and that latency is the point. *Logging without
+auditing* — the debug log is `no_disk` and ephemeral; the table is the record.
+*Leaving `_resolve_confirm` alone because it already writes its row* — the row
+proves the action ran, but with no TTFA sample the slowest and most dangerous
+turn in the system was invisible to every latency measurement ever taken.
+
+---
+
+## ADR-092 — The typer's timeout is derived from the text, because ydotool is rate-bound
+
+**Context.** Dictation truncated mid-sentence and then typed one letter for
+ever. Reported by the user on 2026-08-30; both symptoms have one cause.
+
+`typer.py` ran `subprocess.run(..., timeout=3.0)` — a constant. ydotool types
+one key at a time: `--key-delay` between keys plus `--key-hold` between each
+key's down and up, **20 ms + 20 ms by default**. Measured on this machine and
+linear to three lengths: **40.2 ms per character**. A 3.0 s timeout is therefore
+a hard ceiling of **74 characters**, and `subprocess.run` enforces a timeout with
+SIGKILL — killing ydotool *between a key down and its key up*. `ydotoold` owns
+the uinput device and outlives the client, so the key stayed held and the
+compositor auto-repeated it indefinitely.
+
+Predicted truncation for the user's sample sentence was `...it's working or n`;
+the text they recovered from the screen cut at `or N`. Two of the session's
+transcripts exceeded the ceiling; both were cut.
+
+**Decision.** The rate is pinned, not inherited, and the timeout is derived:
+
+```
+_KEY_DELAY_MS = 8   _KEY_HOLD_MS = 8        measured 16.3 ms/char (was 40.1)
+timeout = 5.0 s + 50 ms/char                ~4x the real cost at every length
+```
+
+50 ms/char is triple the measured cost, so a loaded machine cannot trip it; the
+timeout now fires only on a genuine hang, which is what a timeout is for.
+
+**A flag left at a library's default is a decision nobody made** — the same
+lesson `--parallel` taught at ADR-090, one day earlier, for 514 MiB. Here the
+default cost the feature.
+
+**Failure logging is now mode-specific.** The old code answered a timeout with
+`"No working Wayland typer found (wtype or ydotool)"`. That is a different
+fault, and it sent this investigation looking for an uninstalled package while
+ydotool was installed and `ydotoold` was running. A timeout now says it timed
+out, how long it ran, how many characters it was given, and that a key may be
+stuck.
+
+**Also fixed here (D11, previously Step 4):** `wtype` is invoked as
+`[wtype, "--", text]`, so a transcript beginning with `-` cannot be parsed as
+wtype's own options. `wtype` is not installed on this machine, so that branch is
+dormant — it is fixed anyway, because a dormant branch that is wrong becomes a
+live branch that is wrong the day someone installs the package.
+
+**Consequences.** Verified on the real path: six `dictation_type` rows, all
+`ok` — **four of them (137, 122, 121, 91 chars) past the old 74-char ceiling**,
+and two below it (42, 27). All six are post-fix; the pre-fix session produced
+no such rows at all, because that path was one of D23's uninstrumented six.
+
+**Rejected alternatives.** *Raising the constant to 30 s* — it makes 750
+characters work and 800 fail; the cliff moves, it does not go away. *Chunking
+the text into short subprocess calls* — genuinely better at bounding a stuck
+key, since a kill can then lose at most one chunk, but it splits one atomic
+side effect into several and needs its own failure semantics. It stays the
+upgrade path if a hang is ever actually observed. *Dropping `--key-delay` to 0*
+— fastest, and the first setting likely to drop characters on a busy
+compositor; 8 ms is 2.5x faster than stock with margin intact.
+
+---
+
+## ADR-093 — A spoken affirmation may lead a sentence (D25)
+
+**Context.** D1/ADR-075 fixed the confirm gate for punctuation: `"Yes."` was not
+an affirmation because `_AFFIRM` held bare tokens and Whisper punctuates. That
+fix was proven at the microphone on 2026-08-30 — three phrasings, three `ok`
+rows, the first spoken confirms ever observed working in this project.
+
+Then `system_wifi{off}`, the last untested row in the manifest, failed anyway.
+The user said **"Yes, I am sure"**. `is_affirmation` tests whole-string set
+membership, so the normalised `"yes i am sure"` matched nothing; `is_decline`
+also said no; ADR-075c therefore treated it as a non-answer, cancelled the
+pending, and the audit recorded `declined` with Wi-Fi still enabled.
+
+D1 fixed how the answer is *punctuated*. It did not fix how the answer is
+*shaped* — and "Yes, I am sure" is the single most natural reply to "Are you
+sure?", which is the question this gate asks.
+
+**Decision.** Head-matching with a negative veto:
+
+- exact whole-string match against `_AFFIRM` / `_DECLINE` still wins first;
+- otherwise the **first word** is matched against `_AFFIRM_HEADS` /
+  `_DECLINE_HEADS`;
+- an affirmative head is **vetoed** if any word of `_NEGATIVE_WORDS` appears
+  anywhere in the utterance.
+
+`_AFFIRM_HEADS` deliberately excludes `do` and `go`, which lead `"do not"` and
+`"go back"`; those phrases still match through the exact set.
+
+**The veto is the whole design.** This gate approves destructive actions, so
+loosening it is only safe if ambiguity resolves toward *not acting*.
+`"yes but not now"` and `"yeah actually cancel that"` are not approvals; they
+fall through to ADR-075c, which cancels the pending and re-runs the words as a
+command. Worst case is one repeated question. The opposite mistake dispatches
+something irreversible.
+
+`is_decline` gets head-matching with **no** veto, and that asymmetry is
+deliberate: declining is the fail-safe direction, so reading
+`"no problem, go ahead"` as a refusal costs one repeated question.
+
+**Consequences.** Verified on the real path the same session: `"Yes, I'm sure"`
+→ `system_wifi{state:off}` `allowed`/`ok`, network really dropped, then
+`system_wifi{state:on}` `ok`. **That was the last untested row in
+`docs/reality-check.md`.**
+
+**Rejected alternatives.** *Naive prefix matching* (`norm.startswith("yes")`) —
+it swallows `"yesterday was fine"`. *Adding "yes i am sure" and friends to
+`_AFFIRM`* — the set is already 18 phrases chasing an infinite space; the user
+will always find a nineteenth. *Asking the model to classify the answer* — a
+second model turn inside the confirm handshake is exactly the injection surface
+ADR-037 exists to avoid.
+
+---
+
+## ADR-094 — The persona and the hotword list must track `PARAM_SCHEMA`, and a spoken reply's length is its latency
+
+**Context.** Three separate faults on 2026-08-30, one shared shape: a Phase-1
+artifact that was never widened when G11/G12 shipped 20 more actions. It is the
+same shape as D16, where the eval fixtures also stopped at Phase 1.
+
+**1. The persona denied abilities Friday has (D24).** Asked about fullscreen,
+chat replied *"I cannot actually control your window size or toggle full screen
+modes"* — in a session where `hypr_window{fullscreen}` had dispatched
+successfully three times. Then, after a first fix, it denied Wi-Fi: *"I simply
+do not have the permissions to toggle your Wi-Fi."* Diffing `CHAT_SYSTEM`
+against `PARAM_SCHEMA` found the reason: **`system_wifi` was the only action
+missing from the persona's toolset, and had been since G12.** The model was not
+hallucinating a limit; it was reading a prompt that was wrong. ADR-053 required
+the persona to state its real toolset and nothing enforced it.
+
+**2. STT could not hear the words that select those actions (D26).** Four
+consecutive turns lost to `wifi` transcribed as **"wife", "weapon", "way" and
+"life"**. `STT_HOTWORDS` listed the five apps, YouTube and preference subjects —
+**no G11/G12 control vocabulary at all.**
+
+**3. A spoken reply's length is its latency.** Measured over 38 live turns:
+direct actions returned in 1858-2466 ms while **chat took 6974-10187 ms**. The
+model was not the bottleneck — TTFA includes synthesizing the *entire* reply
+before the first sound, and Gemma 4 was writing 157-376 characters where
+`CHAT_SYSTEM` asked for "at most 4 short sentences".
+
+**Decision.**
+
+- `CHAT_SYSTEM` names Wi-Fi in its toolset, and carries an explicit clause that
+  **denying a listed ability is as wrong as inventing one**, naming the
+  abilities that were denied, and forbidding "I lack permission/access".
+- `STT_HOTWORDS` gains the G11/G12 control vocabulary (Wi-Fi, wifi, volume,
+  mute, unmute, brightness, workspace, fullscreen, clipboard, dictation, notes,
+  timer, reminder, quiet mode, media, pause, resume, next/previous track).
+- `CHAT_SYSTEM` caps replies at **2 short sentences, under 200 characters**, and
+  says *why* in the prompt — the reply is spoken and the user waits through
+  every word — plus explicit bans on restating the question, listing abilities
+  unasked, and padding with an offer of further help.
+- `tests/test_prompt.py` gains a **coverage test**: every dispatchable action in
+  `PARAM_SCHEMA` must have a keyword the persona actually says, and a NEW action
+  with no keyword entry fails the test. This is FR-97's discipline applied to
+  the persona.
+
+**Measured.** Like for like, both through the live daemon: chat replies **mean
+279 → 146 characters** (n=5 before, n=9 after), max 376 → 189; chat TTFA **p50
+7177 → 4715 ms**, max 10187 → 6289 ms. *(A separate 6-utterance probe against
+the final wording averaged 119 chars / max 183 — quoted here only so the two
+numbers are not confused later: it is a probe, not a live session.)*
+Hotwords re-benched on
+the 20-clip corpus per ADR-042: **p95 749 ms, miss 4/20, PASS vs 800 ms** —
+same misses, no latency cost.
+
+**One correction made mid-fix, recorded because the first attempt was worse than
+the bug.** Naming the abilities produced *"I have taken the window out of full
+screen mode for you"* — a chat turn claiming an action it structurally cannot
+perform, which is invariant #4 (ADR-009) and the fabrication class D8 already
+tracks. The clause now separates the two ideas explicitly: Friday *can* do this,
+and *you*, the talking half, have taken no action this turn. Both halves have a
+test.
+
+**What is NOT proven.** The hotword widening is measured for **non-regression
+only**. The 20-clip corpus in `~/.cache/whisper-bench/` is itself Phase-1 only
+and contains no G12 utterance, so it cannot show that "wifi" is now heard
+correctly. Efficacy is **OQ-57**.
+
+**Rejected alternatives.** *Leaving the length cap at 4 sentences and adding
+streaming TTS instead* (ADR-020) — the right long-term answer and a much larger
+change; the prompt cap was measured to recover most of the gap in one line.
+*Trusting the prompt as the control for the denial* — it is not, and ADR-008
+says so; but chat is free text with no grammar to constrain, so the prompt is
+the only lever there is. The enforceable half is the coverage test, which is why
+it exists. *Rolling back to Qwen for chat latency* — it reintroduces D19/D20/D21
+and loses 49/49 to 46/49.

@@ -244,6 +244,14 @@ nowhere else. See ADR-027 and threat T2.
 | FR-97 | The eval fixture set covers **every** action name in `PARAM_SCHEMA`. A new action ships with a fixture or the gate cannot see it | ADR-089 · 49 fixtures; D16 was the 20 G12 actions having none |
 | FR-98 | The model config in `deploy/systemd/friday-llm.service` and in the `justfile` `serve` recipe are equivalent. Two copies of one config is the defect (C1) | ADR-090 · both carry `--parallel 1`, `-fa on`, `--reasoning off` |
 | FR-99 | The planning/chat model runs with thinking disabled via `--reasoning off`, never `--reasoning-format none`, which relocates raw thought into `message.content` and breaks FR-26/57 | ADR-090 · verified live: no thought text across three chat turns |
+| FR-100 | Every turn that changes state or produces a side effect writes exactly one `action_audit` row, **including turns that never reach the planner** (dictation start/stop and typing, DND hush/resume, sign-off) | ADR-091 · `_audit_intercept` / `_finish_intercept`; verified live — `set_dnd` and `dictation_type` rows exist |
+| FR-101 | Dictation typing is audited by LENGTH only (`{"chars": N}`), never by content, and runs off the event loop | ADR-091 · invariant #7 (FR-26/57); `asyncio.to_thread` closes D12 |
+| FR-102 | A confirm-dispatch emits a debug line and a TTFA sample, not only its audit row | ADR-091 · the irreversible path was the one dispatch with no latency sample |
+| FR-103 | The Wayland typer's timeout is derived from the text length, never a constant, and its key rate is pinned rather than inherited | ADR-092 · 5 s + 50 ms/char against a measured 16.3 ms/char; a constant made 74 chars a hard ceiling and left a key held down |
+| FR-104 | A spoken affirmation may lead a longer sentence ("Yes, I am sure"), but any negative word anywhere vetoes it | ADR-093 · head-match + veto; ambiguity resolves to NOT acting |
+| FR-105 | `CHAT_SYSTEM` names every dispatchable action in `PARAM_SCHEMA`, never denies a listed ability, and never claims to have performed one | ADR-094 · enforced by a coverage test; `system_wifi` was missing from G12 until 2026-08-30 |
+| FR-106 | `STT_HOTWORDS` covers the control vocabulary of every action, not just the app registry | ADR-094 · "wifi" was heard as wife/weapon/way/life across four turns |
+| FR-107 | A spoken reply is capped at 2 short sentences / 200 characters, because TTFA includes synthesizing the whole reply | ADR-094 · measured: chat TTFA p50 7177 → 4715 ms |
 
 ---
 

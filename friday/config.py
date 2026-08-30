@@ -95,13 +95,25 @@ MAX_CAPTURE_S: int = 15  # FR-4 hard cap
 # clip can be scored. Off by default; FR-26 (no transcript to DISK) still holds.
 DEBUG: bool = bool(os.environ.get("FRIDAY_DEBUG"))
 
-# Hotwords bias STT toward Friday's fixed domain (the 5 apps + youtube + pref
-# subjects). Measured: fixed neovim/arch misses at no latency cost (ADR-042).
-# Keep this tracking the registry — a new app should join this list.
+# Hotwords bias STT toward Friday's fixed domain. Measured: fixed neovim/arch
+# misses at no latency cost (ADR-042).
+#
+# Keep this tracking the ACTION SURFACE, not just the app registry. It carried
+# only Phase-1 vocabulary until 2026-08-30 — the same defect shape as D16,
+# where the eval fixtures also stopped at Phase 1 while G12 shipped 20 more
+# actions. The cost was measured live: "wifi" came back as **"wife", "weapon",
+# "way" and "life"** across four consecutive turns, each one planned as `none`
+# or `chat`, before the fifth attempt was heard correctly. A word the user must
+# say to reach a capability belongs here (D26, ADR-091).
 STT_HOTWORDS: str = os.environ.get(
     "FRIDAY_STT_HOTWORDS",
+    # Phase 1: the five apps, youtube, preference subjects.
     "Brave, foot, terminal, Visual Studio Code, VLC, mpv, Neovim, Arch Linux, "
-    "Kathmandu, lo-fi, jazz, YouTube, dark theme, web search",
+    "Kathmandu, lo-fi, jazz, YouTube, dark theme, web search, "
+    # Phase 2 (G11/G12) control vocabulary — every word that selects an action.
+    "Wi-Fi, wifi, volume, mute, unmute, brightness, workspace, fullscreen, "
+    "clipboard, dictation, notes, timer, reminder, quiet mode, media, "
+    "pause, resume, next track, previous track",
 )
 
 # PTT control socket (FR-3). A unix socket in the per-user runtime dir (0700

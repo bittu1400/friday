@@ -237,3 +237,50 @@ def test_spoken_yes_during_a_confirm_does_not_reach_the_planner(monkeypatch) -> 
 
     asyncio.run(go())
     assert seen == [] and d._speaker.said == ["Wi-Fi off."]
+
+
+# --- D25: a leading yes with a trailing clause (ADR-091) --------------------
+#
+# D1/ADR-075 fixed punctuation ("Yes." was not an affirmation). It did not fix
+# the other half of how people actually answer "Are you sure?": they lead with
+# the word and keep talking. Observed live 2026-08-30 — "Yes, I am sure" to a
+# `system_wifi{off}` confirm was read as a non-answer, ADR-075c cancelled the
+# pending, and the audit recorded `declined` with Wi-Fi still enabled. It was
+# the last untested row in the manifest and it failed for a NEW reason.
+
+
+def test_leading_yes_with_a_trailing_clause_is_an_affirmation():
+    from friday.turn import is_affirmation
+
+    # The exact utterance from the live session.
+    assert is_affirmation("Yes, I am sure")
+    assert is_affirmation("Yes, I am sure!")
+    assert is_affirmation("yeah go ahead then")
+    assert is_affirmation("ok do that for me")
+
+
+def test_a_negative_anywhere_vetoes_a_leading_yes():
+    """This gate approves destructive actions. Ambiguity must resolve to
+    not-acting, never to acting."""
+    from friday.turn import is_affirmation
+
+    assert not is_affirmation("yes but not now")
+    assert not is_affirmation("yeah actually cancel that")
+    assert not is_affirmation("yes don't do it")
+
+
+def test_head_matching_does_not_over_match():
+    from friday.turn import is_affirmation, is_decline
+
+    assert not is_affirmation("yesterday was fine")
+    assert not is_affirmation("what's in my clipboard")
+    # A fresh command must stay a non-answer so ADR-075c re-routes it.
+    assert not is_affirmation("open my browser")
+    assert not is_decline("open my browser")
+
+
+def test_leading_no_with_a_trailing_clause_is_a_decline():
+    from friday.turn import is_decline
+
+    assert is_decline("No, cancel that")
+    assert is_decline("nope not that one")

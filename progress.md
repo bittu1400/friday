@@ -19,10 +19,11 @@ registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **484 passed** (450 on 2026-08-29, +26 from fix-list Steps 1–2,
-+4 from the TTS engine fallback, +4 from the model-config checks on 2026-08-30),
-`just eval` **50/50 (regressions 0)** — the fixture set was 28 until 2026-08-30,
-when D16 was fixed by widening it to every action in `PARAM_SCHEMA` (ADR-089),
+`uv run pytest` **497 passed** (450 on 2026-08-29; +26 fix-list Steps 1–2, +4
+TTS fallback, +4 model-config checks, +13 from the 2026-08-30 microphone
+session), `just eval` **50/50 (regressions 0)** — the fixture set was 28 until
+2026-08-30, when D16 was fixed by widening it to every action in `PARAM_SCHEMA`
+(ADR-089),
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -87,6 +88,197 @@ a human at a keyboard.
    G12 ACTION SURF [x]   <-- System (vol/bright/media/wifi) + Hyprland (ws/win) + notes + dictation + ban.
    G13 SPEAKER VER [x]   <-- 3D-Speaker/CAM++ (sherpa-onnx, CPU) 512-dim voiceprint + 10-utterance enroll.
 ```
+
+---
+
+## SESSION 2026-08-30 (last, evening) — THE MICROPHONE SESSION: D1 and D2 PROVEN, every `C?` affirm row ticked, and six defects found (D22-D26 + D12 closed). ADR-091..094.
+
+**The user's ask:** *"run the mic block first"*, then *"Fix all of it at once"*,
+then *"write it up and commit. Do not miss anything at all."*
+
+**This is the session the whole fix list was waiting for.** Four daemon runs,
+PTT only (D3 still makes hands-free unusable), `FRIDAY_DEBUG=1` with
+`env -u JOURNAL_STREAM`, `balanced` throughout, `llm_on_gpu` confirmed.
+
+### THE HEADLINE: every `C?` affirm row is ticked, first time in this project
+
+Read back from the system, never from what Friday said:
+
+```
+clipboard_read   'Yes!'          allowed/ok    content spoken
+clipboard_set    'yes'           allowed/ok    wl-paste -> "hello world"
+clipboard_read   'Yes.'          allowed/ok    <- the exact character that caused D1
+hypr_window      'Yes.'          allowed/ok    window GONE from hyprctl clients
+system_wifi off  "Yes, I'm sure" allowed/ok    nmcli -> disabled, then restored
+```
+
+**D1 is PROVEN.** **D2 is PROVEN**: 108 audit rows across a deliberate daemon
+restart, **0 duplicate `request_id`s**, pre-restart UUIDs all still present
+after the debug `v{n}` counter reset to `v1`.
+
+### D25 — `system_wifi{off}` failed TWICE first, for a brand-new reason
+
+The user answered **"Yes, I am sure"**. `is_affirmation` matched whole strings,
+so it matched nothing, `is_decline` also said no, and ADR-075c cancelled the
+pending as a non-answer. Audit: two `declined` rows, Wi-Fi still enabled.
+
+**D1 fixed how an answer is punctuated. It did not fix how an answer is
+shaped** — and "Yes, I am sure" is the most natural possible reply to the
+question this gate asks. Fixed by head-matching with a **negative-word veto**
+(ADR-093/FR-104), so `"yes but not now"` still refuses to approve, then proven
+on the retry. Ambiguity resolves to not-acting, by design.
+
+### D22 — dictation truncated at 74 chars and left a key repeating for ever
+
+The user reported it: *"after about ten to twelve words it can't continue... it
+will just keep on typing the last letter it remember infinitely."*
+
+One cause for both symptoms. `typer.py` used `subprocess.run(timeout=3.0)`, a
+constant; ydotool types at a **measured 40.2 ms/char** (`--key-delay 20` +
+`--key-hold 20`, linear over three lengths). 3.0 s is therefore a hard ceiling
+of **74 characters**, and `subprocess.run` enforces its timeout with SIGKILL —
+killing ydotool between a key down and its key up. `ydotoold` owns the uinput
+device and outlives the client, so the key stayed held.
+
+Predicted cut for the user's sentence: `...it's working or n`. What they
+recovered off the screen cut at `or N`.
+
+**The log actively misdirected the investigation**: a timeout was reported as
+`"No working Wayland typer found (wtype or ydotool)"` while ydotool was
+installed and `ydotoold` was running (pid 1526). Fixed: rate pinned to 8/8
+(16.3 ms/char), timeout derived as `5 s + 50 ms/char`, failure logging now
+mode-specific. **D11** (the `--` separator for wtype) fixed in the same file.
+ADR-092/FR-103.
+
+**Proven on the real path:** six `dictation_type` rows, all `ok` — **four past
+the old 74-char ceiling** (137, 122, 121, 91) and two below it (42, 27). All six
+are post-fix by construction: before ADR-091 this path wrote no audit row at
+all, so there is no pre-fix row to compare against — the comparison is against
+the user's screen, where the sentence was cut.
+
+### D23 — the audit table had a blind spot, and it made me misdiagnose a defect
+
+Reading the log, *"be quiet for a while"* appeared to do **nothing at all**: no
+action line, no TTFA, no error, no `set_dnd` row anywhere in 352 lines. It was
+written up as a defect.
+
+**It was not one.** `is_hush_phrase("Be quiet for a while")` is `True`, DND was
+set correctly, Friday spoke the right line. **The feature worked and the
+instrument was blind.**
+
+**Seven paths completed a turn writing no audit row, no `action=` line and no
+TTFA sample:** dictation start/stop, verbatim dictation typing, DND hush, DND
+resume, sign-off summary, and — worst — **`_resolve_confirm`, the path on which
+an irreversible action actually executes.** A `system_wifi{off}` that really
+fired left a log indistinguishable from one that never did. That is precisely
+the gap that made "ask the system, never Friday" necessary in the first place.
+
+Fixed with two helpers (`_audit_intercept`, `_finish_intercept`); ADR-091,
+FR-100/101/102. Two sub-decisions recorded there: synthetic `tool_id`s
+(`dictation_type`, `signoff_summary`) are allowed because they are side effects
+with no planner action, and dictation is audited **by length only** —
+`{"chars": "137"}` — because an audit row is disk and invariant #7 governs it.
+
+**D12 closed in the same call site:** dictation typing moved to
+`asyncio.to_thread`, the last of H6's blocking calls on the event loop.
+
+### D24 — chat denied abilities Friday has; the prompt was wrong, not the model
+
+Asked about fullscreen, chat replied *"I cannot actually control your window
+size or toggle full screen modes"* — in a session where `hypr_window{fullscreen}`
+had dispatched **three times**. After a first fix it then denied Wi-Fi: *"I
+simply do not have the permissions to toggle your Wi-Fi."*
+
+Diffing `CHAT_SYSTEM` against `PARAM_SCHEMA` found why: **`system_wifi` was the
+only action missing from the persona's toolset, and had been since G12.** Not a
+hallucination — a prompt that was wrong. ADR-053 required the persona to state
+its real toolset and nothing enforced it; there is now a coverage test that
+fails when a new action has no keyword.
+
+**The first fix attempt was worse than the bug** and is recorded because of it:
+naming the abilities produced *"I have taken the window out of full screen mode
+for you"* — a chat turn claiming an action it structurally cannot perform
+(invariant #4, ADR-009). The clause now separates "Friday can do this" from
+"you have taken no action this turn", with a test for each half.
+
+### D26 — STT cannot hear "wifi"
+
+Four consecutive turns lost:
+
+```
+"Don't off my wife, I-"                "okay just slowly turn off my weapon"
+"Going off my way here"                "Don't own my life, hey?"
+```
+
+`STT_HOTWORDS` listed the five apps, YouTube and preference subjects — **no
+G11/G12 control vocabulary at all.** Widened, and re-benched per ADR-042's
+discipline: **p95 749 ms, miss 4/20, PASS vs 800 ms** — same misses, no latency
+cost. **Efficacy is NOT proven** and is OQ-57: the 20-clip corpus is itself
+Phase-1 only and contains no G12 utterance.
+
+### OQ-56 answered — and the swap's cost is not where anyone predicted
+
+```
+n=38   all turns   p50 2289 ms   p95 10187 ms   0/38 under 1400
+```
+
+**The planner regression is nearly invisible**: p50 2172 → 2289 ms, ~117 ms,
+against the ~430 ms the arithmetic predicted. Arithmetic about this model has
+now been wrong three times in two days, in both directions.
+
+**The cost is verbosity.** Direct actions 1858-2466 ms; **chat 6974-10187 ms**.
+TTFA includes synthesizing the whole reply before the first sound, and Gemma
+wrote 157-376 chars where the prompt asked for four short sentences. Capping it
+at 2 sentences / 200 chars (ADR-094/FR-107) measured **chat p50 7177 → 4715 ms**,
+max 10187 → 6289, and replies **mean 279 → 146 chars** live (n=5 vs n=9; a
+separate 6-utterance probe of the final wording gave 119).
+
+### Evidence
+
+```
+uv run pytest             497 passed   (492 -> 497 across the session; 484 at session start)
+just eval                 50/50  regressions 0
+just test-injection       OK
+just test-no-fstring-sql  OK
+just selftest             8/8   llm_on_gpu 7010 MiB
+just bench-stt            p95 749 ms  miss 4/20  PASS   powerprofilesctl: balanced
+action_audit              122 rows, 0 duplicate request_ids
+nmcli radio wifi          disabled -> enabled (dropped and restored by voice)
+```
+
+**11 of the 13 new tests were watched failing against the pre-fix tree** — 5 in
+`test_dictation.py`, 2 in `test_spoken_affirmation.py`, 4 in `test_prompt.py`
+(the last four against `git checkout 0cfa3d1 -- friday/llm/prompt.py`, because
+a `git stash push` of an already-committed file is a silent no-op and proves
+nothing — caught on re-check). **The other two are honest exceptions**: the veto
+and over-match guards in `test_spoken_affirmation.py` assert that certain
+phrases are NOT affirmations, which was already true under whole-string
+matching. They are regression guards against the D25 fix loosening the gate,
+not proofs of the fix, and they are worth having for exactly that reason.
+
+### Decisions recorded
+
+- **ADR-091** — every turn audits and emits a latency sample, including
+  pre-planner paths and the confirm dispatch. FR-100/101/102.
+- **ADR-092** — the typer's timeout is derived from the text; the key rate is
+  pinned, not inherited. FR-103.
+- **ADR-093** — a spoken affirmation may lead a sentence; a negative word
+  anywhere vetoes it. FR-104.
+- **ADR-094** — the persona and the hotword list must track `PARAM_SCHEMA`; a
+  spoken reply's length is its latency. FR-105/106/107.
+- **OQ-56** measured (re-baseline number still the user's call).
+  **OQ-57** raised (hotword efficacy).
+
+### The pattern worth carrying forward
+
+**Three artifacts were found frozen at Phase 1 in two days:** the eval fixtures
+(D16 — 20 of 28 actions uncovered), `CHAT_SYSTEM`'s toolset (D24 — `system_wifi`
+missing since G12), and `STT_HOTWORDS` plus the STT bench corpus (D26/OQ-57).
+**Anything that enumerates "what Friday can do" and predates G12 is suspect.**
+
+And a new one for the lessons list: **an instrument with a blind spot produces
+a confident wrong diagnosis.** "Be quiet for a while does nothing" was read
+straight off the log, and the feature had worked correctly the whole time.
 
 ---
 
@@ -2845,7 +3037,43 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (amended 2026-08-30 last. **THE MODEL IS NOW GEMMA 4 12B QAT.** Steps 1-2 DONE in code and UNPROVEN by voice. Defects D1-D21; D1, D2, D16, D19, D20, D21 fixed.) <<<
+## >>> START HERE: NEXT SESSION (amended 2026-08-30 evening. **THE MODEL IS GEMMA 4 12B QAT. D1 AND D2 ARE PROVEN AT THE MICROPHONE AND EVERY `C?` AFFIRM ROW IS TICKED.** Defects D1-D26; fixed: D1, D2, D11, D12, D16, D19-D25 — plus D26 fixed but its EFFICACY UNPROVEN, see OQ-57.) <<<
+
+### Added 2026-08-30 (evening) — the microphone session happened. Read this first.
+
+**The thing this whole fix list was waiting for is DONE.** D1 and D2 are proven
+at a microphone, and **every `C?` affirm row in `docs/reality-check.md` is
+ticked**, including both rows the user asked for (`system_wifi{off}` and
+`hypr_window{close}`). Full evidence in the session block below.
+
+**What is now the top of the list:**
+
+1. **Step 3 — D3, hands-free.** Unchanged and now genuinely the blocker: PTT is
+   still the only usable trigger, and the whole mic session ran on it.
+   **OQ-39's measurement is largely done** — the 2026-08-30 drill root-caused it
+   to `webrtcvad` calling 83-100 % of frames speech on 5 of 20 real clips, where
+   Silero ends 20/20. What is left is the live confirmation through the AEC path
+   and the swap decision, **OQ-51**. `friday.audio.vad.Vad` is already a
+   `Protocol`, so the swap is small.
+2. **The remaining fix-list steps**, renumbered by what has landed. **Steps 4
+   (D11+D12) and 9's typing half are DONE** — see ADR-091/092. Still open:
+   **D4+D10** (`file_open` aliases, and `~/notes.md`/`~/todo.md` do not exist),
+   **D5** (garbled durations / the clarify turn), **D7** (`get_time`), **D6**
+   (degenerate briefing output), **D8** (ambiguous phrasing), **OQ-30** (the
+   mpv/YouTube fallback), **D9** (templates speak raw enum values — confirmed
+   live again this session: *"Media play_pause."*, *"Window fullscreen."*).
+3. **OQ-56's open half** — TTFA is measured (p50 2289 ms, n=38); whether
+   ADR-080's 2200 ms target is re-baselined, restated per action class, or left
+   alone is **the user's call**, and it is the only thing still owed on it.
+
+**Three artifacts were found frozen at Phase 1 in two days** — the eval fixtures
+(D16), `CHAT_SYSTEM`'s toolset (D24), and `STT_HOTWORDS` + the STT bench corpus
+(D26/OQ-57). **Grep for others before trusting any list of "what Friday can
+do" that predates G12.**
+
+**Do NOT re-diagnose "be quiet for a while does nothing."** It works. That
+reading came off a log whose instrument had a blind spot, now fixed (D23,
+ADR-091).
 
 ### Added 2026-08-30 (last) — THE MODEL SWAPPED. Read this before any latency number.
 

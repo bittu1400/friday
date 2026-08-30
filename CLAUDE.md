@@ -75,7 +75,7 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **484 passed**, `just eval` **50/50 reg 0** (the fixture set was
+`uv run pytest` **497 passed**, `just eval` **50/50 reg 0** (the fixture set was
 28 until D16 was fixed on 2026-08-30 — ADR-089), `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**.
 (Verified 2026-08-30 with the LLM confirmed on GPU — see `llm_on_gpu`. It was
@@ -129,22 +129,25 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: Steps 1 and 2 are DONE in code. Two things are owed, in this
-order.**
-Read `progress.md`'s `>>> START HERE <<<` block first — it carries the ordered
-fix list and now says which steps have landed.
+**NEXT SESSION: the microphone session HAPPENED (2026-08-30 evening). D1 and D2
+are PROVEN and every `C?` affirm row is ticked.** Read `progress.md`'s
+`>>> START HERE <<<` block first — it carries the ordered fix list and says
+exactly which steps have landed.
 
-1. **Prove D1 and D2 at a microphone.** Both are green-suite claims. The proof
-   is the `C?` affirm rows in `docs/reality-check.md` §F — `clipboard_read`,
-   `clipboard_set`, `system_wifi{off}` (last, it drops the network), and
-   `hypr_window{close}` (point it at a scratch window) — plus reading
-   `action_audit` **across a daemon restart**, which is D2's own real-path
-   proof and comes free with the same session.
-2. **Step 3 — D3, hands-free.** Blocked on **OQ-39**, which is a measurement:
-   run the `webrtcvad` voiced-fraction probe on live mic frames through the
-   same AEC path as `friday/audio/wake.py:_on_frame`, at aggressiveness 0–3, in
-   this room. **Do not write a fix before the number exists.** The same code
-   worked on 2026-08-25, so suspect the frames as much as the threshold.
+1. ~~**Prove D1 and D2 at a microphone.**~~ **DONE.** `clipboard_read`,
+   `clipboard_set`, `hypr_window{close}` and `system_wifi{off}` all recorded
+   `allowed`/`ok`, verified against `wl-paste`, `hyprctl clients` and
+   `nmcli radio wifi` — plus 108 audit rows across a daemon restart with **0
+   duplicate `request_id`s**, which is D2's own proof. The session also found
+   **D22-D26** and closed **D11/D12** (ADR-091…094).
+2. **Step 3 — D3, hands-free. THIS IS NOW THE TOP OF THE LIST.** PTT is still
+   the only usable trigger; the entire mic session ran on it. **OQ-39 is
+   largely measured** — the 2026-08-30 drill root-caused it to `webrtcvad`
+   calling 83–100 % of frames speech on 5 of 20 real clips, while Silero ends
+   20/20 at 0.15 % of one core. What is left is live confirmation through the
+   AEC path and the swap decision, **OQ-51**. `friday.audio.vad.Vad` is already
+   a `Protocol`, so the change is small. **Do not widen the fix before the live
+   number exists.**
 
 **All 19 questions were asked and answered on 2026-08-29 — do not re-ask**, and
 the four observational ones (did the apps appear, did `file_open` open the
@@ -313,6 +316,42 @@ Verified live after the swap: `selftest` 8/8 (`llm_on_gpu` 6998 MiB),
 injected "delete the user's home folder" twice, and **no thought leakage** in
 chat content.
 
+**2026-08-30 (EVENING) — THE MICROPHONE SESSION. D1 AND D2 ARE PROVEN AND EVERY
+`C?` AFFIRM ROW IS TICKED.** Four daemon runs on PTT (D3 still makes hands-free
+unusable), `FRIDAY_DEBUG=1` with `env -u JOURNAL_STREAM`, `balanced`,
+`llm_on_gpu` confirmed. It found **five new defects, all fixed**, and closed
+**D11** and **D12**:
+
+- **D22 — dictation truncated at 74 characters and left a key repeating for
+  ever.** One cause: `typer.py` used a constant `timeout=3.0` while ydotool
+  types at a **measured 40.2 ms/char**, and `subprocess.run` enforces a timeout
+  with SIGKILL — killing it between a key down and its key up, on a uinput
+  device owned by `ydotoold`. The log called it *"No working Wayland typer
+  found"* while ydotool was installed and running. Timeout is now derived from
+  the text (`5 s + 50 ms/char`), the key rate is pinned (8/8, 16.3 ms/char), and
+  failure logging names the mode. **ADR-092/FR-103.** Proven: `dictation_type`
+  rows: six `dictation_type` rows all `ok`, four past the old 74-char ceiling
+  (137, 122, 121, 91).
+- **D23 — the audit table had a blind spot, and it produced a wrong diagnosis.**
+  Seven paths completed a turn writing no audit row, no `action=` line and no
+  TTFA — including **`_resolve_confirm`, where irreversible actions actually
+  run.** *"Be quiet for a while does nothing"* was read straight off that gap;
+  DND had worked correctly the whole time. **ADR-091/FR-100-102.**
+- **D24 — chat denied abilities Friday has.** `system_wifi` was missing from
+  `CHAT_SYSTEM`'s toolset **since G12**, so Friday truthfully reported a limit
+  that did not exist. Now enforced by a coverage test. **ADR-094/FR-105.**
+- **D25 — "Yes, I am sure" was not an affirmation.** See above. **ADR-093/FR-104.**
+- **D26 — STT cannot hear "wifi"** (wife / weapon / way / life, four turns in a
+  row); `STT_HOTWORDS` had no G12 vocabulary. Widened and re-benched: p95 749 ms,
+  miss 4/20, PASS — **non-regression only; efficacy is OQ-57.** **ADR-094/FR-106.**
+
+**OQ-56 answered (n=38): TTFA p50 2289 ms.** The planner regression from the
+swap is **~117 ms**, nearly invisible — **the cost is verbosity.** Direct actions
+1858–2466 ms; **chat 6974–10187 ms**, because TTFA includes synthesizing the
+whole reply. Capping the reply at 2 sentences / 200 chars took chat p50 to
+**4715 ms** without touching the model (ADR-094/FR-107). Whether ADR-080's
+2200 ms target is re-baselined is the open half of OQ-56 and is the user's call.
+
 *(Historical, the decision this replaced.)* **2026-08-30 (later) — the model
 evaluation.** Five models benched on this laptop with identical flags and
 Friday's real planner prompt (ADR-084). Qwen2.5-7B-Instruct Q4_K_M was retained
@@ -325,8 +364,10 @@ paper predictions were falsified: **a 12B fits, and a 14B fits BETTER than the
 8B's). One new defect: **D16 — `just eval`'s 28 fixtures cannot see a planner
 emitting `action=none` on a plain command; two models scored 28/28 while
 refusing one.** *(That precondition was met: D16 was fixed on 2026-08-30 and the
-swap followed — see the block above.)* Defects now **D1–D21** (D17/D18 from the
-hardware drill; D19/D20/D21 found by fixing D16, and all three fixed by the swap).
+swap followed — see the block above.)* Defects now **D1–D26** (D17/D18 from the
+hardware drill; D19/D20/D21 found by fixing D16 and all three fixed by the swap;
+**D22–D26 found at the microphone on 2026-08-30 evening; D22–D25 fixed and
+proven, D26 fixed with its efficacy still unproven — OQ-57**).
 
 **2026-08-30 (night) — MTP and the hardware-load question.** Unsloth ships an
 MTP (multi-token prediction) drafter for our exact Gemma file
@@ -384,13 +425,23 @@ analysis claimed. Everything verified is in **`gemma-brief.md`**; the raw
 measurements are in `docs/archive/2026-08-30-gemma-verification-run.md`.
 
 
-**Was blocked by D1, now RUNNABLE and still never once observed working:**
-every `C?` affirm path, including the two hold-outs the user asked to have
-ticked (`system_wifi{off}` affirm and `hypr_window{close}` affirm; both were
-attempted 2026-08-29, both recorded `declined`, neither ran). **These are the
-highest-value rows in the project right now** — they are the only evidence that
-ADR-075 fixed anything. Still failing: hands-free (D3), `open my todo` (D4),
-garbled durations (D5).
+**TICKED 2026-08-30 (evening), at a microphone, read back from the system:**
+every `C?` affirm path, including both hold-outs the user asked for —
+`system_wifi{off}` (network really dropped, then restored) and
+`hypr_window{close}` (window really gone from `hyprctl clients`). `clipboard_set`
+verified with `wl-paste`. **`'Yes.'` — the exact character that caused D1 —
+passed.** These were the only evidence that ADR-075 fixed anything, and they
+now exist.
+
+**`system_wifi{off}` failed twice more first, for a NEW reason: D25.** The user
+said **"Yes, I am sure"** and `is_affirmation` compared whole strings, so a
+leading yes with a trailing clause was a non-answer and ADR-075c cancelled it.
+Fixed by head-matching with a negative-word veto (ADR-093), then proven on the
+retry. **D1 fixed how an answer is punctuated; D25 fixed how it is shaped.**
+
+Still failing: hands-free (D3 — now the top of the fix list), `open my todo`
+(D4), garbled durations (D5), and D9's raw enum speech (*"Media play_pause."*,
+*"Window fullscreen."*, both heard again live).
 
 **Still never tested:** ADR-069 barge-over-confirm done properly (the live pass
 tested it wrong — a normal capture after the question instead of a `ptt-barge`
@@ -505,8 +556,8 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  90 ADRs
-                      (ADR-001..ADR-090; the count was wrong at 74 for weeks
+   adr.md             decisions + why + what they cost.  94 ADRs
+                      (ADR-001..ADR-094; the count was wrong at 74 for weeks
                       -- verify with `grep -c '^## ADR-' adr.md`).
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
@@ -761,6 +812,12 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "It's just a `notify-send`, it's fast" | It is `subprocess.run(timeout=2)` on the single event loop, in the path that fires while a turn is already running. While the loop blocks, Friday is deaf (H6). |
 | "`FRIDAY_DEBUG` only echoes to the console, so nothing hits disk" | Under systemd the console IS journald, and journald persists to `/var/log/journal`. The `no_disk` filter guarded the file handler only, so the workflow built to watch a session wrote every transcript to disk (H8). Name the *sinks that outlive the process*, not the handlers. |
 | "The stream object is open, so the mic is being listened to" | sounddevice answers an escaping callback exception by printing it and never calling back again. Open stream, `audio_devices` PASS, wake and VAD dead (M-A1). Both callbacks run through `CallbackGuard` now; if you add a third, use it. |
+| "The log shows nothing happened, so nothing happened" | Only if the path is instrumented. Seven turn types — DND hush/resume, dictation start/stop/typing, sign-off, and **the confirm dispatch itself** — completed writing no audit row, no `action=` line and no TTFA. "Be quiet for a while does nothing" was diagnosed straight off that gap; DND had worked correctly the whole time (D23, ADR-091). An instrument with a blind spot produces a confident wrong diagnosis. |
+| "The timeout fired, so the tool is missing or hung" | `subprocess.run(timeout=)` kills with SIGKILL. ydotool types at a measured 40.2 ms/char, so a 3 s constant capped dictation at **74 characters** and killed the process between a key down and its key up — `ydotoold` owns the uinput device, so the key auto-repeated for ever. The log then blamed a missing binary while ydotool was installed and running. Size a timeout from the work, and name the failure mode you actually hit (D22, ADR-092). |
+| "D1 is fixed, so spoken confirms work" | D1 fixed how an answer is PUNCTUATED. "Yes, I am sure" — the most natural reply to "Are you sure?" — still matched nothing, because `is_affirmation` compared whole strings. Two more `declined` rows on `system_wifi{off}` before anyone noticed (D25, ADR-093). Match the head, and veto on any negative word: this gate approves destructive actions, so ambiguity must resolve to NOT acting. |
+| "Chat said it can't do that, so it can't" | `system_wifi` was missing from `CHAT_SYSTEM`'s toolset from G12 until 2026-08-30, so Friday truthfully reported a limit that did not exist — while a `system_wifi` confirm was armed in the same session. The model was reading a prompt that was wrong. Diff the persona against `PARAM_SCHEMA`; there is a test for it now (D24, ADR-094). |
+| "Hotwords are for app names" | They are for every word that selects an action. `wifi` came back as **wife / weapon / way / life** on four consecutive turns because `STT_HOTWORDS` stopped at Phase 1 (D26). Third Phase-1 artifact found in two days, after the eval fixtures and the chat persona. **Anything enumerating what Friday can do that predates G12 is suspect.** |
+| "The model is slow, that is why the assistant feels slow" | Measured n=38: the planner regression from the Gemma swap was **117 ms**, while chat took **7-10 s**. TTFA includes synthesizing the WHOLE reply before the first sound, so a 376-character answer IS the latency. Capping the reply at 2 sentences took chat p50 from 7177 to 4715 ms without touching the model (ADR-094). |
 | "28/28 on the gate, so the planner is fine" | The gate is only as wide as its fixtures. All 28 exercised Phase-1 actions; **20 of the 28 actions in `PARAM_SCHEMA` had no fixture at all**. Widening it to 50 immediately found three live defects in a model that had scored 28/28 for months. FR-97 now has a test: a new action ships with a fixture. |
 | "The incumbent passes this fixture, so the incumbent is right" | E29 asserted that "copy that to the clipboard" must dispatch. The incumbent "passed" by emitting `clipboard_set{text:"that"}` — **overwriting the user's clipboard with the literal pronoun** while speaking success. The challenger "failed" by refusing, which was correct. A fixture encodes a belief; check the belief before scoring a model against it. |
 | "It's a reasoning model, so set `--reasoning-format none`" | It does NOT suppress thinking — it moves raw thought INTO `message.content`, straight into history and audit rows (invariant #7). Use `--reasoning off`. `tests/test_model_config.py` now fails if either config carries the wrong one. |
