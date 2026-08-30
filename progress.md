@@ -2477,24 +2477,36 @@ ticked:
   capture *during* the spoken question, not a normal capture after it. Expect
   the confirm never to arm and the new command to run.
 - **PTT key barge-in over a reply** (FR-7): tap mid-sentence, speech must cut.
-- **Dictation actually typing** into a focused window, and `new line` /
-  `period` becoming punctuation.
-- **The apps actually appearing** — `pgrep -a`, `hyprctl clients`. The audit
-  says `ok`, but that is the spawn, not the window (ADR-043).
-- **`file_open` opening the RIGHT file** — the 2026-08-25 defect was it opening
-  the wrong one.
-- **A reminder firing: one notification AND one spoken line, exactly once.**
+- ~~Dictation actually typing into a focused window~~ — **CONFIRMED**; the
+  open half is only whether `new line` / `period` become punctuation cleanly,
+  which is what Step 9 fixes.
+- ~~The apps actually appearing~~ — **CONFIRMED** for Brave, foot, VS Code and
+  VLC. mpv never launches because the planner routes it to YouTube (OQ-30).
+- ~~`file_open` opening the RIGHT file~~ — **CONFIRMED**; the live defect is
+  D10, an empty/missing target reported as success.
+- ~~A reminder firing: one notification AND one spoken line, exactly once.~~
+  **CONFIRMED by the user 2026-08-30.** Row closed.
 - `just test-egress`, the panic switch, and the §C invariant spot-checks.
 
-### FOUR THINGS ONLY THE USER CAN ANSWER ABOUT THE LAST RUN
+### THE FOUR OBSERVATIONAL QUESTIONS — ALL ANSWERED. DO NOT RE-ASK.
 
-Ask these before re-testing the same ground:
+Answered by the user on **2026-08-29**, in full, in the decision-log block
+above (search "The four observational answers"). Re-confirmed 2026-08-30 when
+this section still read as open and the user was asked a second time — the
+duplicate ask was this block's fault, not a gap in the record. Short form:
 
-1. Did foot / VS Code / mpv / VLC actually appear on screen?
-2. Did `open my notes` and `open my config` open the right files?
-3. Did dictation actually type characters into the focused window?
-4. When the 5-minute timer fired, was there one desktop notification **and**
-   one spoken line, exactly once?
+1. **Apps:** Brave, foot, VS Code, VLC all appeared. **mpv did not** — YouTube
+   opened instead, which is OQ-30 / Step 11, not a launch defect.
+2. **`file_open`:** both `my notes` and `my config` opened the RIGHT targets.
+   Notes was empty, which is D10.
+3. **Dictation typed real characters.** Verdict: "it was amazing" — Step 9 is
+   polish on a working path.
+4. **The timer gave one notification AND one spoken line, exactly once.**
+   Confirmed 2026-08-30; the 2026-08-29 record left this half open and it is
+   now closed. Timers were "by far, this worked the best."
+
+Before asking the user anything observational, grep this file for it. The
+answer is very likely already here.
 
 ### Rules that are not optional (each one is paid for)
 
