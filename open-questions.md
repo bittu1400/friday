@@ -422,16 +422,11 @@ does not exist yet.
 ---
 
 ### OQ-11 — Does the desktop actually consume dGPU VRAM?
-**Decider:** MEASURE · **Blocks:** nothing in Phase 1 · **Status:** OPEN
-
-```bash
-nvidia-smi --query-compute-apps=pid,used_memory --format=csv
-```
-
-with Hyprland running and a browser open playing video. On hybrid
-graphics, both should be on the Intel iGPU. If the output is empty,
-roughly 1.9 GB of the projected VRAM peak does not exist and the working
-ceiling can rise.
+**Status:** ANSWERED 2026-08-30 — **NO, zero.** *(Duplicate entry. The answer,
+the commands and the evidence live in the single copy under "Answered by
+measurement" below. This stub is kept only so the id resolves from here; it said
+`OPEN` until 2026-08-30 while a second copy of the same question existed further
+down the file.)*
 
 ---
 
@@ -484,14 +479,15 @@ Re-measurable if the grown suite ever disagrees.
 ---
 
 ### OQ-09 — Is ~1.4 s TTFA actually a problem?
-**Decider:** MEASURE then USER · **Blocks:** any streaming work · **Status:** OPEN
+**Status:** ANSWERED 2026-08-23, then **superseded**. *(Duplicate entry — the
+answer lives in the copy under "Kept Open" above, which recorded p50 2156 ms /
+p95 2731 ms at G6 and "streaming is not needed for Phase 1". This stub still said
+`OPEN` on 2026-08-30, years of drift after the question was settled.)*
 
-Measure p50/p95 TTFA at G6 with the blocking pipeline. Then use it for a
-day. If it feels bad, build streaming (ADR-020). If it does not, that is
-a week saved.
-
-Cheap mitigations allowed regardless: an earcon or a "let me check"
-filler on `web_search`, which does not touch the pipeline.
+**Read `OQ-45` and `ADR-080` instead of either copy.** Live TTFA was re-measured
+on 2026-08-29 at p50 2172 ms / p95 4900 ms / max 8674 ms (n=77), with **0 of 77**
+turns meeting the 1400 ms target, and the target was re-baselined to 2200 ms. The
+2026-08-23 answer is true as of its date and is no longer the current picture.
 
 ---
 
@@ -512,16 +508,54 @@ not. See ADR-019.
 ---
 
 ### OQ-11 — Does the desktop actually consume dGPU VRAM?
-**Decider:** MEASURE · **Blocks:** G1 sizing · **Status:** OPEN
+**Decider:** MEASURE · **Blocks:** ~~G1 sizing~~ (G1 shipped long ago) ·
+**Status:** ANSWERED 2026-08-30 — **NO. The desktop consumes zero dGPU VRAM.**
 
 ```bash
 nvidia-smi --query-compute-apps=pid,used_memory --format=csv
 ```
 
-with Hyprland running and a browser open playing video. On hybrid
-graphics, both should be on the Intel iGPU. If the output is empty,
-roughly 1.9 GB of the projected VRAM peak does not exist and the working
-ceiling can rise.
+with Hyprland running and a browser open. On hybrid graphics, both should be on
+the Intel iGPU. If the output is empty, roughly 1.9 GB of the projected VRAM peak
+does not exist and the working ceiling can rise.
+
+**Result — measured during the 2026-08-30 verification round, Brave running:**
+
+```
+$ nvidia-smi --query-compute-apps=pid,used_memory --format=csv
+pid, used_gpu_memory [MiB]
+536902, 4696 MiB                      <- llama-server, and nothing else
+
+$ nvidia-smi   (Processes section)
+|  GPU  PID      Type  Process name                     GPU Memory |
+|    0  536902   C     ...llama.cpp/build/bin/llama-server  4696MiB |
+```
+
+**Not one graphics (`G`) client.** Only Friday's compute process. Corroborated
+three ways:
+
+1. With `friday-llm` **stopped**, `nvidia-smi` reports **2 MiB used, 7745 free** —
+   the card is empty when Friday is not on it.
+2. Hyprland's open fds: **6 on `dri/renderD128` (Intel iGPU) against 2 on
+   `dri/renderD129` (NVIDIA)** — it renders on the iGPU.
+3. `lspci`: the Intel Arrow Lake-S iGPU (`00:02.0`, driver `i915`) is present with
+   its own render node.
+
+**Consequence — the working ceiling did rise, and by more than this OQ expected.**
+The whole 8151 MiB card is Friday's; usable is **7745 MiB**, with 406 MiB
+reserved and **not attributable to any process** (what reserves it was not
+determined — "driver/context overhead" is the usual explanation and is inference,
+not a measurement here).
+
+**This also corrects the archived record.** `docs/archive/2026-08-30-gemma-opus.md`
+§3 states "~406 MiB held by the desktop with no model loaded". The number is right
+(8151 − 7745); the attribution is wrong. Nothing is held by the desktop. Carried
+into `gemma-brief.md` §1.
+
+Caveat, stated rather than glossed: the browser was open but **not confirmed
+playing video**. Video decode would go through VA-API on the iGPU in any case, and
+with zero graphics clients on the dGPU there is no path for it to consume VRAM
+there.
 
 ---
 

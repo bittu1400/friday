@@ -266,6 +266,47 @@ $ just selftest
 
 8/8 before the round and 8/8 after, at the same VRAM. Nothing was left changed.
 
+### OQ-11 closed, and two duplicate OQ ids found while closing it
+
+**OQ-11 — "Does the desktop actually consume dGPU VRAM?" — ANSWERED: no, zero.**
+It had been OPEN since G1 sizing. Ran the test the OQ itself specifies, with
+Brave running:
+
+```
+$ nvidia-smi --query-compute-apps=pid,used_memory --format=csv
+pid, used_gpu_memory [MiB]
+536902, 4696 MiB                     <- llama-server, and nothing else
+
+$ nvidia-smi   (Processes section)
+|  GPU  PID      Type  Process name                        GPU Memory |
+|    0  536902   C     ...llama.cpp/build/bin/llama-server    4696MiB |
+```
+
+**Not one graphics (`G`) client.** Corroborated three ways: with `friday-llm`
+stopped the card reports **2 MiB used / 7745 free**; Hyprland holds **6 fds on
+`dri/renderD128` (Intel iGPU) against 2 on `dri/renderD129` (NVIDIA)**; and the
+Intel Arrow Lake-S iGPU is present at `00:02.0` on `i915` with its own render
+node. Caveat recorded rather than glossed: the browser was open but **not
+confirmed playing video**, the one clause of the stated test I could not tick.
+
+Consequence: the whole card is Friday's, usable **7745 MiB**, and the 406 MiB gap
+is reserved but **not attributable to any process** — what reserves it was not
+determined. This is the evidence behind the correction to
+`docs/archive/2026-08-30-gemma-opus.md` §3's "~406 MiB held by the desktop".
+
+**Two duplicate OQ ids found:** `OQ-09` and `OQ-11` were each defined **twice**,
+in different sections, with updates only ever landing on one copy — so each id had
+one ANSWERED entry and one still reading `OPEN`. OQ-09 had been answered on
+2026-08-23 and its duplicate still said OPEN. Both stale copies replaced with a
+stub carrying the correct status and pointing at the real entry, so the id
+resolves from either section. Nothing deleted.
+
+OQ-09's answer is additionally marked **superseded** — its 2026-08-23 figures
+(p50 2156 ms) predate the 2026-08-29 live re-measurement (p50 2172 / p95 4900 /
+max 8674, 0 of 77 turns meeting target) and ADR-080's re-baseline. Readers are
+sent to OQ-45/ADR-080.
+
+
 ### Decisions taken this session, and why
 
 1. **Verify before summarising.** The user asked what I thought of four reports.
