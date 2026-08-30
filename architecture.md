@@ -95,6 +95,13 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        stt.py               faster-whisper backend + FR-12/13 policy
        ptt.py               unix-socket PTT server + client (FR-3)
        tts.py               kokoro-onnx wrapper (ONNX/CPU, fp32, 8t, far-end reference tap)
+                            + `_Supertonic`, an OPTIONAL engine-level fallback
+                            (ADR-085). It duck-types the one method `say()` uses
+                            -- `create(text, voice=, speed=, lang=) ->
+                            (samples, sr)` -- so barge-in, `stop()` and the AEC
+                            reference path are untouched. Reached only when
+                            Kokoro cannot speak AT ALL; a missing voice vector
+                            still goes to `af_heart` first.
        say.py               `just say` / audition CLI (G5)
        aec.py               WebRTC APM EchoCanceller adapter (G10)
        vad.py               WebRTC VAD & SpeechGate debounce state machine (G10)
@@ -138,6 +145,18 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
 
    scripts/
      wake_bench.py          live wake-word, AEC, and VAD benchmark harness
+     stt_accel_bench.py     STT across CPU / OpenVINO(CPU,NPU,iGPU) / CUDA, and
+                            moonshine, on the 20 real DMIC clips (ADR-086/088)
+     accel_stage_bench.py   TTS / speaker / wake on CPU, NPU, iGPU, GPU.1;
+                            prints `npu_busy_time_us` so "it ran on the NPU"
+                            is a claim that can fail (ADR-088)
+     vad_bench.py           webrtcvad 0-3 vs three Silero generations, driven
+                            through the REAL `SpeechGate` (OQ-39/OQ-51)
+     aec_bench.py           WebRTC APM vs DTLN-aec over one live capture;
+                            `--talk` is the preservation test, `--sweep` the
+                            reference-alignment sweep (OQ-32/OQ-52)
+     tts_bench.py           Kokoro vs Supertonic; `--voices`, `--tune` (ADR-085)
+     moonshine_tune.py      the ADR-042-equivalent tuning rounds (ADR-086)
 
    tests/
      fixtures/

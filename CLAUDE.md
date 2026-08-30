@@ -26,7 +26,7 @@ the pending and is re-routed as an ordinary command instead of being swallowed
 (`friday/turn.py:53-92`, `resolve_pending` returns `str | None`, ADR-075/FR-85).
 The audit log takes a UUID `request_id` and a plain `INSERT`
 (`friday/store/audit.py:59`, `friday/daemon.py:290`, ADR-076/FR-86).
-**Neither has been proven by voice.** 476 tests pass and eight times in this
+**Neither has been proven by voice.** 480 tests pass and eight times in this
 project a green suite has sat on top of a broken real path — so the FIRST thing
 the next session does at a microphone is re-run the `C?` affirm rows in
 `docs/reality-check.md`. They have never once been observed working.
@@ -75,10 +75,11 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **476 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+`uv run pytest` **480 passed**, `just eval` **28/28 reg 0**, `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**.
 (Verified 2026-08-30 with the LLM confirmed on GPU — see `llm_on_gpu`. It was
-450 passed on 2026-08-29; the 26 new tests are Steps 1–2 of the fix list.)
+450 passed on 2026-08-29; +26 from fix-list Steps 1–2, then +4 from the TTS
+engine fallback, ADR-085.)
 **`just test-egress` is NOT in that list on purpose: it cannot detect egress**
 — it inspects *listening* sockets (D15). Every "egress proof" in these docs
 traces back to it.
@@ -295,7 +296,8 @@ paper predictions were falsified: **a 12B fits, and a 14B fits BETTER than the
 12B** (Gemma 4's 40-of-48 sliding-window layers make its KV cheaper than an
 8B's). One new defect: **D16 — `just eval`'s 28 fixtures cannot see a planner
 emitting `action=none` on a plain command; two models scored 28/28 while
-refusing one.** No model swap before D16 is fixed. Defects now **D1–D16**.
+refusing one.** No model swap before D16 is fixed. Defects now **D1–D18**
+(D17 and D18 were added 2026-08-30 afternoon by the hardware/software drill).
 
 **2026-08-30 (night) — MTP and the hardware-load question.** Unsloth ships an
 MTP (multi-token prediction) drafter for our exact Gemma file
@@ -651,7 +653,28 @@ just wake-bench         # G10 live wake-word / VAD benchmark. Reports peak input
 just enroll-voice       # G13 interactive 10-utterance voiceprint enrollment
 just ptt press|release  # send a PTT command to the running daemon
 just prefs list|forget  # manage stored preferences
+
+# The 2026-08-30 optimization drill (ADR-085..088). None of these run under
+# `uv run` except bench-vad: onnxruntime-openvino displaces the project's
+# onnxruntime, and faster-whisper + openvino-genai cannot share one venv, so
+# they run from scratch venvs on purpose (rule 7 forbids benching in the
+# project venv). ALL of them print `powerprofilesctl get` -- a run in
+# `power-saver` is void (ADR-087). Numbers: docs/hardware-placement.md
+just bench-stt          # STT baseline, 20 real DMIC clips. Beat: p95 713-804 ms, miss 4/20
+just bench-stt-ov NPU   # STT via OpenVINO: CPU | NPU | GPU.0 (iGPU) | GPU.1. --hotwords
+just bench-stt-cuda     # STT on CUDA -- MEASUREMENT ONLY, invariant #6 forbids it (OQ-53)
+just bench-vad          # webrtcvad 0-3 vs Silero through the REAL SpeechGate -- D3 evidence
+just bench-aec --talk   # LIVE AEC. STOP `friday` first. --talk is the PRESERVATION test
+just bench-tts --tune   # Kokoro vs Supertonic; --voices renders all 10 voices
+just bench-stage tts NPU  # non-STT stage on an accelerator: tts | speaker | wake
+just bench-moonshine    # the ADR-086 tuning rounds, kept runnable
 ```
+
+**The mic/clip corpora are NOT in the repo and must not be deleted:**
+`~/.cache/whisper-bench/` holds the 20 real DMIC clips, their reference
+transcripts, `record.sh` to re-record them, and the original ADR-042 harness.
+Every STT and VAD number in this project traces to those files. Scratch venvs
+and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 
 ## Things that will tempt you and are wrong
 

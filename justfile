@@ -111,3 +111,48 @@ enroll-voice *ARGS:
 test:
     uv run pytest -q
 
+
+# --- 2026-08-30 optimization drill harnesses (ADR-085..088) -------------------
+# These CANNOT run under `uv run`: onnxruntime-openvino displaces the
+# onnxruntime the project depends on, and faster-whisper + openvino-genai
+# cannot share one venv. They run from scratch venvs, which is deliberate --
+# CLAUDE.md rule 7 forbids touching the project venv to benchmark.
+# Every one of them prints `powerprofilesctl get`; a run in `power-saver` is
+# void (ADR-087). Full numbers: docs/hardware-placement.md
+
+_ov  := "~/.cache/friday-accel-eval/venv/bin/python"
+_fw  := "~/.cache/whisper-bench/.venv/bin/python"
+_cu  := "~/.cache/friday-accel-eval/venv-cuda/bin/python"
+
+# STT baseline on the 20 real DMIC clips (ADR-042 config). Beat: p95 713-804ms, miss 4/20.
+bench-stt *ARGS:
+    {{_fw}} scripts/stt_accel_bench.py fw {{ARGS}}
+
+# STT via OpenVINO. Device: CPU | NPU | GPU.0 (iGPU) | GPU.1. Add --hotwords.
+bench-stt-ov *ARGS:
+    {{_ov}} scripts/stt_accel_bench.py ov {{ARGS}}
+
+# STT on CUDA -- MEASUREMENT ONLY, invariant #6 forbids adopting it (OQ-53).
+bench-stt-cuda:
+    LD_LIBRARY_PATH=$HOME/.cache/friday-accel-eval/venv-cuda/lib/python3.12/site-packages/nvidia/cublas/lib:$HOME/.cache/friday-accel-eval/venv-cuda/lib/python3.12/site-packages/nvidia/cudnn/lib \
+        {{_cu}} scripts/stt_accel_bench.py fw cuda
+
+# webrtcvad 0-3 vs Silero through the REAL SpeechGate -- the D3 evidence (OQ-51).
+bench-vad:
+    uv run python scripts/vad_bench.py
+
+# TTS: Kokoro vs Supertonic. --voices renders all 10 voices; --tune sweeps steps.
+bench-tts *ARGS:
+    {{_ov}} scripts/tts_bench.py {{ARGS}}
+
+# Non-STT stage on an accelerator: STAGE=tts|speaker|wake DEVICE=CPU|NPU|GPU|GPU.1
+bench-stage STAGE DEVICE="CPU":
+    {{_ov}} scripts/accel_stage_bench.py {{STAGE}} {{DEVICE}}
+
+# Moonshine tuning rounds (ADR-086) -- kept runnable so the reject can be re-checked.
+bench-moonshine:
+    {{_ov}} scripts/moonshine_tune.py
+
+# LIVE AEC: none/WebRTC/DTLN over one capture. STOP `friday` FIRST. --talk = preservation test.
+bench-aec *ARGS:
+    {{_ov}} scripts/aec_bench.py {{ARGS}}

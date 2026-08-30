@@ -219,6 +219,16 @@ same design that let a 12B fit on an 8 GB card at all.
 Friday is strictly one turn in flight (**FR-5**), so slots 1–3 can never be used
 under any circumstance. Setting `-np 1` gives up nothing that exists.
 
+> **2026-08-30 (afternoon) — a second claimant on this VRAM.** STT on CUDA was
+> measured at p95 **107 ms** versus the CPU's 713–804 ms, for **556 MiB** and no
+> measurable LLM contention (359 / 357 / 359 ms with a resident CUDA whisper).
+> It is forbidden by invariant #6 and the amendment decision is **OQ-53** — but
+> if it is ever taken it spends the same budget this section is about:
+> Qwen leaves **2486 MiB** after it, Gemma 4 12B at `-np 1` leaves **184 MiB**,
+> and Gemma at stock slots **does not fit at all**. So CUDA STT and the Gemma
+> swap (OQ-47) are mutually constrained, and together they require `-np 1`.
+> Full numbers: `docs/hardware-placement.md`, ADR-088.
+
 ### Verified free levers, in order of value
 
 | lever | worth | cost | status |

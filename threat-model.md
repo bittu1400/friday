@@ -334,8 +334,19 @@ slow search exhausts RAM, pins all 24 cores, or leaves the FSM stuck.
 | G6 | PTT path documented with evidence; if `evdev`, the udev ACL is narrow and reviewed |
 | G7 | IS-1..IS-20 all blocked, asserted on the executor. **The egress half of this row is withdrawn 2026-08-30:** `just test-egress` inspects *listening* sockets and cannot observe an outbound connection (D15), and SearXNG is **not** the only outbound path — the STT model load contacts Hugging Face at every daemon start (D13). See `docs/reality-check.md` §C and OQ-46. |
 | G9 | Self-test refuses a non-loopback bind; panic file honoured |
+| 2026-08-30 | **A second model-loading engine was added and deliberately does not widen the egress surface.** Supertonic-3 (ADR-085/FR-95) defaults to `auto_download=True` and would `snapshot_download` from HuggingFace at construction — i.e. it would reproduce **D13** rather than merely inherit it. It is constructed with a pinned local `model_dir` and **`auto_download=False`**, verified to load offline in 517 ms with no request. Its weights are vendored under `~/.local/share/friday/models/supertonic/` with SHA256s recorded in ADR-085, so a swapped model file is detectable. Providers are `['CPUExecutionProvider']` by the package's own default, so invariant #6 is not touched. **D13 itself is still open** — this row adds no exposure, it just declines to add more. |
 
 ## 7. Phase 2 re-review trigger
+
+**Note added 2026-08-30:** the optimization drill introduced no new trust
+boundary. Every candidate benched (Silero VAD, DTLN-aec, Moonshine, Supertonic,
+KittenTTS, OpenVINO) was checked with `uv pip install --dry-run` before
+installing; **none pulled torch or a CUDA stack**, so invariant #6 held
+throughout. All benching happened in scratch venvs outside the repo, and only
+Supertonic's weights were vendored into Friday's data dir. The one candidate
+that *would* have crossed a boundary is OpenVINO on `GPU.1` — it puts a second
+compute process in `nvidia-smi` alongside `llama-server`, breaking **FR-71** —
+and it was rejected for that reason as well as for failing outright (ADR-088).
 
 Any of these reopens this document:
 

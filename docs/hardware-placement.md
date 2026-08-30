@@ -28,6 +28,16 @@ Net: **one stage can move, and the biggest win is on silicon Friday already
 owns.** The two idle accelerators are idle for better reasons than neglect —
 but ADR-019 is still a fourth ADR that decided something and never checked it.
 
+**Two of these rows are library swaps, not placement, and both are decisions
+the owner still holds:** the VAD (OQ-51, and it root-causes D3) and the AEC
+(OQ-52, gated behind D18). Neither has been applied to the running system.
+Everything on this page is measurement; the only code that changed on
+2026-08-30 is the TTS engine fallback (ADR-085).
+
+**How to re-run any of it:** `just bench-stt`, `bench-stt-ov`, `bench-stt-cuda`,
+`bench-vad`, `bench-aec`, `bench-tts`, `bench-stage`, `bench-moonshine`. Every
+harness prints `powerprofilesctl get` and a run in `power-saver` is void.
+
 ## Read the power profile first, or throw the run away
 
 **Both external audits benchmarked in `power-saver` and neither noticed.** All
@@ -343,7 +353,7 @@ Harnesses: [`scripts/vad_bench.py`](../scripts/vad_bench.py),
 | TTS | kokoro-82M `af_bella` | supertonic-3 (10 voices) | keep on latency; **audition pending** |
 | wake | `openwakeword` | — | keep — 0.78 ms/frame, nothing to reclaim |
 | speaker | sherpa `campplus` | — | keep — 18 ms once per turn |
-| AEC | WebRTC APM | DTLN-aec 128/256/512 | **candidate validated offline; live run owed** |
+| AEC | WebRTC APM | DTLN-aec 128/256/512 | **DTLN wins both axes live — but fix D18 before swapping (OQ-52)** |
 
 ## VAD — the incumbent is why hands-free does not work
 

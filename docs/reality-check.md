@@ -388,6 +388,14 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
       after OQ-32. Verified 2026-08-25: no cutoffs in the 16:25 run —
       **and again 2026-08-29 across 127 turns: not one voice barge fired.**
 - [ ] STT transcribes accurately (small.en); TTS speaks (Kokoro af_bella)
+- [ ] **TTS fallback chain (FR-94, ADR-085).** `af_bella` → `af_heart` (missing
+      voice vector) → Supertonic-3 `F1` (Kokoro unusable at all).
+      **The third step is INERT until `uv add supertonic`** (OQ-55), so on the
+      shipped tree this row verifies only that Friday still speaks normally and
+      that removing the Kokoro model leaves it silent rather than crashing.
+      Once armed, force it: move `~/.local/share/friday/models/kokoro/model.onnx`
+      aside and confirm Friday speaks in a *different voice* rather than going
+      text-only. Put the file back.
 
 ### A16. Cross-session memory
 - [ ] After a real conversation and daemon close, a session summary is stored
@@ -429,6 +437,11 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 - [ ] **#6 CUDA:** only `llama-server` uses the GPU. STT, TTS, wake, AEC, VAD,
       speaker verify are CPU. (`friday.selftest` + no CUDA in the daemon process.)
       Wake fails **closed** if openWakeWord ever lands on CUDA.
+      **Still true and now costed:** STT on CUDA measures p95 **107 ms** against
+      the CPU's 713–804 ms, with no measurable LLM contention (ADR-088). It stays
+      forbidden; the decision to amend is OQ-53, not a licence to try it.
+      Note an Intel NPU/iGPU process does NOT appear in `nvidia-smi`, but
+      OpenVINO's `GPU.1` **is** the NVIDIA card and does — it breaks FR-71.
 - [ ] **#7 privacy:** raw transcripts / model output / search payloads never hit
       disk. `friday.log` redacts `/home/` → `~`. Preference *values* and note
       *content* persist by design (user asked to store them); audit stores keys /
@@ -452,6 +465,12 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 - **AEC quality** depends on the mic/echo path and `pywebrtc-audio`; the far-end
   reference is TTS playback resampled to 16 kHz. If Friday self-triggers during
   speech, that's an AEC tuning issue, not a logic bug — note it and measure.
+  **Measured 2026-08-30 and it is worse than "tuning":** WebRTC APM does not
+  cancel selectively, it **gates** — of 243 frames of a human speaking over
+  playback it keeps 68 (DTLN-aec keeps 152). It removes the echo by removing the
+  room, the user included. And per **D18** the reference is 16 kHz mono on a
+  48 kHz SOF-DSP device, so no canceller here has been fed the signal that
+  actually reached the room. `just bench-aec --talk` is the preservation test.
 - **Reminders are one-shot.** There is no recurring/repeat feature. A "looping"
   reminder is a bug to investigate (in the past it was the test suite firing real
   `notify-send`), not expected behavior.
@@ -532,11 +551,12 @@ the affirm half.
 - **ADR-065** observed working: bare `scratchpad` armed a confirm instead of
   dispatching, because the action only appears with history.
 
-### FAILED live — the defect table, D1–D16, all in `progress.md` with root causes
+### FAILED live — the defect table, D1–D18, all in `progress.md` with root causes
 
 The live-voice pass found **nine** (D1–D9); D10–D12 came from answering the
-user's observational questions, D13–D15 from the offline challenge, and D16
-from the model evaluation. **D1 and D2 were fixed in code on 2026-08-30 and
+user's observational questions, D13–D15 from the offline challenge, D16 from
+the model evaluation, and **D17–D18 from the 2026-08-30 hardware/software
+drill**. **D1 and D2 were fixed in code on 2026-08-30 and
 neither has been proven on the real path** — that proof is the first job of the
 next microphone session.
 
@@ -558,6 +578,16 @@ next microphone session.
 | D14 | MED | ADR-058's wake-word pause during dictation was never implemented (`is_dictating` has one consumer) | `friday/audio/dictation.py:4` vs `friday/daemon.py:335` |
 | D15 | MED | `just test-egress` inspects **listening** sockets, so it cannot detect egress — every 'egress proof' in the docs traces to it | `justfile:54-58` |
 | D16 | MED | `just eval`'s 28 fixtures cannot see a planner emitting `action=none` on a plain command — two models scored 28/28 while refusing one | `friday/eval_harness.py` fixture set |
+| D17 | MED | FR-11's 800 ms gate is no longer cleared — STT p95 spans 713–804 ms over eight runs. `miss 4/20` still reproduces exactly, so only latency moved | `just bench-stt` |
+| D18 | MED | the AEC far reference is 16 kHz mono on a 48 kHz SOF-DSP device — resampled out, DSP-processed, resampled back. **No canceller here has been fed the signal that reached the room**; probably outranks swapping the canceller | `just bench-aec --sweep` |
+
+**D3's cause is now known (2026-08-30):** `webrtcvad` emits end-of-speech on
+only **15 of 20** real DMIC clips, because on the failures it calls 83–100 % of
+frames speech *including room noise*, so trailing silence never accumulates.
+Silero ends **20/20** at 0.15 % of one core. That is measured offline
+(`just bench-vad`); the live confirmation through the AEC path is still owed,
+and the swap decision is OQ-51. **The rows below still fail today** — nothing
+has been changed in the VAD path.
 
 **D3 makes A15's hands-free rows fail outright.** All three wake-initiated
 captures ran the full 15 s cap; one contained no speech at all and the ADR-066

@@ -19,7 +19,8 @@ registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **476 passed** (450 on 2026-08-29, +26 from fix-list Steps 1–2),
+`uv run pytest` **480 passed** (450 on 2026-08-29, +26 from fix-list Steps 1–2,
++4 from the TTS engine fallback on 2026-08-30),
 `just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
@@ -737,6 +738,64 @@ user's direction (they were asked and chose "defect, not just an OQ").
 
 Incidental: **both 8Bs and Gemma 4 fix D4's alias symptom** (`open my todo` →
 `"todo"`, which the registry can match). The incumbent and the 14B do not.
+
+---
+
+### D17 (MEDIUM) — FR-11 no longer clears its own gate
+
+**Raised 2026-08-30 (afternoon) by the hardware/software drill.** ADR-042
+recorded `small.en` int8 beam1 +hotwords at **p95 741 ms** against FR-11's
+800 ms limit. Re-measured on the same 20 clips, the same config, the same
+`ctranslate2 4.8.1`, at `balanced` and at `performance`:
+
+```
+  run 1  p95 722 ms      run 5  p95 714 ms
+  run 2  p95 804 ms      run 6  p95 747 ms
+  run 3  p95 804 ms      run 7  p95 713 ms
+  run 4  p95 803 ms      run 8  p95 760 ms
+```
+
+**p95 spans 713–804 ms — the gate is marginal, not met.** `miss 4/20`
+reproduces ADR-042 exactly, so the model, the tuning and the scorer are all
+unchanged; only latency moved. The likely cause is the Arch upgrade between
+2026-08-23 and now, but that is **not measured** and is a hypothesis.
+
+Not urgent — nothing is broken for a user — but `spec.md` claims a gate the
+system does not clear, and FR-11's acceptance test would fail if re-run.
+Reproduce with `just bench-stt`.
+
+---
+
+### D18 (MEDIUM, and it probably outranks the AEC swap) — the far reference is not what the speaker played
+
+**Raised 2026-08-30 (afternoon).** The AEC is handed a **16 kHz mono** far-end
+reference. The device it is cancelling runs:
+
+```
+  Speaker sink:  s32le 2ch 48000Hz    (SOF HDA DSP, hw:sofhdadsp)
+  Mic1 source:   s32le 4ch 48000Hz    front-left,front-right,rear-left,rear-right
+```
+
+So the reference is resampled 24k→16k by `tts.py:_resample_16k`, resampled
+again 16k→48k by PipeWire on the way out, then processed by the SOF DSP, then
+captured at 48 kHz and resampled back to 16 k. **No canceller here has ever
+been given the signal that actually reached the room.**
+
+This is a better explanation for −52 dB on synthetic echo versus −5 to −10 dB
+in this room than canceller quality is, and it explains why ~20 live captures
+produced unstable suppression for **both** processors at once (−11 to −32 dB
+DTLN, −1.2 to −14.9 dB WebRTC, degrading on the same captures). Ruled out
+first, each by measurement: estimator resolution (replaced with
+sample-resolution GCC-PHAT), clock drift (per-2 s-window lag stable at
+0.5–2.5 ms), dropped callback frames (zero XRUNs after the harness stopped
+discarding sounddevice's `status`).
+
+Checked and dead: the 4 microphone channels are **a mic array, not a hardware
+echo reference**, so there is no free correctly-aligned reference to switch to.
+
+**Fix this before choosing a canceller** (OQ-52) — otherwise the swap is
+measuring the same broken reference with a different algorithm. Reproduce with
+`just bench-aec --sweep` and `just bench-aec --drift`.
 That is a data point for D4's fix, independent of any swap.
 
 ### Gemma 4 is a reasoning model — the operational trap
@@ -2813,7 +2872,7 @@ It was invisible because typing gives a bare `yes`. **Fixed in code
 
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 476 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 480 passed, 28/28 reg 0 — the baseline you must not drop
 systemctl --user status friday      # it was left STOPPED by the live pass. Leave it stopped if you will use the mic.
 ```
 

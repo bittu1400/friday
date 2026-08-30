@@ -36,6 +36,40 @@ at `VAD_AGGRESSIVENESS` 0-3, through the same AEC path as
 number exists — the 2026-08-25 barge-in cutoff was blamed on two wrong causes
 before measurement found the real one.
 
+**MEASURED OFFLINE 2026-08-30 — the mechanism is now known, the live half is
+not.** `scripts/vad_bench.py` ran all four aggressiveness levels through the
+**real** `SpeechGate` on the 20 real DMIC clips, each with 2 s of that clip's
+own quietest room noise appended:
+
+```
+  webrtcvad mode=0   voiced p50 0.500   start 20/20   end 14/20
+  webrtcvad mode=1   voiced p50 0.489   start 20/20   end 14/20
+  webrtcvad mode=2   voiced p50 0.444   start 20/20   end 15/20   <- INCUMBENT
+  webrtcvad mode=3   voiced p50 0.407   start 20/20   end 16/20
+  silero (all three) voiced p50 0.35-0.37  start 20/20  end 20/20
+
+  webrtcvad mode=2 never ends on 5 of 20:
+    clip_01 voiced=0.891   clip_02 voiced=1.000   clip_06 voiced=0.971
+    clip_07 voiced=0.996   clip_08 voiced=0.829
+```
+
+**The hypothesis in the paragraph above is confirmed: `webrtcvad` calls the
+room voiced.** On the failing clips it classifies 83-100 % of frames as speech
+**including the appended room noise**, so trailing silence never accumulates,
+`SpeechGate` never emits `end`, and the capture runs to the 15 s cap. Raising
+aggressiveness to 3 helps by exactly one clip and is not a fix. Silero's voiced
+fraction never exceeds 0.482 on any clip and it ends 20/20.
+
+**STILL OPEN, and it is the half that matters for D3:** these are clips
+recorded through the real microphone but **NOT through the AEC path**. The
+question as written asks for live frames through `wake.py:_on_frame`, and the
+AEC is now known to be doing something violent to its input (OQ-32 / D18), so
+the live voiced fraction may be worse than these numbers, not better.
+
+**What is left:** one live capture with the voiced fraction logged at
+`_on_frame`, comparing `webrtcvad` against Silero on the same frames. The
+replacement decision itself is **OQ-51**.
+
 **If nobody decides:** hands-free stays unusable and PTT is the only trigger.
 
 ### OQ-40 — What counts as a spoken "yes", and what should a non-answer do?
@@ -391,7 +425,8 @@ that reads fine takes real seconds to speak.
 
 _Every one of these has its measurement already done — see
 `docs/hardware-placement.md` and ADR-085…ADR-088. What is missing is a choice,
-not a number. None of them blocks the D3–D16 fix list._
+not a number. None of them blocks the D3–D16 fix list; D17 and D18 are new
+defects raised by the same drill and are recorded in `progress.md`._
 
 ### OQ-51 — Do we replace `webrtcvad` with Silero VAD?
 
@@ -760,8 +795,45 @@ is disqualified by invariant #6), benchmark the survivors **on this laptop**
 with the probe already written for it, and record the numbers plus the rejected
 alternatives in an ADR before wiring anything in.
 
-**What blocks it:** nothing but the work. The measurement harness exists.
-**What it unblocks:** hands-free interruption. Until then PTT is the interrupt.
+**THE DRILL WAS RUN 2026-08-30. The result reframes the question.**
+Candidates enumerated, footprint checked with `--dry-run` before installing
+(nothing dragged torch/CUDA), survivors benched on this laptop with
+`scripts/aec_bench.py`, which drives three processors over ONE capture.
+
+1. **DTLN-aec wins, on every capture.** 8-20 dB more suppression than the
+   incumbent across ~20 live captures; the ordering never inverted. Cost
+   0.448 ms per 8 ms hop for the 10.4M model (5.6 % of one core). It ships
+   TF-lite, which OpenVINO reads directly.
+2. **The incumbent does not cancel — it gates.** This is the finding that
+   explains ADR-064. With a human speaking over playback:
+   `none 243 frames · WebRTC APM 68 · DTLN-aec 152`. WebRTC's apparent
+   `0 frames` on quiet captures is **the room being deleted, and 72 % of the
+   user with it.** A suppression number cannot distinguish "cancelled the echo"
+   from "muted everything"; only a preservation test can, and none of the
+   earlier work ran one.
+3. **Absolute suppression could NOT be stabilised** — DTLN -11 to -32 dB,
+   WebRTC -1.2 to -14.9 dB, and **both degrade on the same captures**, which no
+   quality difference between them can cause. Eliminated by measurement:
+   estimator resolution (replaced with sample-resolution GCC-PHAT), clock drift
+   (per-window lag stable at 0.5-2.5 ms), dropped callback frames (zero XRUNs
+   once the harness stopped discarding sounddevice's `status`).
+
+**What is left is D18, and it is upstream of the canceller choice.** The far
+reference is a 16 kHz software copy on a device that runs
+`s32le 2ch 48000Hz` out and `s32le 4ch 48000Hz` in: resampled by PipeWire on
+the way out, processed by the SOF HDA DSP after that, resampled again on
+capture. Neither canceller has ever been given the signal that actually reached
+the room. That explains -52 dB synthetic versus -5 dB real far better than
+canceller quality does. The 4 microphone channels were checked for a hardware
+echo reference — they are a mic array
+(`front-left,front-right,rear-left,rear-right`), not a reference.
+
+**Recommended order: fix D18, then re-run this bench, then choose.** Swapping
+the canceller first would be measuring the same broken reference with a
+different algorithm. The swap decision is **OQ-52**.
+
+**What blocks it:** D18. **What it unblocks:** hands-free interruption. Until
+then PTT is the interrupt and ADR-064 stands.
 
 ### OQ-33 — What should `WAKE_THRESHOLD` actually be? (needs logged score data)
 **Status:** OPEN — needs one live session's logs. Raised 2026-08-25.

@@ -57,7 +57,7 @@ speaker verification).
 The desk suite is green:
 
 ```
-uv run pytest             476 passed
+uv run pytest             480 passed
 just eval                 28/28, regressions 0
 just test-injection       20/20 blocked
 just selftest             8/8
@@ -65,7 +65,7 @@ just selftest             8/8
 
 **A green suite here has repeatedly not meant a working feature.** Five review
 passes and a live-voice pass found defects that every test missed, because the
-tests never exercised the real path. **16 defects are known (D1–D16); D1 and D2
+tests never exercised the real path. **18 defects are known (D1–D18); D1 and D2
 are fixed in code as of 2026-08-30 and neither has been proven at a
 microphone.** All are documented with root causes in `progress.md` and indexed
 in `docs/reality-check.md` §F. The most important:

@@ -11,15 +11,20 @@
              v
    +---------+---------+          +--------------------+
    | WebRTC APM AEC    |<---------| FarEndRef (TTS tap)| (Polyphase resample 24k->16k)
-   | Echo Cancellation |          | Reference Ring     |
-   +---------+---------+          +--------------------+
+   | Echo Cancellation |          | Reference Ring     |  <-- D18: the DEVICE runs
+   +---------+---------+          +--------------------+      48 kHz and a SOF DSP
+             |    ^                                           sits after this tap, so
+             |    +-- measured 2026-08-30: this does NOT      the reference is not what
+             |        cancel, it GATES.  It keeps only 68     the speaker emitted.
+             |        of 243 frames of a human speaking       OQ-32 / OQ-52.
+             |        over playback (DTLN-aec keeps 152).
              |
              v (Clean Near-End 16kHz PCM)
    +---------+---------+--------------------+--------------------+
    |                   |                    |                    |
    v                   v                    v                    v
 +--+--------------+ +--+---------------+ +--+---------------+ +--+---------------+
-| openWakeWord    | | WebRTC VAD       | | SpeakerVerifier   | | DictationManager  |
+| openWakeWord    | | WebRTC VAD (*)   | | SpeakerVerifier   | | DictationManager  |
 | hey_jarvis.onnx | | SpeechGate       | | 3D-Speaker CAM++  | | Verbatim Typer    |
 | (CPU, 80ms chunk| | 20ms frames, M=2 | | 512-dim embedding | | (ydotool / wtype) |
 +--------+--------+ +--+---------------+ +--+---------------+ +--+---------------+
@@ -44,6 +49,10 @@
                                   v
    +------------------------------+-------------------------------+
    | Kokoro-82M (ONNX CPU, voice af_bella, 24kHz f32)             |
+   |   fallback 1: Kokoro af_heart   (missing voice VECTOR only)   |
+   |   fallback 2: Supertonic-3 F1, 2 steps, 44.1kHz  (ADR-085)    |
+   |               engine-level; OPTIONAL dep, inert until         |
+   |               `uv add supertonic` (OQ-55)                     |
    +------------------------------+-------------------------------+
                                   |
             +---------------------+---------------------+
@@ -61,18 +70,31 @@
                                                +-------------------+
 ```
 
+(*) **`webrtcvad` is the cause of D3.** Measured 2026-08-30 on the 20 real DMIC clips through
+this exact `SpeechGate`: it emits end-of-speech on only **15 of 20**, because on the failures it
+calls 83-100 % of frames speech *including room noise*, so trailing silence never accumulates and
+the capture runs to the 15 s cap. Silero ends **20/20** at 0.15 % of one core. OQ-39 / OQ-51.
+
 ## Acoustic Echo Cancellation & Barge-In
 
 Speakers and mic array sit in the same laptop chassis. WebRTC APM AEC cleans the near-end
 signal using the synthesized TTS reference from `FarEndRef`, preventing self-triggering while
 allowing the user's voice to be detected mid-playback for **hands-free barge-in**.
 
+**That last clause is the design intent, not the measured behaviour.** Voice barge-in is OFF
+by default (ADR-064) because the canceller manages -5 to -10 dB on this real path against
+-52 dB synthetic. Measured 2026-08-30: it does not cancel selectively, it **gates** — of 243
+frames of a human speaking over playback it keeps 68, while DTLN-aec keeps 152. It removes
+the echo by removing the room, the user included. See OQ-32, OQ-52, and D18 for the reason
+(the reference is resampled and post-DSP, so no canceller here has been fed the right
+signal). `scripts/aec_bench.py --talk` is the preservation test that shows it.
+
 ```
     time --->
 
     state:   IDLE      CAPTURING     ...processing...      SPEAKING (AEC active)   IDLE
              |         |                                   |                      |
-    AEC:     PASS-THRU PASS-THRU     PASS-THRU             CANCELLING ECHO        PASS-THRU
+    AEC:     PASS-THRU PASS-THRU     PASS-THRU             GATING (see above)     PASS-THRU
              |         |                                   |                      |
              |         v                                   v                      |
              |    VAD trailing silence               User speaks over TTS         |

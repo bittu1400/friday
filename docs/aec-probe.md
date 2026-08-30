@@ -1,5 +1,17 @@
 # AEC probes — the harness for OQ-32
 
+> **2026-08-30: for comparing CANDIDATE cancellers, use
+> [`scripts/aec_bench.py`](../scripts/aec_bench.py) (`just bench-aec`) instead.**
+> It drives none / WebRTC APM / DTLN-aec over ONE capture, aligns the reference
+> with GCC-PHAT, refuses to print a row if `pywebrtc_audio` silently fell back
+> to `NullAec`, discards captures with audio XRUNs, and has a `--talk`
+> **preservation** mode — which is what showed that the incumbent gates rather
+> than cancels (68 of 243 frames of a human kept, vs DTLN's 152).
+>
+> This file is still the reference for the ORIGINAL measurement (-52 dB
+> synthetic, -5 to -10 dB real, 58 ms lag, `stream_delay_ms` is not the lever)
+> and its two probes still run. The numbers-to-beat table below stands.
+
 Written 2026-08-25 while diagnosing ADR-064 (Friday interrupting herself).
 These two scripts reproduce the echo path **with no human present**: they play
 real TTS through the speaker and listen on the real mic. Nothing is written to
