@@ -52,7 +52,7 @@ turn the user has already stopped caring about.
                 |     |     v               |         |       |
                 |     | +---+---------+     |         |       |
                 |     | | CONFIRMING  |     |         |       |
-                |     | | typed y/n   |     |         |       |
+                |     | | yes/no/else |     |         |       |
                 |     | | 30 s t/o    |     |         |       |
                 |     | +---+-----+---+     |         |       |
                 |     |     |     |         |         |       |
@@ -109,7 +109,18 @@ turn the user has already stopped caring about.
                  the code; a web_search turn adds SearXNG (<=8 s, FR-64) plus
                  grounding on top of planning, and the search stage has its own
                  cap, so the turn cannot actually hang for 20 s
-   CONFIRMING    30 s   -> drop the pending, say nothing. The FSM is NOT
+   CONFIRMING    THREE outcomes since ADR-075, not two — the box says
+                 `yes/no/else` for that reason. An explicit affirmation
+                 executes; an explicit refusal cancels and says so; **anything
+                 else cancels the pending and is then re-routed as an ordinary
+                 command**, re-entering the turn at PLANNING with the text
+                 already in hand (no second model turn, so FR-5 and ADR-037
+                 hold). Before that, "else" was swallowed as a cancel, and a
+                 spoken "Open a terminal" during a live confirm opened nothing.
+                 `is_affirmation` also normalises STT punctuation now: it
+                 matched bare tokens for the whole of Phase 2, so every spoken
+                 `"Yes."` was recorded as a decline (D1).
+                 30 s   -> drop the pending, say nothing. The FSM is NOT
                  reset: if the user is mid-answer the capture owns the machine
                  and finishes normally, and with no pending held that utterance
                  is simply a fresh command. Resetting here used to slam the mic

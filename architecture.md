@@ -45,7 +45,11 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
                             (TurnResult); execute-first (ADR-009). Also owns
                             `resolve_pending`, the ONE confirm resolver both
                             UIs call (ADR-069) — it was two copies until the
-                            TUI's crashed on every G12 action (audit C1)
+                            TUI's crashed on every G12 action (audit C1).
+                            Returns `str | None` since ADR-075: `None` means
+                            the answer was neither a yes nor a no, so the
+                            pending has been cancelled + audited and the CALLER
+                            must run the same text as a fresh command
      dialogue.py            in-RAM session dialogue ring buffer (ADR-048)
      logging_config.py      structured JSON logging, 10MB x 5 rotation, redaction (FR-43)
      selftest.py            unified 8-subsystem sanity & health check CLI (G9)
@@ -118,7 +122,10 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
 
      ui/
        tui.py               textual app, mode indicator, confirm prompt
-                            (delegates resolution to turn.resolve_pending)
+                            (delegates resolution to turn.resolve_pending;
+                            `_turn_body` is the turn itself, extracted from the
+                            `_do_turn` worker so a re-routed non-answer can
+                            reuse it without a worker cancelling its caller)
        templates.py         outcome -> speech strings
 
    deploy/
@@ -151,7 +158,12 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
 ```python
 @dataclass(frozen=True)
 class Turn:
-    request_id: str          # uuid4, threaded through logs + audit
+    request_id: str          # uuid4, threaded through logs + audit.
+                             # TRUE EVERYWHERE ONLY SINCE 2026-08-30: the voice
+                             # daemon generated `v{n}` per process until then,
+                             # and `INSERT OR REPLACE` made every restart eat
+                             # the previous run's rows (D2, ADR-076). The 71
+                             # pre-fix `v{n}` rows in the live DB predate this.
     source: Literal["text", "ptt"]
     transcript: str
     plan: Plan | None        # validated model output

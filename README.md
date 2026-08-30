@@ -57,7 +57,7 @@ speaker verification).
 The desk suite is green:
 
 ```
-uv run pytest             450 passed
+uv run pytest             476 passed
 just eval                 28/28, regressions 0
 just test-injection       20/20 blocked
 just selftest             8/8
@@ -65,14 +65,17 @@ just selftest             8/8
 
 **A green suite here has repeatedly not meant a working feature.** Five review
 passes and a live-voice pass found defects that every test missed, because the
-tests never exercised the real path. Currently **15 known open defects
-(D1–D15)**, documented with root causes in `progress.md` and indexed in
-`docs/reality-check.md` §F. The most important:
+tests never exercised the real path. **16 defects are known (D1–D16); D1 and D2
+are fixed in code as of 2026-08-30 and neither has been proven at a
+microphone.** All are documented with root causes in `progress.md` and indexed
+in `docs/reality-check.md` §F. The most important:
 
-- **D1 (critical)** — `is_affirmation` matches bare tokens, and Whisper writes
-  `Yes.` with a full stop. Every *spoken* confirmation has been recorded as a
-  decline, so no confirm-gated capability has ever worked by voice. Typed
-  confirms work. This is fixed nowhere yet.
+- **D1 (critical, fixed in code, unproven by voice)** — `is_affirmation`
+  matched bare tokens, and Whisper writes `Yes.` with a full stop. Every
+  *spoken* confirmation was recorded as a decline, so no confirm-gated
+  capability has ever worked by voice; typed confirms always did. The resolver
+  now normalises punctuation and distinguishes a refusal from a non-answer,
+  but no affirm row has yet been observed working on the real machine.
 - **D3** — hands-free wake captures never end; push-to-talk is the only usable
   trigger today.
 - **D13** — the STT model load contacts Hugging Face at every daemon start

@@ -1041,6 +1041,19 @@ The preference is written only on an explicit affirmation, with
   path instead of dispatching; `ui/tui.py` holds the pending state and, on
   the next input, calls a `confirm_preference()` that performs the write
   (execute-first: write, THEN speak "Okay, I'll remember that.").
+
+> **Amended 2026-08-30 (ADR-075).** Two details of this ADR did not survive
+> contact with the code, and both are worth recording rather than quietly
+> editing. (1) The shape is now `TurnResult(..., pending=PendingPreference|
+> PendingAction)` resolved by the shared `turn.resolve_pending`, not a
+> `pending_preference` field read by the TUI — that consolidation was audit
+> finding C1's fix (ADR-069). (2) **This ADR specified an affirmation set "vs a
+> negation set"; the negation set was never implemented.** The code had only
+> the affirm set with "anything else cancels", which is why a spoken `"Yes."`
+> and a spoken command were treated identically — D1 and ADR-075(c). That is
+> the fourth time in this project an ADR has been mistaken for an
+> implementation (see also `cancel_reminder`/ADR-070, both Hyprland
+> tools/ADR-074, and the wake-pause during dictation/ADR-058).
 - `source='user_typed'` is reserved for a future keyboard `prefs set`; the
   CHECK constraint keeps both legal.
 

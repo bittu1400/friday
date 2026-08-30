@@ -19,7 +19,8 @@ registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **450 passed**, `just eval` **28/28 (regressions 0)**,
+`uv run pytest` **476 passed** (450 on 2026-08-29, +26 from fix-list Steps 1–2),
+`just eval` **28/28 (regressions 0)**,
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
 `just test-no-fstring-sql` **OK**.
 
@@ -37,13 +38,17 @@ M-T3, M-T9 and half of M-L9. Decisions are ADR-069/070/071 and ADR-068(a,b).
 **THE LIVE-VOICE PASS HAS NOW RUN (2026-08-29, night).** The whole manifest was
 spoken on the real machine, both destructive rows included. It found **9
 defects — 1 CRITICAL, 2 HIGH, 5 MEDIUM, 1 LOW — and no code was changed.**
-The critical one: **`is_affirmation` compares against bare tokens and Whisper
-punctuates, so every spoken "yes" has been recorded as a DECLINE** — every
-confirm-gated capability has been unreachable by voice for the whole of Phase 2
-(`friday/turn.py:47-53`, evidence in the `action_audit` table). The next
-session's job is the 9-defect fix list in the `>>> START HERE <<<` block below,
-which also carries the seven questions (OQ-39…OQ-45) to put to the user before
-any code is written. The fix-status table at the bottom of
+The critical one: **`is_affirmation` compared against bare tokens and Whisper
+punctuates, so every spoken "yes" was recorded as a DECLINE** — every
+confirm-gated capability was unreachable by voice for the whole of Phase 2
+(evidence in the `action_audit` table).
+
+**2026-08-30 (night): Steps 1 and 2 of that fix list are DONE in code** — D2
+(ADR-076, `e7ed078`) and D1 (ADR-075, `9e9a447`) — and **neither is proven by
+voice.** The next session's first job is a microphone session that runs the
+`C?` affirm rows, not more code; the `>>> START HERE <<<` block below opens
+with exactly that. All seven questions (OQ-39…OQ-45) were answered on
+2026-08-29; only OQ-39 (a measurement) is still open. The fix-status table at the bottom of
 `Alpha-ox-analysis.md` still maps the 2026-08-26 audit, which remains fully
 fixed — none of these 9 came from it. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
@@ -240,6 +245,60 @@ proof, since it restarts the daemon and reads `action_audit` either way. The
 rows to re-run are the blocked `C?` affirms listed below — `clipboard_read`,
 `clipboard_set`, `system_wifi{off}`, `hypr_window{close}` — plus an ADR-065
 history-confirm.
+
+---
+
+### Docs readied for the next session — what was checked and what was found
+
+Every doc was re-checked against the tree after Steps 1–2, the way the
+2026-08-29 pass did it, but **also checking prose claims about counts and file
+names** — the class of drift the README caught on 2026-08-30 and the earlier
+pass did not.
+
+**Mechanically verified, all clean:**
+
+- 0 dangling ADR ids (84 defined, 84 used), 0 dangling FR ids, 0 dangling OQ
+  ids after one real fix (below).
+- Every cited `test_*` name resolves to a function in `tests/`.
+- Every cited `friday/`, `tests/`, `docs/`, `deploy/` path exists.
+- Every `file.py:NNN` citation is within that file's line count, and the eight
+  citations added this session were each checked to contain the symbol they
+  claim (`turn.py:53-92` → `_AFFIRM`/`_DECLINE`/`is_decline`, `audit.py:59` →
+  `INSERT INTO`, `daemon.py:290` → `uuid.uuid4().hex`, and so on).
+
+**Found and fixed while doing it:**
+
+1. **`OQ-06` was a dangling id** — referenced once in `open-questions.md` as a
+   closed question, with no entry anywhere and no history. Reworded: that id is
+   retired and the sentence now says so.
+2. **ADR-037 promised a negation set that was never implemented.** It specified
+   the confirm handshake as an affirmation set "vs a negation set"; the code
+   shipped only the affirm set with "anything else cancels". That is exactly
+   D1's other half, and it is **the fourth time an ADR has been mistaken for an
+   implementation** (with `cancel_reminder`/ADR-070, both Hyprland tools/
+   ADR-074, and the dictation wake-pause/ADR-058). ADR-037 now carries an
+   amendment note saying so, rather than being silently corrected.
+3. **`architecture.md` claimed `request_id` was `uuid4`** — true of the TUI,
+   false of the voice daemon until this session. Annotated with when it became
+   true and why the old `v{n}` rows in the live DB look different.
+4. **Diagram 01 contradicted the code**: its CONFIRMING box read `typed y/n`
+   and showed two exits. There are three outcomes since ADR-075. Box and notes
+   fixed in the same commit as the code, per the definition of done.
+5. **`CLAUDE.md` still called G7's egress check a proof.** It is not — D15.
+   Corrected in the capability paragraph, not only in the temptations table.
+6. **Stale baselines**: `450 passed` in `CLAUDE.md`, `progress.md`'s header and
+   its first-commands block. All now 476, with the delta explained.
+7. **The threat model had no entry for the widened affirmation set.** ADR-075b
+   loosens a security gate by design, with the user's explicit consent. That
+   now lives in `threat-model.md` as control 2c, stating what still holds
+   (nothing executes without an explicit affirmative) and what was traded.
+8. **`docs/reality-check.md` §F said nine defects** while the table listed
+   sixteen, and its `C?` rows still said "blocked by D1". Both corrected; the
+   affirm rows are now marked as the highest-value rows in the project.
+
+**Written this session:** `opus-gemma-analysis.md` (repo root) — the complete
+model analysis, including SHA256 pins for both GGUFs, which nothing in this
+repo had before.
 
 ---
 
@@ -2340,7 +2399,58 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (amended 2026-08-30. Fix list UNCHANGED — D2 then D1. Defects are now D1–D16.) <<<
+## >>> START HERE: NEXT SESSION (amended 2026-08-30 night. **Steps 1-2 are DONE in code and UNPROVEN by voice.** Defects D1-D16; D1 and D2 fixed.) <<<
+
+### What changed on 2026-08-30 (night) — read this before the older text below
+
+**The first code change since the live-voice pass landed.** Two commits, both
+with the failing test written first and watched fail against a stashed tree:
+
+- **`e7ed078` — Step 1, D2.** `INSERT OR REPLACE` -> plain `INSERT`,
+  `request_id` -> UUID (`store/audit.py:59`, `daemon.py:290`). The readable
+  `v{n}` survives as `tag` for the debug and TTFA log lines. ADR-076/FR-86 are
+  marked implemented.
+- **`9e9a447` — Step 2, D1 (CRITICAL).** `_normalise` strips STT punctuation,
+  `_AFFIRM` is widened, a new `_DECLINE` set separates a refusal from a
+  non-answer, and `resolve_pending` returns `str | None` — `None` meaning
+  "cancelled, now run this text as a fresh command". The daemon falls through
+  to the planner; the TUI reuses the extracted `_turn_body`
+  (`turn.py:53-92,429`, `daemon.py:320,515`, `ui/tui.py:138,199`).
+  ADR-075/FR-85 are marked implemented.
+
+Baseline now: **`uv run pytest` 476 passed** (450 + 2 + 24), `just eval` 28/28
+regressions 0, `just test-injection` 20/20, `just test-no-fstring-sql` OK,
+`just selftest` 8/8.
+
+**A third commit, `2faf159`, changed no code**: the MTP feasibility bench.
+Gemma 4's drafter exists and our llama.cpp can run it, but it does not fit in
+214 MiB of free VRAM. Raised **OQ-48**. Full write-up:
+`opus-gemma-analysis.md` in the repo root, numbers in
+`~/.cache/friday-model-eval/RESULTS-mtp-feasibility.md`.
+
+### THE FIRST THING TO DO IS NOT CODE
+
+Both fixes are **green-suite claims**. This project has watched a green suite
+sit on a broken real path eight times. The proof is one microphone session:
+
+1. Run the `C?` **affirm** rows in `docs/reality-check.md` §F — `clipboard_read`,
+   `clipboard_set`, `hypr_window{close}` (point it at a scratch window), and
+   `system_wifi{off}` **last**, because it drops the network. Every one of these
+   has been attempted and every one recorded `declined`. **None has ever been
+   observed working.**
+2. While doing it, read `action_audit` **across a daemon restart**. That is D2's
+   own real-path proof and it comes free with the same session. The 71 pre-fix
+   `v{n}` rows are still unreliable across runs; the new UUID rows are the ones
+   to trust.
+3. Ask the system, never Friday: `nmcli radio wifi`, `wl-paste`, `hyprctl
+   clients`, and the audit table. The 2026-08-29 log read exactly as though
+   every confirm worked.
+
+Only then continue to **Step 3 (D3, hands-free)**, which is still parked behind
+**OQ-39** — a measurement, not an opinion.
+
+---
+
 
 ### READ THIS FIRST — what changed on 2026-08-30, after this block was written
 
@@ -2388,8 +2498,11 @@ candidate, decision open (**OQ-47**). Three others deleted. It also produced:
   incumbent emits `"my todo"` — i.e. **they fix D4's symptom**. Useful when you
   get to D4, independent of any swap.
 
-**Baseline re-verified 2026-08-30 after three `friday-llm` stop/start cycles:**
-`just selftest` 8/8, `uv run pytest` 450 passed, `friday-llm` running on GPU.
+**Baseline re-verified 2026-08-30 (morning) after three `friday-llm` stop/start
+cycles:** `just selftest` 8/8, `uv run pytest` 450 passed, `friday-llm` running
+on GPU. **Superseded the same night by fix-list Steps 1–2: the count is now
+476.** Re-verified again after the MTP bench: selftest 8/8, `llm_on_gpu` PASS
+at 4696 MiB.
 
 **A README now exists** (`eb41462`). Writing it caught **three false claims in
 `CLAUDE.md`** — a stale ADR count, two cited files that never existed, and two
@@ -2411,22 +2524,28 @@ before you touch anything, because every fix below depends on its evidence.
 **No code changed during that pass.** The baseline is still:
 
 ```
+2026-08-29 (the live pass, no code changed):
 uv run pytest 450 · eval 28/28 reg 0 · injection 20/20 · selftest 8/8 · no-fstring-sql OK
 7,795 src lines · 58 modules · 67 test files
+
+2026-08-30 (after Steps 1-2):
+uv run pytest 476 · eval 28/28 reg 0 · injection 20/20 · selftest 8/8 · no-fstring-sql OK
+7,865 src lines · 58 modules · 68 test files (+ tests/test_spoken_affirmation.py)
 ```
 
-**The headline: every spoken "yes" in this project has been recorded as a
-decline.** `is_affirmation` compares against a frozenset of bare tokens and
-Whisper punctuates, so `"Yes."` is not an affirmation. Every confirm-gated
+**The headline: every spoken "yes" in this project had been recorded as a
+decline.** `is_affirmation` compared against a frozenset of bare tokens and
+Whisper punctuates, so `"Yes."` was not an affirmation. Every confirm-gated
 capability — clipboard read, clipboard write, wifi off, close window, every
-ADR-065 history-confirm — has been unreachable by voice for the whole of
-Phase 2. It was invisible because typing gives a bare `yes`.
+ADR-065 history-confirm — was unreachable by voice for the whole of Phase 2.
+It was invisible because typing gives a bare `yes`. **Fixed in code
+2026-08-30 (ADR-075); still not once observed working at a microphone.**
 
 ### First commands, in order
 
 ```bash
 just selftest                       # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
-uv run pytest -q && just eval       # expect 450 passed, 28/28 reg 0 — the baseline you must not drop
+uv run pytest -q && just eval       # expect 476 passed, 28/28 reg 0 — the baseline you must not drop
 systemctl --user status friday      # it was left STOPPED by the live pass. Leave it stopped if you will use the mic.
 ```
 

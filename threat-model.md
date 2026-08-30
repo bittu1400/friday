@@ -156,6 +156,20 @@ something actionable during a PTT capture.
    (ADR-068a): reading the clipboard puts whatever the user last copied — a
    password, a token, a recovery code — into the room as sound. The selection
    is not even fetched until an affirmative. — `tests/test_clipboard_confirm.py`
+2c. **The affirmation vocabulary was deliberately WIDENED on 2026-08-30
+   (ADR-075b), and that is a knowingly accepted risk.** Until then
+   `is_affirmation` matched ten bare tokens against `text.strip().casefold()`,
+   so Whisper's `"Yes."` was not an affirmation and **every spoken confirm in
+   Phase 2 was recorded as a decline** (D1) — the gate was not strict, it was
+   broken shut. The fix normalises STT punctuation and accepts natural spoken
+   forms ("go ahead", "please do", "confirm", "go for it"). Each added phrase
+   is one more way to approve a destructive action by accident; the user was
+   shown that tradeoff and chose to widen. **The invariant that must survive is
+   unchanged: nothing executes without an explicit affirmative.** A non-answer
+   now cancels the pending and is re-routed as an ordinary command
+   (ADR-075c) — it still cannot execute the pending, and the re-route goes
+   through the normal grammar-locked, validated planner path, so it opens no
+   new surface. — FR-85, `tests/test_spoken_affirmation.py`
 3. Confirmation displays tool name and salient args, 30 s timeout,
    defaults to cancel.
 4. Mic is open only during a deliberate PTT hold. No wake word in Phase 1

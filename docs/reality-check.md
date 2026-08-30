@@ -14,13 +14,20 @@ Paste anything that fails — with the exact command/utterance and what happened
 into `progress.md` under a new dated session block. A row that cannot be
 verified (no mic, tool missing) is marked `SKIP (reason)`, never silently ticked.
 
-> **2026-08-29 (night) — THE MANIFEST HAS BEEN SPOKEN, and one defect blocks
-> every confirm row.** `is_affirmation` (`friday/turn.py:47-53`) matches bare
-> tokens; Whisper punctuates; so **every spoken "yes" is recorded as a
-> DECLINE** and no confirm-gated capability has ever worked by voice. Read
-> section F first — it says what is verified live, what failed, and what is
-> blocked. Do not re-run a `C?` row until D1 is fixed; you will only re-observe
-> the decline.
+> **2026-08-29 (night) — THE MANIFEST HAS BEEN SPOKEN, and one defect blocked
+> every confirm row.** `is_affirmation` matched bare tokens; Whisper
+> punctuates; so **every spoken "yes" was recorded as a DECLINE** and no
+> confirm-gated capability had ever worked by voice. Read section F first — it
+> says what is verified live, what failed, and what is blocked.
+>
+> **2026-08-30 — D1 AND D2 ARE FIXED IN CODE AND UNPROVEN BY VOICE.**
+> `is_affirmation` now normalises STT punctuation and `is_decline` separates a
+> refusal from a non-answer (`friday/turn.py:53-92`, ADR-075); the audit log
+> stopped overwriting itself (`friday/store/audit.py:59`, ADR-076). **The `C?`
+> rows are therefore UNBLOCKED and are the first thing to run** — they have
+> never once been observed working. Tick nothing on the strength of the test
+> suite: 476 green tests say the resolver is right, and eight times in this
+> project a green suite has sat on top of a broken real path.
 >
 > **Second: `hands-free is currently unusable`** — all three wake captures ran
 > the full 15 s cap and ADR-066's bail-out never fired (D3). The 2026-08-25
@@ -223,9 +230,10 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
       LIVE 2026-08-29** for volume (`wpctl` 0.60 → 0.65), brightness up/down
       (**"dim the screen" really dimmed** — the 2026-08-25 defect stays fixed),
       `system_media{next}`, and `system_wifi{on}` (`nmcli radio wifi` enabled).
-- [ ] **`system_wifi{off}` AFFIRM still unverified — blocked by D1**, not by
-      caution this time: the user said "Yes." and it was recorded `declined`
-      (audit v85, and run 2's v3). `nmcli radio wifi` never changed.
+- [ ] **`system_wifi{off}` AFFIRM still unverified — was blocked by D1, now
+      RUNNABLE (fixed in code 2026-08-30).** On 2026-08-29 the user said "Yes."
+      and it was recorded `declined` (audit v85, and run 2's v3); `nmcli radio
+      wifi` never changed. Re-run it — and last, because it drops the network.
 - [x] **2026-08-29, measured through the real executor:** `system_volume`
       mute/unmute → `ok` (volume restored to 0.80). `system_media{play_pause}`
       → **`error` / E_TOOL_FAILED**, correctly: `playerctl` exits 1 with "No
@@ -243,11 +251,12 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "close this window" | asks to confirm, then **closes the active window** (killactive) | C? |
 
 - [ ] Workspace outside 1–10 is refused
-- [ ] **"close window" actually closes it — ATTEMPTED LIVE 2026-08-29, BLOCKED
-      BY D1.** The confirm armed correctly (`confirm armed: close active window
-      (30s)`), the user said "Yes." twice, and both were recorded `declined`
-      (audit v97, run 2's v8). The window survived. Once D1 is fixed this is
-      the first row to re-run.
+- [ ] **"close window" actually closes it — ATTEMPTED LIVE 2026-08-29, WAS
+      BLOCKED BY D1, NOW RUNNABLE.** The confirm armed correctly (`confirm
+      armed: close active window (30s)`), the user said "Yes." twice, and both
+      were recorded `declined` (audit v97, run 2's v8). The window survived.
+      D1 was fixed in code 2026-08-30, so **this is the first row to re-run** —
+      point it at a scratch window.
 - [ ] A second attempt reached `chat` instead: after the confirm lapsed, a bare
       "yes" was planned as chat and Friday **invented** *"Window unfocused and
       restored."* — a chat turn claiming to have done something (ADR-009 /
@@ -309,10 +318,11 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
       2026-08-29: "copy hello world to my clipboard" + "yes" -> *"Copied to your
       clipboard."*, and `wl-paste` then returned `hello world`. (The user's own
       clipboard was saved before the pass and restored after it.)
-- [ ] **Both rows above are TYPED evidence only. By VOICE both are blocked by
-      D1** (2026-08-29): four `clipboard_read` confirms and two `clipboard_set`
-      confirms were armed, the user said "Yes."/"Yes!" each time, and all six
-      were recorded `declined` (audit v48, v50, v52, v54 and v52/v54).
+- [ ] **Both rows above are TYPED evidence only. By VOICE both were blocked by
+      D1 and are now RUNNABLE** (fixed in code 2026-08-30). On 2026-08-29 four
+      `clipboard_read` confirms and two `clipboard_set` confirms were armed,
+      the user said "Yes."/"Yes!" each time, and all six were recorded
+      `declined` (audit v48, v50, v52, v54 and v52/v54).
       `wl-paste` was still empty afterwards — nothing was ever copied. The
       DECLINE halves passed live ("No."/"Nope." → *"Okay, cancelled."*, no
       content spoken), which is ADR-068a's disclosure gate holding.
@@ -351,7 +361,8 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 - [x] **Escaping dictation works and is punctuation-safe — read 2026-08-30.**
       "stop / end / exit / disable dictation" (`dictation.py:16`) is matched at
       `daemon.py:329`, **before** the typing branch at :335, and the trailing
-      `\b` tolerates Whisper's full stop. Unlike `is_affirmation` (D1). There is
+      `\b` tolerates Whisper's full stop. `is_affirmation` did not, which was
+      D1 — fixed 2026-08-30; both now survive punctuation. There is
       no flag to disable the feature outright.
 - [ ] A planner-routed phrasing (e.g. "dictation on") also actually toggles the mode
 
@@ -471,17 +482,24 @@ said.** Full evidence: `progress.md`, "SESSION 2026-08-29 (night, later)".
 
 ### The one that invalidates every confirm row
 
-**D1 (CRITICAL) — every spoken "yes" is recorded as a DECLINE.**
-`friday/turn.py:47-53` matches `text.strip().casefold()` against a frozenset of
-bare tokens. Whisper punctuates, so `"Yes."` and `"Yes!"` are not
-affirmations, and `resolve_pending`'s fail-safe treats a non-affirmation as a
-cancel. Audit rows: bare `Yes` → `allowed/ok` (v37); `Yes.`/`Yes!` →
-`declined` (v48, v50, v52, v54, v97, and run 2's v3). Confirmed against the
-system: `nmcli radio wifi` still `enabled`, `wl-paste` still empty.
+**D1 (CRITICAL) — every spoken "yes" was recorded as a DECLINE.**
+`is_affirmation` matched `text.strip().casefold()` against a frozenset of bare
+tokens. Whisper punctuates, so `"Yes."` and `"Yes!"` were not affirmations, and
+`resolve_pending`'s fail-safe treated a non-affirmation as a cancel. Audit
+rows: bare `Yes` → `allowed/ok` (v37); `Yes.`/`Yes!` → `declined` (v48, v50,
+v52, v54, v97, and run 2's v3). Confirmed against the system: `nmcli radio
+wifi` still `enabled`, `wl-paste` still empty.
 
-**Consequence for this file:** every `C?` row is UNVERIFIABLE by voice until
-that is fixed. They are not failures — they are blocked. The decline halves of
-those rows DO pass (a decline is what the system does for everything).
+**FIXED IN CODE 2026-08-30 (ADR-075, FR-85), NOT YET PROVEN BY VOICE.**
+`friday/turn.py:80-92` now normalises STT punctuation before the set lookup,
+the accepted set covers natural spoken forms, and a `_DECLINE` set separates an
+explicit "no" from a non-answer — a non-answer cancels the pending and is then
+re-routed as an ordinary command instead of being swallowed.
+
+**Consequence for this file:** every `C?` row is now RUNNABLE and none has ever
+been seen to work. Run them first. The decline halves already passed (a decline
+is what the system did for everything), so the half that carries information is
+the affirm half.
 
 ### Verified LIVE and ticked (read back from the system)
 
@@ -514,12 +532,18 @@ those rows DO pass (a decline is what the system does for everything).
 - **ADR-065** observed working: bare `scratchpad` armed a confirm instead of
   dispatching, because the action only appears with history.
 
-### FAILED live — nine defects, all in `progress.md` with root causes
+### FAILED live — the defect table, D1–D16, all in `progress.md` with root causes
+
+The live-voice pass found **nine** (D1–D9); D10–D12 came from answering the
+user's observational questions, D13–D15 from the offline challenge, and D16
+from the model evaluation. **D1 and D2 were fixed in code on 2026-08-30 and
+neither has been proven on the real path** — that proof is the first job of the
+next microphone session.
 
 | # | Sev | What | Where |
 | :-- | :-- | :-- | :-- |
-| D1 | CRITICAL | spoken "yes" recorded as decline | `friday/turn.py:47-53` |
-| D2 | HIGH | audit rows overwritten every daemon restart | `friday/store/audit.py:56` + `daemon.py:136,288` |
+| D1 | CRITICAL | spoken "yes" recorded as decline — **FIXED IN CODE 2026-08-30, unproven by voice** | was `friday/turn.py:47-53`, now `turn.py:53-92` |
+| D2 | HIGH | audit rows overwritten every daemon restart — **FIXED IN CODE 2026-08-30, unproven across a live restart** | was `store/audit.py:56` + `daemon.py:136,288`, now `audit.py:59` + `daemon.py:290` |
 | D3 | HIGH | hands-free capture never ends (no VAD end, no ADR-066 bail) | `friday/audio/wake.py:294-315` |
 | D4 | MED | `open my todo` refused — STT spells it `to-do` | `friday/tools/registry.py:231` |
 | D5 | MED | garbled duration silently becomes a timer | `friday/llm/schema.py:72` |
@@ -556,17 +580,26 @@ user's call.
 
 ### Still NOT verified, and why
 
-- **Every `C?` affirm path** — blocked by D1. Includes both rows the user asked
-  to have ticked: `system_wifi{off}` affirm and `hypr_window{close}` affirm.
+- **Every `C?` affirm path** — was blocked by D1, **now unblocked in code
+  (2026-08-30) and still never once observed working**. Includes both rows the
+  user asked to have ticked: `system_wifi{off}` affirm and `hypr_window{close}`
+  affirm. These are the highest-value rows in this file: they are the only
+  evidence that ADR-075 actually fixed anything.
 - **ADR-069 barge-over-confirm** — the pass tested this WRONG (a normal `ptt`
   capture after the question, not a `ptt-barge` during it), so the row stands
   untested. The observed cancel was correct behaviour.
 - **FR-7 key barge-in** over a reply.
-- **Dictation actually typing** into a focused window.
-- **The apps actually appearing on screen**, and `file_open` opening the RIGHT
-  file (ADR-043: `ok` is the spawn, not the window).
-- **A reminder's fire behaviour** — one notification AND one spoken line,
-  exactly once.
+- ~~Dictation actually typing into a focused window~~ — **CONFIRMED by the
+  user** (2026-08-29, re-confirmed 2026-08-30): it typed, verdict "it was
+  amazing". What remains open is only whether `new line` / `period` become
+  punctuation cleanly, which is Step 9's formatter work.
+- ~~The apps actually appearing on screen, and `file_open` opening the RIGHT
+  file~~ — **CONFIRMED by the user**: Brave, foot, VS Code and VLC all
+  appeared; `my notes` and `my config` opened the right targets (notes was
+  empty, which is D10). **mpv never appeared** because the planner routes
+  "play a video" to YouTube — that is OQ-30, not a launch defect.
+- ~~A reminder's fire behaviour~~ — **CONFIRMED by the user 2026-08-30**: one
+  notification AND one spoken line, exactly once.
 - **A16 cross-session memory** — summaries ARE being written (6 rows), but the
   startup briefing's use of them was not confirmed.
 - **§C invariant spot-checks** — `just test-egress`, panic switch, no-CUDA.

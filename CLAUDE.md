@@ -11,17 +11,37 @@ remember preferences, and search the web through a local proxy.
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
 review passes AND the live-voice pass. The 2026-08-26 audit is FULLY FIXED (all
 12 steps executed 2026-08-29, plus ADR-073/074 from Step 9's real-path run).
-The LIVE-VOICE PASS then ran on 2026-08-29 (night) and found 12 MORE defects —
-1 CRITICAL, 2 HIGH, 8 MEDIUM, 1 LOW — none of which came from the audit and
-none of which any test could see. NO CODE HAS BEEN CHANGED YET; the next
-session's whole job is the 12-defect fix list, and every decision it needs is
-already made: ADR-075…ADR-083, FR-85…FR-93, NFR-1 re-baselined.** The critical one:
-**`is_affirmation` (`friday/turn.py:47-53`) matches bare tokens and Whisper
-punctuates, so EVERY spoken "yes" has been recorded as a DECLINE** — no
-confirm-gated capability has ever worked by voice. Also: **hands-free is
-unusable** (all three wake captures ran the full 15 s cap, ADR-066's bail-out
-never fired), and **the audit table overwrites itself on every daemon restart**
-(`INSERT OR REPLACE` + a per-run `v{n}` id).
+The LIVE-VOICE PASS ran on 2026-08-29 (night) and found 16 MORE defects
+(D1–D16) — none from the audit, none visible to any test. On 2026-08-30 the
+FIRST TWO were fixed in code: D2 (the audit log overwriting itself) and D1 (the
+CRITICAL). Defects D3–D16 remain, and the fix list order is unchanged.**
+
+**What is fixed, and what that does NOT mean.** `is_affirmation` now normalises
+STT punctuation, a widened `_AFFIRM` covers natural spoken forms, and a new
+`_DECLINE` set separates an explicit "no" from a non-answer — which now cancels
+the pending and is re-routed as an ordinary command instead of being swallowed
+(`friday/turn.py:53-92`, `resolve_pending` returns `str | None`, ADR-075/FR-85).
+The audit log takes a UUID `request_id` and a plain `INSERT`
+(`friday/store/audit.py:59`, `friday/daemon.py:290`, ADR-076/FR-86).
+**Neither has been proven by voice.** 476 tests pass and eight times in this
+project a green suite has sat on top of a broken real path — so the FIRST thing
+the next session does at a microphone is re-run the `C?` affirm rows in
+`docs/reality-check.md`. They have never once been observed working.
+
+Still open and unchanged: **hands-free is unusable** (D3 — all three wake
+captures ran the full 15 s cap, ADR-066's bail-out never fired; PTT is the only
+working trigger), plus D4–D16. Every decision the fix list needs is already
+made: ADR-075…ADR-083, FR-85…FR-93, NFR-1 re-baselined. **Only OQ-39 is open
+and it is a MEASUREMENT** (the webrtcvad voiced-fraction probe), not an opinion.
+
+**A model question is also live, and no code depends on it.** Gemma 4 12B QAT
+is a retained candidate (OQ-47), Unsloth's MTP drafter exists for it but does
+not fit in this card's VRAM (OQ-48), and `just eval` cannot currently see the
+regression a swap would admit (D16). The whole analysis — model identity and
+SHA256 pins, the five-model bench, where a turn's milliseconds actually go, the
+MTP arithmetic, and every hardware-load lever with its cost — is
+**`opus-gemma-analysis.md`**. Read that before touching the model; do not
+re-derive it.
 
 `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
@@ -30,7 +50,7 @@ capture never ends, so PTT is the only usable trigger**; TTFA measured live
 2026-08-29, n=77, p50 2172 ms / p95 4900 ms / max 8674 ms, with **0 of 77**
 turns meeting the 1400 ms target — OQ-45), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
-egress proof; ADR-045/046/047), converses naturally (G8: two-stage chat,
+and an "egress proof" that **is not one** — see D15; ADR-045/046/047), converses naturally (G8: two-stage chat,
 `CHAT_SYSTEM`, RAM `Dialogue`, ADR-048), personalizes from mined habits
 (`friday/store/habits.py`, ADR-049), keeps cross-session memory
 (`friday/store/summarizer.py`, ADR-050), runs as hardened background user
@@ -41,10 +61,13 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **450 passed**, `just eval` **28/28 reg 0**, `just test-injection`
-**20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**,
-`just test-egress` loopback-only. (Verified 2026-08-29 with the LLM confirmed on
-GPU — see `llm_on_gpu`.)
+`uv run pytest` **476 passed**, `just eval` **28/28 reg 0**, `just test-injection`
+**20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**.
+(Verified 2026-08-30 with the LLM confirmed on GPU — see `llm_on_gpu`. It was
+450 passed on 2026-08-29; the 26 new tests are Steps 1–2 of the fix list.)
+**`just test-egress` is NOT in that list on purpose: it cannot detect egress**
+— it inspects *listening* sockets (D15). Every "egress proof" in these docs
+traces back to it.
 
 **Five review passes found defects the desk suite missed** — the pattern here
 is that green tests do NOT prove a feature works, because the tests never
@@ -90,14 +113,28 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: the 9-defect fix list from the live-voice pass.**
+**NEXT SESSION: Steps 1 and 2 are DONE in code. Two things are owed, in this
+order.**
 Read `progress.md`'s `>>> START HERE <<<` block first — it carries the ordered
-fix list. **All 19 questions were asked and answered on 2026-08-29 — do not
-re-ask.** Only OQ-39 remains open and it is a MEASUREMENT (the webrtcvad
-voiced-fraction probe), not an opinion. Step 1 is D2, the
-audit-overwrite, *ahead of* the CRITICAL: verifying D1 means restarting the
-daemon and reading `action_audit`, and until D2 is fixed each restart destroys
-the previous run's proof. Fix the evidence channel before you use it.
+fix list and now says which steps have landed.
+
+1. **Prove D1 and D2 at a microphone.** Both are green-suite claims. The proof
+   is the `C?` affirm rows in `docs/reality-check.md` §F — `clipboard_read`,
+   `clipboard_set`, `system_wifi{off}` (last, it drops the network), and
+   `hypr_window{close}` (point it at a scratch window) — plus reading
+   `action_audit` **across a daemon restart**, which is D2's own real-path
+   proof and comes free with the same session.
+2. **Step 3 — D3, hands-free.** Blocked on **OQ-39**, which is a measurement:
+   run the `webrtcvad` voiced-fraction probe on live mic frames through the
+   same AEC path as `friday/audio/wake.py:_on_frame`, at aggressiveness 0–3, in
+   this room. **Do not write a fix before the number exists.** The same code
+   worked on 2026-08-25, so suspect the frames as much as the threshold.
+
+**All 19 questions were asked and answered on 2026-08-29 — do not re-ask**, and
+the four observational ones (did the apps appear, did `file_open` open the
+right files, did dictation type, did the timer fire once) were answered too and
+are recorded in `progress.md`. A second session asked them again on 2026-08-30
+because a stale checklist said they were open; grep before you ask.
 
 **To run the daemon in the foreground you MUST use `env -u JOURNAL_STREAM`** —
 a terminal in a systemd-started Hyprland session inherits it, H8's guard fires,
@@ -246,17 +283,36 @@ paper predictions were falsified: **a 12B fits, and a 14B fits BETTER than the
 emitting `action=none` on a plain command; two models scored 28/28 while
 refusing one.** No model swap before D16 is fixed. Defects now **D1–D16**.
 
+**2026-08-30 (night) — MTP and the hardware-load question.** Unsloth ships an
+MTP (multi-token prediction) drafter for our exact Gemma file
+(`mtp-gemma-4-12B-it.gguf`, 254 MB) and our llama.cpp (`b1-b21e4de`,
+2026-08-22) already supports `--spec-type draft-mtp` — **no rebuild**. But the
+"1.5–2x free" premise is wrong here: Unsloth asks for **~2 GB extra VRAM** and
+Gemma leaves **214 MiB** free of 8151 (reproduced exactly). Measured while
+finding that out: the 1222-token system prefix is **already cached**
+(`cache_n 1222` of 1235), so `--cache-reuse` is a spent lever, and **decode is
+72% of a planner turn and 86–89% of a chat turn** — which is what MTP attacks.
+Grammar compilation was tested as a cost and is **0.3 ms**, not a lever.
+Raised **OQ-48**. Everything is in `opus-gemma-analysis.md`.
 
-**Blocked or failed live:** every `C?` affirm path — blocked by D1, including
-the two hold-outs the user asked to have ticked (`system_wifi{off}` affirm and
-`hypr_window{close}` affirm; both were attempted, both recorded `declined`,
-neither ran). Hands-free (D3). `open my todo` (D4). Garbled durations (D5).
+
+**Was blocked by D1, now RUNNABLE and still never once observed working:**
+every `C?` affirm path, including the two hold-outs the user asked to have
+ticked (`system_wifi{off}` affirm and `hypr_window{close}` affirm; both were
+attempted 2026-08-29, both recorded `declined`, neither ran). **These are the
+highest-value rows in the project right now** — they are the only evidence that
+ADR-075 fixed anything. Still failing: hands-free (D3), `open my todo` (D4),
+garbled durations (D5).
 
 **Still never tested:** ADR-069 barge-over-confirm done properly (the live pass
 tested it wrong — a normal capture after the question instead of a `ptt-barge`
-during it), FR-7 key barge-in, dictation actually typing, whether the app
-windows actually appeared, whether `file_open` opened the RIGHT file, and a
-reminder's fire behaviour.
+during it), and FR-7 key barge-in.
+
+**Answered by the user, do not re-ask:** the apps did appear (Brave, foot, VS
+Code, VLC — not mpv, which is OQ-30's routing, not a launch defect);
+`file_open` opened the RIGHT files; dictation typed real characters
+("it was amazing"); and the timer gave one notification AND one spoken line,
+exactly once.
 
 Per defect #4, verify by asking the system, never by what Friday says — the
 live pass is the strongest evidence yet: its log reads exactly as though every
@@ -372,6 +428,14 @@ evidence, not defaults. A dependency added without this drill is not done.
                       the 2026-08-26 audit.  A SNAPSHOT: its line numbers are
                       stale and some point into deleted code.  Read its
                       fix-status table (bottom), not its line numbers.
+   opus-gemma-analysis.md
+                      the model question, complete: Gemma 4 12B's exact
+                      identity + SHA256 pins, the five-model bench, where a
+                      turn's milliseconds actually go, MTP availability and
+                      why it does not fit, every hardware-load lever with its
+                      cost, and the decisions taken.  Read it before touching
+                      the model.  Measurements, not a code snapshot -- it does
+                      not go stale the way Alpha-ox does.
    diagrams/          ASCII.  02-tool-call-loop.md and 04-trust-boundaries.md
                       are the important ones.  (Until 2026-08-30 this line
                       named two titles that match no file.)
@@ -537,8 +601,8 @@ just prefs list|forget  # manage stored preferences
 | "The argv test passes, so the tool works" | `test_hypr_tools_argv` asserted `["hyprctl","dispatch","workspace","3"]` for months. That argv is exactly what the code built and exactly what the compositor rejected. A test that asserts the argv the code builds proves only that the code builds it. |
 | "Escape the value into the command string carefully" | Don't build the string. `_LUA_DISPATCH` maps a closed param to one of sixteen import-time constants, so there is no interpolation to escape (ADR-074, stricter than ADR-027 because a workspace is one of ten values and a search query is not). |
 | "It's just a `notify-send`/`wtype`, it's fast" | `subprocess.run(timeout=3)` on the event loop is deafness, and H6 did NOT catch them all: dictation still types on the loop (`daemon.py:337`) while 8 sibling calls use `to_thread`. Grep for the class, not the ticket. |
-| "The confirm works — I typed yes and it went through" | A typed pass is not a spoken pass. `is_affirmation` matched bare tokens; Whisper writes `Yes.`; so every SPOKEN confirm in Phase 2 declined while every typed one passed. The one character never in a fixture was the full stop. Test with realistic STT output, punctuation and all. |
-| "The audit table is the evidence, so I can trust it" | Not across restarts. `request_id` is a per-run `v{n}` counter and the write is `INSERT OR REPLACE`, so run 2's `v3` silently ate run 1's `v3`. Fix the evidence channel before you use it to verify anything. |
+| "The confirm works — I typed yes and it went through" | A typed pass is not a spoken pass. `is_affirmation` matched bare tokens; Whisper writes `Yes.`; so every SPOKEN confirm in Phase 2 declined while every typed one passed. The one character never in a fixture was the full stop (D1, fixed 2026-08-30 — `tests/test_spoken_affirmation.py` exists because of this). Test with realistic STT output, punctuation and all. |
+| "The audit table is the evidence, so I can trust it" | It is now — but it was not until 2026-08-30. `request_id` was a per-run `v{n}` counter and the write was `INSERT OR REPLACE`, so run 2's `v3` silently ate run 1's `v3` (D2, fixed: UUID + plain `INSERT`). The 71 pre-fix `v{n}` rows in the live DB are still unreliable across runs. |
 | "Wake fired, so hands-free works" | Firing is not capturing. On 2026-08-29 all three wake captures ran the full 15 s cap and ADR-066's 3 s bail-out never fired — including on a capture with zero speech in it. Check what the capture DID, not that the detector triggered. |
 | "`FRIDAY_DEBUG=1` in the foreground shows transcripts" | Only if `JOURNAL_STREAM` is unset. A terminal inside a systemd-started Hyprland session inherits it, H8's guard fires, and you run blind — one whole live run was wasted this way. Use `env -u JOURNAL_STREAM`. |
 | "The log shows the action, so the action happened" | The live-pass log reads like every confirm worked. `nmcli radio wifi`, `wl-paste` and `action_audit` all said `declined`. Ask the system, every single time. |

@@ -39,15 +39,16 @@ before measurement found the real one.
 **If nobody decides:** hands-free stays unusable and PTT is the only trigger.
 
 ### OQ-40 — What counts as a spoken "yes", and what should a non-answer do?
-**Decider:** USER · **Blocks:** D1 (CRITICAL) · **Status:** **ANSWERED 2026-08-29 → ADR-075**
+**Decider:** USER · **Blocks:** D1 (CRITICAL) · **Status:** **ANSWERED 2026-08-29 → ADR-075 · IMPLEMENTED 2026-08-30 (`9e9a447`), NOT YET PROVEN BY VOICE**
 
 **Answer:** normalise punctuation **and widen** the phrase set ("go ahead", "do
 it", "please do", "confirm"); a non-answer cancels the pending **and is then run
 as a fresh command**. The user was shown that both halves loosen the same gate
 and chose them anyway — that risk is recorded in ADR-075, not overlooked.
 
-Two questions. The first is narrow: `is_affirmation` (`friday/turn.py:47-53`)
-matches bare tokens, so Whisper's `"Yes."` is not an affirmation and every
+Two questions. The first is narrow: `is_affirmation` (then at
+`friday/turn.py:47-53`, now `turn.py:53-92`) matched bare tokens, so Whisper's
+`"Yes."` was not an affirmation and every
 spoken confirm has declined. Stripping trailing punctuation is the obvious
 minimum — but is the accepted set also too narrow for speech ("go ahead",
 "yeah do it", "please do", "confirm")? Widening it trades a missed yes for a
@@ -65,13 +66,13 @@ keep the fail-safe cancel — and leave the second half open. That is the smalle
 change and it does not weaken invariant #10.
 
 ### OQ-41 — What should `request_id` be, and should the audit write be `INSERT OR REPLACE`?
-**Decider:** USER (architectural) · **Blocks:** D2 · **Status:** **ANSWERED 2026-08-29 → ADR-076**
+**Decider:** USER (architectural) · **Blocks:** D2 · **Status:** **ANSWERED 2026-08-29 → ADR-076 · IMPLEMENTED 2026-08-30 (`e7ed078`), real-path proof across a live daemon restart still owed**
 
 **Answer:** UUID plus a plain `INSERT`. The readable `v{n}` stays in the debug
 log for correlation; it stops being the database key.
 
-`friday/store/audit.py:56` writes `INSERT OR REPLACE INTO action_audit` keyed
-on `request_id`, and `friday/daemon.py:136,288` generate that id as `v{seq}`
+`friday/store/audit.py:56` wrote `INSERT OR REPLACE INTO action_audit` keyed
+on `request_id`, and `friday/daemon.py:136,288` generated that id as `v{seq}`
 with `seq` resetting to 0 on every daemon start. So every restart silently
 overwrites the previous run's low-numbered rows. Proven live: run 2's `v3`
 replaced run 1's `v3` web_search row.
@@ -775,8 +776,10 @@ months.)_
 - **OQ-23 — mic device for capture?** ANSWERED 2026-08-23. Default
   PipeWire source (currently analog `Mic1`), config-overridable; not the
   `DMIC Raw` array (index can move). Recorded here to close the
-  docs/"DMIC array" mismatch. (OQ-06 was the *voice* preset, closed by
-  OQ-22 — do not confuse.)
+  docs/"DMIC array" mismatch. (The *voice* preset was a different question,
+  closed by OQ-22 — do not confuse the two. It was referred to as "OQ-06" in
+  passing during Phase 1 and never had an entry of its own; that id is
+  retired, and this is the only place it is mentioned.)
 - **OQ-25 — Habit pattern categories and threshold?** ANSWERED 2026-08-23.
   Mined deterministically from `action_audit` table; sequential transitions
   ($A \rightarrow B \le 30\text{ min}$) + granular time-of-day slots (sunrise/early
