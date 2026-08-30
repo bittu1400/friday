@@ -44,8 +44,9 @@ This project has been burned by arithmetic repeatedly and recently:
 
 - A weights+KV VRAM model was wrong by 380–390 MiB on all five benched models,
   in unpredictable directions.
-- On 2026-08-30 four separate analyses ranked `--ctx-size 8192→4096` as "the
+- On 2026-08-30 three separate analyses ranked `--ctx-size 8192→4096` as "the
   biggest single saving, 600–900 MiB". Measured: **38 MiB**. Wrong by ~20×.
+  (The fourth estimated ~140 MiB — still 3.7× off, in the same direction.)
 - Those same analyses guessed `--parallel 1` was a no-op. Measured: **+514 MiB**.
 - Two models were ruled out on paper as too big for the VRAM. Both fit, and the
   larger one fit with *more* headroom than the smaller.
@@ -84,7 +85,7 @@ NPU    Intel Core Ultra 200 Series NPU [8086:ad1d] at 00:0b.0
 
 | stage | library | placement | note |
 | :-- | :-- | :-- | :-- |
-| LLM | `llama-server` (CUDA) | **dGPU** | 4696 MiB VRAM, ~760 MB RSS |
+| LLM | `llama-server` (CUDA) | **dGPU** | 4696 MiB VRAM, 769 MB RSS |
 | STT | `faster-whisper` / CTranslate2 | **CPU** | `friday/audio/stt.py:97` `device="cpu"` |
 | TTS | `kokoro-onnx` / onnxruntime | **CPU** | `tts.py:86` `providers=["CPUExecutionProvider"]`, `intra_op_num_threads=8` |
 | wake | `openwakeword` | **CPU** | streaming, every frame |
@@ -99,6 +100,29 @@ is the "divide and rule" question. I am not telling you the answer — measure
 whether moving any stage to the iGPU or NPU is actually faster, actually lower
 latency, and actually better quality, and tell me where each stage belongs. Some
 moves may lose; report those too, with the numbers.
+
+**Important: the NPU is not an undiscovered opportunity. This project already
+knew, and then never acted.** Read these before you start, so you build on the
+record instead of repeating it:
+
+- **ADR-019 — "The Intel NPU is excluded, but the claim must be verified."**
+  It anticipated exactly this and said that if the device exists, file it as a
+  **Phase 2 option for offloading whisper, freeing P-cores.**
+- **OQ-10 — ANSWERED 2026-08-22, "device PRESENT".** `/dev/accel/accel0` exists,
+  `intel_vpu` loaded, and it records the blueprint's "NPU dead on Linux" claim as
+  **false**. Its closing line is the whole gap: *"presence is confirmed,
+  throughput is not."*
+- **`tech-stack.md:194`** files NPU inclusion as *"resolved — ADR-019, Phase 2
+  option"*. Phase 2 shipped. The option was never taken.
+- **`~/npu-test/model.onnx`** (14 MB, dated 2026-08-19) is a leftover from an
+  earlier NPU experiment. `tech-stack.md:216` lists it.
+
+So the open question is **throughput and quality, not existence** — which is
+precisely what nobody has measured. This project has a documented failure mode of
+an ADR deciding something that then never gets implemented (it has happened at
+least three times: `cancel_reminder`/ADR-070, both Hyprland tools/ADR-074, the
+wake-pause/ADR-058). **ADR-019 looks like a fourth.** Say so in your report if
+you agree.
 
 ### An environment is already built for you — use it
 
@@ -165,10 +189,22 @@ answered. Work it out and tell me; do not assume either way.
 These are non-negotiable and long-settled. Read `CLAUDE.md`'s "Hard invariants"
 section in full; the ones most likely to bite an optimizer:
 
-1. **Only `llama-server` touches CUDA.** STT and TTS do not. *(Note carefully:
-   this says CUDA. The Intel iGPU and the NPU are not CUDA, so they are open to
-   you — that is a real unlock, not a loophole. Confirm the reasoning behind the
-   invariant in `adr.md` ADR-018 before relying on my reading of it.)*
+1. **Only `llama-server` touches CUDA.** STT and TTS do not. **Read ADR-018
+   yourself before building on my reading of it** — I checked and it is more
+   nuanced than the one-line summary:
+   - Its *decision text* says "Only `llama-server` touches CUDA", and its
+     rationale is per-process **CUDA context** overhead, no inter-process
+     contention, and cheap VRAM accounting. None of that applies to an Intel
+     device.
+   - But its *title* says "`llama-server` is the only **GPU** consumer" — and
+     the Intel iGPU is a GPU. So the NPU case is clean; **the iGPU case is
+     genuinely arguable** and you should argue it rather than assume it.
+   - Its enforcement is a CPU-only torch wheel, aimed at stopping Kokoro
+     silently allocating **VRAM**.
+   - **FR-71**'s test is *"`nvidia-smi` shows exactly one compute process
+     (llama-server) during a spoken turn"*. An Intel NPU/iGPU process does not
+     appear in `nvidia-smi`, so moving a stage there appears not to violate it —
+     **verify that, do not take my word for it.**
 2. **One turn in flight, ever** (FR-5). Any parallelism you propose lives
    *inside* a turn or between stages, never across turns.
 3. **Nothing binds beyond 127.0.0.1.**
@@ -206,22 +242,49 @@ budget and mine:
   (model + KV + compute buffer ≠ total held). Nobody has identified it.
 - **540 MiB of the Gemma weights stay on the host** (`CPU_Mapped model buffer`).
   Unexplained. It currently *saves* VRAM, so it may be a feature.
-- **A 193 ms fixed per-request cost** in every LLM turn that is not prompt
-  processing (only 13 tokens are new per turn) and not grammar. Unprofiled.
-  It is ~21% of a planner turn.
+- **A 193.6 ms fixed per-request cost** in every LLM turn that is not prompt
+  processing (only 13 tokens are new per turn) and not grammar. Unprofiled —
+  suspected graph setup, sampler construction, HTTP/serialization. That is ~21%
+  of the 916 ms planner p50, and 26% of the specific turn the breakdown was
+  taken from.
 - **`--ctx-checkpoints` defaults to 32 per slot.** Never examined.
 - **Friday's real RAM footprint under load has never been measured**, and 16 GB
   is shared with the user's browser and editor.
 - **Thermals and power.** 70 W TGP laptop. Nobody has looked at whether Friday
   causes throttling or fan noise, or what clock/power caps would cost.
 - **CPU contention.** Every audio stage is CPU and in the critical path. There
-  is a known class of blocking `subprocess.run` calls on the single event loop —
-  one round fixed eight of them and `daemon.py:337` still types dictation on the
-  loop. While the loop blocks, Friday is deaf.
+  is a known class of blocking `subprocess.run` calls on the single event loop;
+  one fix round moved most to `to_thread` but `CLAUDE.md` records that dictation
+  still types on the loop. **The line number in `CLAUDE.md` is stale — I checked
+  and it now points at unrelated code — so grep for the pattern, do not trust
+  the citation.** While the loop blocks, Friday is deaf.
 
-## Deliverable
+## Deliverable — ONE new markdown file, and nothing else
 
-One markdown file. Structure it however serves the content, but it must contain:
+**Write exactly one new `.md` file in the repo root**, named after yourself so
+four reports never collide again:
+`<your-model-name>-optimization-analysis.md`.
+
+**Change nothing else in the repository. Nothing.** To be explicit, because the
+last round was not:
+
+- **No code.** No `.py`, no `justfile`, no `deploy/systemd/*.service`.
+- **No documentation.** Do **not** edit `CLAUDE.md`, `progress.md`, `adr.md`,
+  `spec.md`, `open-questions.md`, `gemma-brief.md`, `tech-stack.md`,
+  `docs/reality-check.md`, `architecture.md`, or anything under `docs/`. If you
+  believe an ADR should be written, an OQ opened or closed, or a doc corrected,
+  **say so inside your one file** and let me apply it. Recording decisions in the
+  docs is my job, not yours — a decision I did not make must not appear in them.
+- **No model or service configuration.** Propose; do not apply.
+- **No git operations.** Do not commit, stage, branch, or stash. I will read
+  `git status` when you are done and it should show exactly one new untracked
+  file.
+
+Everything you install, download, convert or benchmark goes **outside the repo**
+(`~/.cache/friday-accel-eval/` or a scratch dir of your own), so that one new
+`.md` really is the whole footprint.
+
+Structure the file however serves the content, but it must contain:
 
 1. **A hardware placement table** — every Friday stage, where it runs now, where
    you propose it runs, the measured effect on latency / memory / quality, and
@@ -253,8 +316,10 @@ true than a long one I have to re-verify line by line.
 
 ## Ground rules for touching the machine
 
-- **Do not change any code, service file, or model configuration.** This is an
-  audit. Propose; do not apply.
+- **Change nothing in the repo except your one new `.md` file** — no code, no
+  service file, no model configuration, and no documentation. See "Deliverable"
+  above; it is the rule I care most about. This is an audit. Propose; do not
+  apply.
 - You may stop `friday-llm` to run experiments **if you restart it afterwards
   and prove it** with `just selftest` (must be 8/8, `llm_on_gpu` PASS).
 - Never run `just voice` while the `friday` service is up — two daemons fight
