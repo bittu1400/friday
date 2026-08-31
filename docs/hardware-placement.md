@@ -348,7 +348,7 @@ Harnesses: [`scripts/vad_bench.py`](../scripts/vad_bench.py),
 
 | stage | incumbent | benched against | verdict |
 | :-- | :-- | :-- | :-- |
-| **VAD** | `webrtcvad` mode 2 | Silero v4, Silero current, Silero If-free | **REPLACE — incumbent is the cause of D3** |
+| **VAD** | **Silero `op18-ifless` (ADR-095, 2026-08-31)** | was `webrtcvad` mode 2 | **REPLACED — the incumbent was the cause of D3. Live confirmation through the AEC path still owed (OQ-39)** |
 | STT | whisper `small.en` | moonshine, **tuned over 3 rounds** | keep — 4x faster, 2.5x wrong |
 | TTS | kokoro-82M `af_bella` | supertonic-3 (10 voices) | keep on latency; **audition pending** |
 | wake | `openwakeword` | — | keep — 0.78 ms/frame, nothing to reclaim |

@@ -91,6 +91,137 @@ a human at a keyboard.
 
 ---
 
+## SESSION 2026-08-31 — D3 FIXED IN CODE: Silero replaces `webrtcvad` (ADR-095). TTFA restated per action class (ADR-096). Four decisions taken.
+
+**The user's ask:** *"where are we? what are we doing next?"*, then a check of
+which model `systemctl --user start friday` actually activates, then
+*"ask your questions"*.
+
+### The model check, asked of the running system
+
+`systemctl --user start friday` pulls `friday-llm.service` via `Wants=`. Read
+back from `/proc/599699/cmdline`, not from the unit file:
+
+```
+/opt/llama.cpp/build/bin/llama-server --model
+  /home/bittusah/.local/share/friday/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+  --host 127.0.0.1 --port 8080 --ctx-size 8192 --n-gpu-layers 99 --parallel 1
+  --cache-type-k q8_0 --cache-type-v q8_0 -fa on --reasoning off --no-webui
+```
+
+Confirmed four ways: the installed unit is a **symlink** to the repo copy (no
+drop-in, no stale duplicate); `/v1/models` and `/props` both report the Gemma
+file with `total_slots: 1`; sha256 `90fd44e2…c940c370` matches the ADR-090 pin;
+`nvidia-smi` shows pid 599699 holding **7010 MiB**. Qwen2.5-7B is still on disk
+as the rollback and nothing points at it. `justfile:4` agrees, so `just serve`
+and the unit load the same model. **Answer: Gemma 4 12B QAT.**
+
+**Found while checking, not fixed:** `friday-llm.service` is `Type=simple`, so
+systemd calls it started the instant the binary execs — not when 6.7 GB has
+loaded — and `friday.service` only orders itself with `After=`. On a cold
+`systemctl --user start friday` the daemon can come up against a not-yet-ready
+8080. Not observed failing; recorded here so it is not re-discovered as a
+mystery.
+
+### Four decisions, asked as one batch (working agreement rule 2)
+
+All four were put to the user with the alternatives and what changes on each:
+
+1. **OQ-51 — swap `webrtcvad` → Silero now, or run the live AEC-path probe
+   first? → SWAP NOW**, confirm live afterwards. Reason accepted: the offline
+   evidence already identifies the mechanism, so the live run becomes a
+   confirmation of a fix rather than another probe of a known-broken detector.
+2. **D18 / OQ-52 — is the AEC reference path in scope alongside the swap?
+   → PARK IT, VAD only.** D3 is a VAD defect; the AEC merely feeds it frames.
+   Keeps the diff to one detector and the causality readable.
+3. **OQ-56's open half — where does ADR-080's 2200 ms target land? → RESTATE
+   PER ACTION CLASS.** Rejected: a single re-baseline to the 2289 ms aggregate
+   (hides a 4715 ms chat p50 inside one p50) and leaving chat out of scope
+   (leaves the slowest thing Friday does with no target).
+4. **OQ-57 — record G12 clips into the STT corpus at the next mic session?
+   → YES.**
+
+### D3 — fixed in code (ADR-095, FR-108)
+
+Test first, watched fail on `ImportError: cannot import name 'SileroVad'`.
+
+`friday/audio/vad.py` gains `SileroVad`; `create()` returns it first and keeps
+`WebRtcVad` as a fallback that **logs the degradation by symptom** ("does not
+reliably end captures on this machine (D3)") rather than falling back silently
+— a silent fallback would reintroduce D3 invisibly, which is the M-A3 shape.
+
+**The integration decision went the other way from OQ-51's prediction.** OQ-51
+expected "32 ms frames instead of 20". That would have moved `WAKE_FRAME_MS`,
+which also frames **openwakeword** — changing the wake detector's framing to fix
+a VAD defect. Instead `SileroVad` buffers internally: it takes whatever frame
+the mic path delivers, runs the graph every 512 samples, and holds the last
+verdict in between. The verdict updates every 32 ms instead of 20 ms, invisible
+against a 800 ms `VAD_END_SILENCE_S`, and **no caller changed** — not
+`wake.py`, not `speaker_enroll.py`.
+
+**No new dependency.** `onnxruntime` 1.29.0 was already installed via
+`kokoro-onnx`/`openwakeword`. CPU only, `CPUExecutionProvider` explicit —
+invariant #6 untouched.
+
+**The model is fetched and pinned like every other model here.** `just
+fetch-vad` pulls `silero_vad_op18_ifless.onnx` from `snakers4/silero-vad` tag
+`v6.2.1` (sha256 `7671cd04…db6bbd28`). **Verified by deleting the local copy and
+re-fetching:**
+
+```
+$ rm -f ~/.local/share/friday/models/vad/silero_vad_op18_ifless.onnx && just fetch-vad
+/home/bittusah/.local/share/friday/models/vad/silero_vad_op18_ifless.onnx: OK
+```
+
+**Rejected: the v4 model openwakeword already ships** at
+`openwakeword/resources/models/silero_vad.onnx` — zero fetch, zero pin, and it
+also ends 20/20. It couples end-of-speech to another package's private resource
+path, and the breakage on an upgrade would look exactly like D3 returning.
+
+### Evidence
+
+The D3 test drives the **real** `SpeechGate` over the **real** 20-clip corpus,
+each clip with 2 s of its own quietest room noise appended, and asserts 20/20
+end. webrtcvad mode 2 gets 15/20 on the same input.
+
+```
+$ uv run pytest tests/test_vad.py -q
+9 passed in 0.45s
+
+$ uv run pytest -q
+501 passed, 1 warning in 5.55s          (was 497)
+
+$ just eval
+passed 50/50  (100%)   known-failing: 0   regressions vs baseline: 0
+
+$ just test-injection      1 passed
+$ just test-no-fstring-sql OK: store/ is strictly parameterized SQL
+$ just selftest            All required system checks passed successfully.  (8/8,
+                           llm_on_gpu 7010 MiB)
+```
+
+Sanity-run under the **project** venv before any code was written, because the
+bench ran in a scratch venv: `clip_01` voiced fraction **0.425** under Silero
+against webrtcvad's **0.891**, 0.0528 ms/frame, silence p=0.0089. Matches the
+2026-08-30 bench.
+
+**D3 IS NOT PROVEN. It is fixed offline.** Every clip in that corpus was
+recorded through the real microphone but **not through the AEC path**, and the
+AEC is known to be doing something violent to its input (D18). OQ-39 is now
+narrowed to exactly one thing: a live hands-free capture with the voiced
+fraction logged at `wake.py:_on_frame`. This project has watched a green suite
+sit on a broken real path nine times; this is the tenth candidate.
+
+### ADR-096 — TTFA per action class
+
+NFR-1 becomes NFR-1 / NFR-1b / NFR-1c: direct actions p50 2.2 s / p95 3.6 s
+(measured 1858-2466 ms), chat p50 5.0 s / p95 7.0 s (measured p50 4715 ms after
+ADR-094's cap), `web_search` tracked with no hard fail. The lever left for chat
+is **streaming TTS** (ADR-020, deferred at G6 with "measure first" — this is
+that measurement).
+
+---
+
 ## SESSION 2026-08-30 (last, evening) — THE MICROPHONE SESSION: D1 and D2 PROVEN, every `C?` affirm row ticked, and six defects found (D22-D26 + D12 closed). ADR-091..094.
 
 **The user's ask:** *"run the mic block first"*, then *"Fix all of it at once"*,
@@ -3037,7 +3168,47 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (amended 2026-08-30 evening. **THE MODEL IS GEMMA 4 12B QAT. D1 AND D2 ARE PROVEN AT THE MICROPHONE AND EVERY `C?` AFFIRM ROW IS TICKED.** Defects D1-D26; fixed: D1, D2, D11, D12, D16, D19-D25 — plus D26 fixed but its EFFICACY UNPROVEN, see OQ-57.) <<<
+## >>> START HERE: NEXT SESSION (amended **2026-08-31**. **D3 IS FIXED IN CODE AND NOT PROVEN LIVE — that live confirmation is the whole job.** Defects D1-D26; fixed: D1, D2, D3(code), D11, D12, D16, D19-D25.) <<<
+
+### Added 2026-08-31 — read this before anything below
+
+**D3 is fixed in code (ADR-095): Silero replaces `webrtcvad`.** The real
+`SpeechGate` now ends **20/20** real DMIC clips where webrtcvad ended 15/20.
+`pytest` 501, `eval` 50/50 reg 0, `selftest` 8/8.
+
+**It is NOT proven.** Those clips did not go through the **AEC path**, and the
+AEC is known to mangle its input (D18). **The next session's first job is one
+live hands-free capture** — say "hey jarvis", speak, stop, and watch whether the
+capture ends on silence instead of running the 15 s cap. That is OQ-39, now
+narrowed to a confirmation. Log the voiced fraction at `wake.py:_on_frame`.
+
+If it does **not** end, the suspect is **D18** (the 16 kHz software reference on
+a 48 kHz SOF-DSP device), not the detector — the user deliberately parked D18 to
+keep this diff to one change (OQ-52).
+
+**Also scheduled for that same session (the user said yes):** record the G12
+clips into `~/.cache/whisper-bench/clips` with `record.sh` — "turn off my wifi",
+"make this fullscreen", "go to workspace three", "copy that to the clipboard",
+"start dictation" — add reference transcripts, re-run `just bench-stt`. That is
+OQ-57 and it permanently widens the STT gate.
+
+**Decided and recorded, do not re-ask:** OQ-51 (swap now), OQ-52/D18 (parked),
+OQ-56 (TTFA per action class → ADR-096, NFR-1/1b/1c), OQ-57 (record the clips).
+
+**One thing found and NOT fixed:** `friday-llm.service` is `Type=simple`, so
+systemd calls it started when the binary execs, not when 6.7 GB has loaded;
+`friday.service` only has `After=`. A cold `start friday` can race a
+not-yet-ready 8080. Not observed failing.
+
+**After the live confirmation**, the fix list is unchanged: **D4+D10**
+(`file_open` aliases, `~/notes.md`/`~/todo.md` do not exist), **D5** (garbled
+durations), **D7** (`get_time`), **D6** (degenerate briefings), **D8**
+(ambiguous phrasing), **OQ-30** (mpv/YouTube routing), **D9** (templates speak
+raw enum values — *"Media play_pause."*).
+
+---
+
+## >>> (superseded) START HERE (amended 2026-08-30 evening. **THE MODEL IS GEMMA 4 12B QAT. D1 AND D2 ARE PROVEN AT THE MICROPHONE AND EVERY `C?` AFFIRM ROW IS TICKED.** Defects D1-D26; fixed: D1, D2, D11, D12, D16, D19-D25 — plus D26 fixed but its EFFICACY UNPROVEN, see OQ-57.) <<<
 
 ### Added 2026-08-30 (evening) — the microphone session happened. Read this first.
 

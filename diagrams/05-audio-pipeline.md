@@ -24,7 +24,7 @@
    |                   |                    |                    |
    v                   v                    v                    v
 +--+--------------+ +--+---------------+ +--+---------------+ +--+---------------+
-| openWakeWord    | | WebRTC VAD (*)   | | SpeakerVerifier   | | DictationManager  |
+| openWakeWord    | | Silero VAD (*)   | | SpeakerVerifier   | | DictationManager  |
 | hey_jarvis.onnx | | SpeechGate       | | 3D-Speaker CAM++  | | Verbatim Typer    |
 | (CPU, 80ms chunk| | 20ms frames, M=2 | | 512-dim embedding | | (ydotool / wtype) |
 +--------+--------+ +--+---------------+ +--+---------------+ +--+---------------+
@@ -70,7 +70,7 @@
                                                +-------------------+
 ```
 
-(*) **`webrtcvad` is the cause of D3.** Measured 2026-08-30 on the 20 real DMIC clips through
+(*) **Silero since ADR-095 (2026-08-31); `webrtcvad` is the fallback and was the cause of D3.** Measured 2026-08-30 on the 20 real DMIC clips through
 this exact `SpeechGate`: it emits end-of-speech on only **15 of 20**, because on the failures it
 calls 83-100 % of frames speech *including room noise*, so trailing silence never accumulates and
 the capture runs to the 15 s cap. Silero ends **20/20** at 0.15 % of one core. OQ-39 / OQ-51.

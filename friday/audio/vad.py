@@ -1,15 +1,19 @@
 """Voice Activity Detection (VAD) adapter + SpeechGate (G10, ADR-062).
 
 Pure debounce state machine for start-of-speech and end-of-utterance detection,
-paired with a webrtcvad adapter for per-frame classification.
+paired with a per-frame classifier. Silero is the classifier since ADR-095;
+`webrtcvad` remains as the fallback and is the cause of D3 (see SileroVad).
 """
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
+
+from friday import config
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +41,76 @@ class WebRtcVad:
         pcm_i16 = (np.clip(frame_f, -1.0, 1.0) * 32767.0).astype(np.int16)
         pcm_bytes = pcm_i16.tobytes()
         return self._vad.is_speech(pcm_bytes, self._sample_rate)
+
+
+class SileroVad:
+    """Silero VAD (ONNX, CPU) — the classifier since ADR-095, replacing webrtcvad.
+
+    D3: every hands-free capture ran the full 15 s cap. Driven through the real
+    `SpeechGate` over the 20 real DMIC clips (each with 2 s of its own quietest
+    room noise appended), `webrtcvad` emitted `end` on only 15 of 20 — on the
+    failures it called 83-100 % of frames speech, room noise included, so
+    trailing silence never accumulated. Silero ends 20/20 and its voiced
+    fraction never exceeds 0.482 on any clip. Cost 0.048 ms per frame, 0.15 %
+    of one core (ADR-095, OQ-51).
+
+    The graph wants 512 samples; the mic path delivers 320 (WAKE_FRAME_MS, and
+    openwakeword chunks to it). So buffer and hold the last verdict between
+    inferences — the verdict then updates every 32 ms instead of every 20 ms,
+    which is invisible against a 800 ms end-of-silence timer and leaves every
+    caller's frame size alone.
+    """
+
+    _FRAME = 512      # what the graph wants at 16 kHz
+    _CTX = 64         # v5+ prepends a context window; feeding a bare 512
+                      # returns ~0.001 on obvious speech, silently, forever.
+
+    def __init__(
+        self,
+        model_path: Path | None = None,
+        threshold: float | None = None,
+        sample_rate: int = 16000,
+    ) -> None:
+        import onnxruntime as ort
+
+        if sample_rate != 16000:
+            raise ValueError(f"SileroVad is 16 kHz only, got {sample_rate}")
+
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = 1
+        # The op18-ifless export carries three unused initializers and ORT warns
+        # about each one at load. Under systemd that is three lines of noise in
+        # the journal on every daemon start; the model is pinned by SHA256.
+        so.log_severity_level = 3
+        self._sess = ort.InferenceSession(
+            str(model_path or config.VAD_MODEL), so, providers=["CPUExecutionProvider"]
+        )
+        self._sr = np.array(sample_rate, dtype=np.int64)
+        self.threshold = config.VAD_THRESHOLD if threshold is None else threshold
+        self.inferences = 0
+        self.reset()
+
+    def reset(self) -> None:
+        """Clear stream state. Silero is stateful; a stale state biases scores."""
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._ctx = np.zeros((1, self._CTX), dtype=np.float32)
+        self._buf = np.zeros(0, dtype=np.float32)
+        self._voiced = False
+        self.inferences = 0
+
+    def is_speech(self, frame: np.ndarray) -> bool:
+        self._buf = np.concatenate([self._buf, np.asarray(frame, dtype=np.float32)])
+        while len(self._buf) >= self._FRAME:
+            chunk = self._buf[: self._FRAME].reshape(1, -1)
+            self._buf = self._buf[self._FRAME :]
+            x = np.concatenate([self._ctx, chunk], axis=1)
+            self._ctx = x[:, -self._CTX :]
+            out, self._state = self._sess.run(
+                None, {"input": x, "sr": self._sr, "state": self._state}
+            )
+            self.inferences += 1
+            self._voiced = float(out[0][0]) >= self.threshold
+        return self._voiced
 
 
 class SpeechGate:
@@ -95,7 +169,21 @@ class SpeechGate:
 
 
 def create(mode: int = 2, sample_rate: int = 16000) -> Vad | None:
-    """Factory creating a Vad instance, falling soft to None on failure."""
+    """Factory creating a Vad instance, falling soft to None on failure.
+
+    Silero first (ADR-095). `webrtcvad` is kept as the fallback so a missing or
+    corrupt model file degrades to the pre-ADR-095 behaviour rather than to no
+    VAD at all — but it degrades LOUDLY, because that behaviour is D3: captures
+    that never end. `mode` applies to the fallback only.
+    """
+    try:
+        return SileroVad(sample_rate=sample_rate)
+    except Exception as exc:
+        log.warning(
+            "Silero VAD unavailable (%s); falling back to webrtcvad, which does "
+            "not reliably end captures on this machine (D3). Run `just fetch-vad`.",
+            exc,
+        )
     try:
         return WebRtcVad(mode=mode, sample_rate=sample_rate)
     except Exception as exc:

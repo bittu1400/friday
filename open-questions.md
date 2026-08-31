@@ -23,7 +23,10 @@ a line of the fix list is written. Evidence for every one of them is in
 `progress.md`, "SESSION 2026-08-29 (night, later)"._
 
 ### OQ-39 — What is `webrtcvad` actually reporting on this microphone?
-**Decider:** MEASURE · **Blocks:** D3 (hands-free is unusable) · **Status:** OPEN
+**Decider:** MEASURE · **Blocks:** D3 (hands-free is unusable) · **Status:** **OPEN, but narrowed to a live confirmation.**
+
+**2026-08-31:** the swap landed first by the user's decision (OQ-51, ADR-095), so what is owed here is no longer a probe that decides anything — it is one live hands-free capture with the voiced fraction logged at `wake.py:_on_frame`, confirming that Silero ends captures through the **AEC path** as it does offline. If it does not, the suspect is D18 (the reference path), not the detector.
+
 
 All three wake captures ran the full 15 s cap. One contained zero speech by
 Silero's reckoning yet ADR-066's 3 s bail-out never fired, which can only
@@ -297,6 +300,10 @@ day Gemma lands. Full measurement: `gemma-brief.md` §3-§4.
 ---
 
 ### OQ-56 — What is TTFA on Gemma 4, and where does ADR-080 re-baseline to?
+**Status:** **CLOSED 2026-08-31 → ADR-096.** The user chose to restate the target **per action class** rather than re-baseline to the 2289 ms aggregate or leave chat out of scope: direct actions p50 2.2 s / p95 3.6 s, chat p50 5.0 s / p95 7.0 s, `web_search` tracked with no hard fail. The aggregate was rejected because it hides a 4715 ms chat p50 inside one number and lets a regression in one class be absorbed by the other. NFR-1 is now NFR-1/1b/1c.
+
+*(Original text below.)*
+
 
 **Decider:** MEASUREMENT, then USER · **Status:** **MEASURED 2026-08-30 at the
 microphone. The re-baseline number is the USER's call and is still open.**
@@ -360,6 +367,8 @@ is the state ADR-080 existed to end.
 ---
 
 ### OQ-57 — Do the widened hotwords actually fix the G12 vocabulary?
+**Status:** OPEN — **scheduled 2026-08-31 by the USER for the next microphone session.** The G12 clips are to be recorded into `~/.cache/whisper-bench/clips` with `record.sh` ("turn off my wifi", "make this fullscreen", "go to workspace three", "copy that to the clipboard", "start dictation"), reference transcripts added, and `just bench-stt` re-run. That permanently widens the STT gate the way FR-97 widened the planner gate.
+
 
 **Decider:** MEASUREMENT · **Blocks:** nothing; D26 is already better than it
 was · **Status:** OPEN (raised 2026-08-30 by ADR-094)
@@ -547,6 +556,12 @@ not a number. None of them blocks the D3–D16 fix list; D17 and D18 are new
 defects raised by the same drill and are recorded in `progress.md`._
 
 ### OQ-51 — Do we replace `webrtcvad` with Silero VAD?
+**Status:** **ANSWERED 2026-08-31 by the USER → ADR-095 · IMPLEMENTED, green offline over the real corpus, NOT YET CONFIRMED LIVE (OQ-39).**
+
+**Answer: yes, swap now and confirm at the microphone afterwards.** The user was shown the alternative — run the live AEC-path probe first and decide from that — and chose the swap, on the grounds that the offline evidence already identifies the mechanism, so the live run becomes a confirmation of a fix rather than another probe of a known-broken detector. `create()` now returns `SileroVad` with `webrtcvad` as a loudly-logged fallback. One thing turned out differently from the text below: the frame size did **not** change to 32 ms, because `WAKE_FRAME_MS` also frames openwakeword. `SileroVad` buffers to 512 internally and holds the last verdict instead. See ADR-095.
+
+*(Original text below.)*
+
 
 **Evidence is decisive and it root-causes D3.** Driven through the real
 `friday.audio.vad.SpeechGate` on the 20 real DMIC clips, each with 2 s of that
@@ -583,6 +598,8 @@ confirmation rather than an exploration.
 defect.
 
 ### OQ-52 — Do we replace WebRTC APM with DTLN-aec, or fix the reference path first?
+**Status:** OPEN — **explicitly deferred 2026-08-31 by the USER.** Asked whether D18 (the 16 kHz software reference on a 48 kHz SOF-DSP device) was in scope alongside the VAD swap, the answer was to park it and do VAD only: D3 is a VAD defect and the AEC merely feeds it frames, so keeping the diff to one detector keeps the causality readable. If OQ-39's live confirmation fails, this is the next suspect.
+
 
 **What is robust across ~20 live captures:** DTLN-aec 512 suppresses **8–20 dB
 more than WebRTC APM on every single capture**, without exception. The ordering

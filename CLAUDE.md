@@ -34,8 +34,10 @@ the next session does at a microphone is re-run the `C?` affirm rows in
 Still open and unchanged: **hands-free is unusable** (D3 — all three wake
 captures ran the full 15 s cap, ADR-066's bail-out never fired; PTT is the only
 working trigger), plus D4–D16. Every decision the fix list needs is already
-made: ADR-075…ADR-083, FR-85…FR-93, NFR-1 re-baselined. **Only OQ-39 is open
-and it is a MEASUREMENT** (the webrtcvad voiced-fraction probe), not an opinion.
+made: ADR-075…ADR-083, FR-85…FR-93, NFR-1 re-baselined. **D3 was fixed in code
+on 2026-08-31 — Silero replaces `webrtcvad` (ADR-095) — and is NOT PROVEN
+LIVE.** OQ-39 is now exactly one thing: one live hands-free capture confirming
+that Silero ends captures through the **AEC path** as it does offline.
 
 **A model question is also live, and no code depends on it.** Gemma 4 12B QAT
 is a retained candidate (OQ-47) and `just eval` cannot currently see the
@@ -75,7 +77,7 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **497 passed**, `just eval` **50/50 reg 0** (the fixture set was
+`uv run pytest` **501 passed**, `just eval` **50/50 reg 0** (the fixture set was
 28 until D16 was fixed on 2026-08-30 — ADR-089), `just test-injection`
 **20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**.
 (Verified 2026-08-30 with the LLM confirmed on GPU — see `llm_on_gpu`. It was
@@ -140,14 +142,15 @@ exactly which steps have landed.
    `nmcli radio wifi` — plus 108 audit rows across a daemon restart with **0
    duplicate `request_id`s**, which is D2's own proof. The session also found
    **D22-D26** and closed **D11/D12** (ADR-091…094).
-2. **Step 3 — D3, hands-free. THIS IS NOW THE TOP OF THE LIST.** PTT is still
-   the only usable trigger; the entire mic session ran on it. **OQ-39 is
-   largely measured** — the 2026-08-30 drill root-caused it to `webrtcvad`
-   calling 83–100 % of frames speech on 5 of 20 real clips, while Silero ends
-   20/20 at 0.15 % of one core. What is left is live confirmation through the
-   AEC path and the swap decision, **OQ-51**. `friday.audio.vad.Vad` is already
-   a `Protocol`, so the change is small. **Do not widen the fix before the live
-   number exists.**
+2. ~~**Step 3 — D3, hands-free.**~~ **FIXED IN CODE 2026-08-31, NOT PROVEN.**
+   OQ-51 was answered by the user (swap now, confirm after) and `create()` now
+   returns `SileroVad`; the real `SpeechGate` ends **20/20** real DMIC clips
+   where `webrtcvad` ended 15/20 (ADR-095, FR-108). **The corpus does not go
+   through the AEC path**, and the AEC mangles its input (D18), so the next
+   session's FIRST job is one live hands-free capture with the voiced fraction
+   logged at `wake.py:_on_frame`. If it still runs the 15 s cap, the suspect is
+   **D18**, not the detector — the user parked D18 deliberately (OQ-52) to keep
+   this diff to one change.
 
 **All 19 questions were asked and answered on 2026-08-29 — do not re-ask**, and
 the four observational ones (did the apps appear, did `file_open` open the
@@ -556,8 +559,8 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  94 ADRs
-                      (ADR-001..ADR-094; the count was wrong at 74 for weeks
+   adr.md             decisions + why + what they cost.  96 ADRs
+                      (ADR-001..ADR-096; the count was wrong at 74 for weeks
                       -- verify with `grep -c '^## ADR-' adr.md`).
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
@@ -715,7 +718,7 @@ A diagram that disagrees with the code is a bug in the diagram.
 ## Commands
 
 Recipe names are authoritative — check the `justfile` before citing one (there
-is no `setup` or `bench`; environment bootstrap is `uv sync` + `just fetch-voice`
+is no `setup` or `bench`; environment bootstrap is `uv sync` + `just fetch-voice` + `just fetch-vad`
 + the llama.cpp build in ADR-021).
 
 ```bash
@@ -730,6 +733,9 @@ just selftest           # health: servers, gpu arch, LLM-actually-on-GPU, db per
 just wake-bench         # G10 live wake-word / VAD benchmark. Reports peak input
                         # level and max score, so "0 hits" can be told apart
                         # from a dead microphone. --duration N, --threshold X
+just fetch-vad          # Silero VAD model, SHA256-pinned (ADR-095). Required for
+                        # end-of-speech; without it VAD falls back to webrtcvad,
+                        # which is D3 (captures that never end). Logs when it does.
 just enroll-voice       # G13 interactive 10-utterance voiceprint enrollment
 just ptt press|release  # send a PTT command to the running daemon
 just prefs list|forget  # manage stored preferences
@@ -790,7 +796,9 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The analysis cites a real GitHub issue, so the claim is real" | `docs/archive/2026-08-30-gemma-ling-flash.md` cited a genuine llama.cpp discussion and then asserted "Q8 KV cache kills draft acceptance" — the cited source **recommends** `q8_0` KV. Acting on it would have cost 284 MiB for nothing. Check the claim against the source, not against the bibliography. |
 | "28/28 on `just eval`, so the planner is fine" | Two models scored 28/28 and still emitted `action=none` for "copy that to the clipboard" / "close this window" (D16). The fixtures do not cover those rows. The gate that would approve a model swap cannot see the regression it would admit. |
 | "Set `reasoning_format: \"none\"` to stop the model thinking" | It does the opposite of what it looks like: thinking is NOT suppressed, the raw `<|channel>thought` text is moved INTO `message.content`. Friday would then write raw model thought into history and audit rows — invariant #7 (FR-26/57). Use `--reasoning off` or `chat_template_kwargs: {"enable_thinking": false}`. |
-| "The VAD says it's speech, so it's speech" | `webrtcvad` calls 83-100% of frames speech on 5 of 20 real clips, room noise included, so `SpeechGate` never emits `end` and the capture burns the full 15 s cap. That is D3. Check what the gate DID, not what the detector returned. |
+| "The VAD says it's speech, so it's speech" | `webrtcvad` calls 83-100% of frames speech on 5 of 20 real clips, room noise included, so `SpeechGate` never emits `end` and the capture burns the full 15 s cap. That was D3 (Silero since ADR-095). Check what the gate DID, not what the detector returned. |
+| "Swap the detector, so swap the frame size with it" | `WAKE_FRAME_MS` frames **openwakeword too**. Moving 20 ms to 32 ms to suit Silero's 512-sample graph would change the wake detector's framing to fix a VAD defect. `SileroVad` buffers internally and holds the last verdict instead: no caller changed (ADR-095). |
+| "Fall back to the old library if the new model is missing" | Only if the fallback says so out loud. The `webrtcvad` fallback logs *"does not reliably end captures on this machine (D3)"* and names `just fetch-vad`, because a silent fallback reintroduces the exact defect the swap removed — that is M-A3's shape, where a degradation looked like health. |
 | "The canceller reports zero VAD frames, so it cancelled the echo" | Or it deleted the room. WebRTC APM gates: 0 frames when Friday speaks alone, and only 68 of 243 when a human speaks over her. A suppression number cannot tell those apart -- only a preservation test can. |
 | "The bench says the new model is useless" | Silero v5+ prepends a 64-sample context, so the graph must see 576 samples, not 512. Fed a bare 512 it returns `p~0.001` on obvious speech, silently, on every frame -- scoring 0/20. The bundled v4 needs no context and worked first try, which made the wrong result look MORE credible. |
 | "`sess.get_providers()` says NPU, so it ran on the NPU" | It reports what was REGISTERED. The OpenVINO EP silently partitions unsupported subgraphs back to the CPU. `/sys/devices/pci0000:00/0000:00:0b.0/npu_busy_time_us` moves ~230 ms on a real NPU run and exactly 0 on CPU -- that is the check that can fail. |

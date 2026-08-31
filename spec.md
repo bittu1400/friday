@@ -252,6 +252,7 @@ nowhere else. See ADR-027 and threat T2.
 | FR-105 | `CHAT_SYSTEM` names every dispatchable action in `PARAM_SCHEMA`, never denies a listed ability, and never claims to have performed one | ADR-094 · enforced by a coverage test; `system_wifi` was missing from G12 until 2026-08-30 |
 | FR-106 | `STT_HOTWORDS` covers the control vocabulary of every action, not just the app registry | ADR-094 · "wifi" was heard as wife/weapon/way/life across four turns |
 | FR-107 | A spoken reply is capped at 2 short sentences / 200 characters, because TTFA includes synthesizing the whole reply | ADR-094 · measured: chat TTFA p50 7177 → 4715 ms |
+| FR-108 | Frame-level VAD is Silero (`silero_vad_op18_ifless.onnx`, SHA256-pinned, CPU); `webrtcvad` is the fallback and its use is logged as a degradation | ADR-095 · `tests/test_vad.py::test_silero_ends_every_real_clip` — real `SpeechGate` over the real 20-clip corpus, 20/20 end (webrtcvad: 15/20) |
 
 ---
 
@@ -259,7 +260,9 @@ nowhere else. See ADR-027 and threat T2.
 
 | ID | Requirement | Target | Hard fail |
 | :-- | :-- | :-- | :-- |
-| NFR-1 | TTFA, end of speech to first audio | **p50 2.2 s** (re-baselined 2026-08-29 from n=77 live turns, ADR-080; the old 1.4 s was met by **0 of 77**) | **p95 > 3.6 s**, excluding `web_search` turns (network + grounding) |
+| NFR-1 | TTFA, end of speech to first audio — **direct actions** (`hypr_*`, `system_*`, notes, clipboard, dictation) | **p50 2.2 s** (measured 1858-2466 ms on Gemma 4, n=38, ADR-096) | **p95 > 3.6 s** |
+| NFR-1b | TTFA — **chat** | **p50 5.0 s** (measured p50 4715 ms after ADR-094's 2-sentence cap) | **p95 > 7.0 s** |
+| NFR-1c | TTFA — **`web_search`** | tracked only, no target (network round-trip + grounding turn) | — |
 | NFR-2 | Text mode round trip, p95 | 1.2 s | 3.5 s |
 | NFR-3 | Peak VRAM under normal desktop load | <= 6.5 GB | 7.65 GB |
 | NFR-4 | Total Friday RSS | <= 3.5 GB | 6 GB |

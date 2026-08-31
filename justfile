@@ -88,6 +88,20 @@ fetch-voice:
     echo "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb  $dst/model.onnx" | sha256sum -c -
     echo "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d  $dst/voices-v1.0.bin" | sha256sum -c -
 
+# op18-ifless is the fastest of the three exports and is built without the ONNX
+# `If` op, so it stays accelerator-portable (OQ-51). Required: without it, VAD
+# falls back to webrtcvad, which ended only 15 of 20 real DMIC clips and is the
+# cause of D3 (hands-free captures that never end).
+# Fetch the SHA256-pinned Silero VAD model -- end-of-speech detection (ADR-095).
+fetch-vad:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dst="${XDG_DATA_HOME:-$HOME/.local/share}/friday/models/vad"
+    mkdir -p "$dst"
+    url="https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.1/src/silero_vad/data/silero_vad_op18_ifless.onnx"
+    [ -f "$dst/silero_vad_op18_ifless.onnx" ] || curl -sL -o "$dst/silero_vad_op18_ifless.onnx" "$url"
+    echo "7671cd04b004e9076da0d4a7b1a5aec36adf161c39230c1cb94a4fd5db6bbd28  $dst/silero_vad_op18_ifless.onnx" | sha256sum -c -
+
 # Start the voice-in daemon (G6): PTT socket + capture + STT + turn + speak.
 # Add --dry-run to plan without launching, --no-voice for silent outcomes.
 voice *ARGS:

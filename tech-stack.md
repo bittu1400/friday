@@ -54,7 +54,7 @@ assumed.
 | Capture | `sounddevice` (PortAudio), preallocated 15 s ring buffer, mic gate. Both callbacks run behind one `CallbackGuard` — nothing may escape into PortAudio, which answers an exception by never calling back again | architecture §2, §5, M-A1 |
 | Echo handling | **Phase 1: half-duplex boolean mic gate only.** Phase 2 (G10) added a real WebRTC APM echo canceller on top — the gate did not go away | ADR-014, **ADR-060** |
 | Wake word | **openWakeWord** `hey_jarvis_v0.1.onnx` (CPU, streaming — it must be fed EVERY frame or it returns a stale score, OQ-29) | ADR-055, ADR-061 |
-| VAD | **WebRTC VAD** + a `SpeechGate` debounce state machine (20 ms frames). Arms end-of-speech only on FSM acceptance, never on wake detection | ADR-062, **ADR-071** |
+| VAD | **Silero** (`silero_vad_op18_ifless.onnx`, ONNX/CPU, SHA256-pinned, `just fetch-vad`) + a `SpeechGate` debounce state machine. Buffers the mic path's 20 ms frames to the graph's 512 samples and holds the last verdict, so no caller's frame size changed. `webrtcvad` is the fallback and logs the degradation. Arms end-of-speech only on FSM acceptance, never on wake detection | **ADR-095**, ADR-062, ADR-071 |
 | Speaker verification | **3D-Speaker CAM++** via `sherpa-onnx` (CPU, 512-dim voiceprint, 10-utterance enrolment). OFF by default and it fails **OPEN** with no voiceprint enrolled | ADR-059, ADR-063 |
 | torch wheel | **None — the venv is torch-free.** STT is CTranslate2, TTS is onnxruntime; neither needs torch (ADR-039 rejected the PyTorch Kokoro path) | ADR-018, ADR-039 |
 
@@ -69,7 +69,7 @@ source of truth for the floors; this table is what is actually resolved.
 | `faster-whisper` | 1.2.1 | `faster_whisper` | STT (pulls `ctranslate2` 4.8.1, **not** torch) |
 | `kokoro-onnx` | 0.6.1 | `kokoro_onnx` | TTS (pulls `onnxruntime` 1.29.0) |
 | `openwakeword` | 0.4.0 | `openwakeword` | wake word |
-| `webrtcvad-wheels` | 2.0.14 | **`webrtcvad`** | VAD — note the name mismatch: `uv add webrtcvad` gets you a source package that needs a compiler. **Measured 2026-08-30 as the cause of D3: it emits end-of-speech on only 15 of 20 real clips (OQ-51)** |
+| `webrtcvad-wheels` | 2.0.14 | **`webrtcvad`** | VAD — note the name mismatch: `uv add webrtcvad` gets you a source package that needs a compiler. **Measured 2026-08-30 as the cause of D3: it emits end-of-speech on only 15 of 20 real clips. Demoted to fallback 2026-08-31 (ADR-095); kept so a missing model file degrades loudly rather than to no VAD at all** |
 | `pywebrtc-audio` | 0.1.0 | **`pywebrtc_audio`** | WebRTC APM echo canceller (underscores, not the hyphen-to-nothing you might guess) |
 | `sherpa-onnx` | 1.13.6 | `sherpa_onnx` | speaker verification |
 | `sounddevice` | 0.5.6 | `sounddevice` | PortAudio capture + playback |
@@ -233,7 +233,7 @@ corpus where applicable. Harnesses in `scripts/`, full numbers in
 
 | candidate | for | measured | verdict |
 | :-- | :-- | :-- | :-- |
-| `silero-vad` (v4 / current / If-free) | VAD | end-of-speech **20/20** vs webrtcvad's 15/20, 0.048 ms per 32 ms frame | **WINS — decision owed, OQ-51** |
+| `silero-vad` (v4 / current / If-free) | VAD | end-of-speech **20/20** vs webrtcvad's 15/20, 0.048 ms per 32 ms frame | **ADOPTED 2026-08-31 (ADR-095)** — the `op18-ifless` export, by SHA256-pinned file. The pypi package itself is NOT a dependency: `onnxruntime` was already installed via kokoro-onnx/openwakeword |
 | DTLN-aec 128/256/512 (TF-lite, read by OpenVINO) | AEC | 8–20 dB more suppression than WebRTC APM on every capture; preserves 152/243 of the user's frames vs 68 | **WINS — but fix D18 first, OQ-52** |
 | `supertonic` 1.3.1 | TTS fallback | `F1` at `total_steps=2`: 308 ms short reply, RTF 0.070 | **ADOPTED as fallback, ADR-085 — NOT in `pyproject.toml`, OQ-55** |
 | `useful-moonshine-onnx` | STT | 4x faster (p95 182 ms) at **10/20** misses vs Whisper's 4/20, after three tuning rounds | rejected, ADR-086 |

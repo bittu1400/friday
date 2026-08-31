@@ -144,7 +144,12 @@ WAKE_REFRACTORY_S: float = 1.5     # ignore repeat wake hits within this window 
 # VAD end-of-utterance for wake-initiated capture (no key release exists).
 VAD_END_SILENCE_S: float = 0.8     # trailing silence that ends a capture
 VAD_MIN_SPEECH_S: float = 0.3      # ignore sub-this blips (barge-in + end-of-speech)
-VAD_AGGRESSIVENESS: int = 2        # webrtcvad 0-3
+# Frame classifier. Silero since ADR-095 (D3): webrtcvad ended only 15 of 20
+# real DMIC clips because it calls room noise speech, so hands-free captures
+# ran to the 15 s cap. VAD_AGGRESSIVENESS now applies to the fallback only.
+VAD_MODEL: Path = _DATA_DIR / "models" / "vad" / "silero_vad_op18_ifless.onnx"
+VAD_THRESHOLD: float = float(os.environ.get("FRIDAY_VAD_THRESHOLD", "0.5"))
+VAD_AGGRESSIVENESS: int = 2        # webrtcvad 0-3 (fallback only)
 # A capture that never hears ANY speech is a false wake. VAD_END_SILENCE_S
 # cannot end it — that timer only arms after speech is first detected — so it
 # ran to MAX_CAPTURE_S, and FR-5 (one turn in flight) left Friday deaf for the

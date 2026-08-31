@@ -19,7 +19,7 @@ not exist yet.
   +------+----------------------------------------------+
   |  PortAudio callback -> CallbackGuard (M-A1)          |
   |    WebRTC APM AEC  -> openWakeWord "hey_jarvis"      |
-  |                    -> WebRTC VAD / SpeechGate        |
+  |                    -> Silero VAD / SpeechGate          |
   |                    -> SpeakerVerifier (off by dflt)  |
   |  Three trigger sources reach the FSM: WAKE, PTT,     |
   |  BARGE (voice barge OFF by default, ADR-064).        |

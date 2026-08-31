@@ -3728,3 +3728,150 @@ says so; but chat is free text with no grammar to constrain, so the prompt is
 the only lever there is. The enforceable half is the coverage test, which is why
 it exists. *Rolling back to Qwen for chat latency* — it reintroduces D19/D20/D21
 and loses 49/49 to 46/49.
+
+## ADR-095 — Silero replaces `webrtcvad` as the frame classifier (D3)
+
+**Status:** Accepted 2026-08-31. Closes OQ-51. Narrows OQ-39 to a live
+confirmation. Fixes **D3**, the top open defect. Supersedes ADR-062's choice of
+detector; ADR-062's `SpeechGate` is unchanged.
+
+**Context.** Hands-free has been unusable since 2026-08-29: every wake capture
+ran the full 15 s cap, Friday deaf throughout (FR-5), and ADR-066's 3 s bail-out
+never fired. PTT has been the only usable trigger, including for the whole
+2026-08-30 microphone session.
+
+The 2026-08-30 drill root-caused it. `scripts/vad_bench.py` drove the **real**
+`friday.audio.vad.SpeechGate` over the 20 real DMIC clips, each with 2 s of that
+clip's own quietest room noise appended — digital silence would flatter every
+detector and prove nothing:
+
+```
+  webrtcvad mode=0   voiced p50 0.500   start 20/20   end 14/20
+  webrtcvad mode=1   voiced p50 0.489   start 20/20   end 14/20
+  webrtcvad mode=2   voiced p50 0.444   start 20/20   end 15/20   <- INCUMBENT
+  webrtcvad mode=3   voiced p50 0.407   start 20/20   end 16/20
+  silero v4                             start 20/20   end 20/20   0.0643 ms/frame
+  silero current                        start 20/20   end 20/20   0.0538 ms/frame
+  silero op18-ifless                    start 20/20   end 20/20   0.0484 ms/frame
+```
+
+**Every detector starts. Only Silero ever ends.** On the five clips webrtcvad
+fails (`clip_01` .891, `clip_02` 1.000, `clip_06` .971, `clip_07` .996,
+`clip_08` .829) it classifies 83–100 % of frames as speech **including the
+appended room noise**, so trailing silence never accumulates, `SpeechGate` never
+emits `end`, and the capture runs to the cap. That is D3's symptom exactly.
+Silero's voiced fraction never exceeds 0.482 on any clip.
+
+**Decision.** `friday.audio.vad.create()` returns `SileroVad` first, with
+`WebRtcVad` kept as the fallback. Model:
+`silero_vad_op18_ifless.onnx`, sha256
+`7671cd04b004e9076da0d4a7b1a5aec36adf161c39230c1cb94a4fd5db6bbd28`, fetched by
+`just fetch-vad` from the pinned `snakers4/silero-vad` tag `v6.2.1` into
+`~/.local/share/friday/models/vad/`.
+
+**Why the `op18-ifless` export.** Fastest of the three (0.0484 ms/frame) and
+built without the ONNX `If` op — the operator that made openwakeword's
+classifier unconvertible on both Intel devices (ADR-088). Accelerator-portable
+for free, even though ADR-088 concluded the accelerators stay idle.
+
+**No new dependency.** `onnxruntime` 1.29.0 is already installed via
+`kokoro-onnx`/`openwakeword`. Rule 7's footprint check is therefore trivially
+satisfied: nothing new is pulled, and invariant #6 is untouched — this runs on
+CPU, `CPUExecutionProvider` explicitly.
+
+**The one integration decision: buffering, not a frame-size change.** OQ-51
+expected "32 ms frames instead of 20". That would have changed
+`WAKE_FRAME_MS`, and openwakeword chunks to the same size — so the wake
+detector's framing would have moved to fix a VAD defect. Instead `SileroVad`
+buffers: it takes whatever frame the mic path delivers, runs the graph every
+512 samples, and holds the last verdict in between. The verdict updates every
+32 ms instead of every 20 ms, which is invisible against a 800 ms
+`VAD_END_SILENCE_S`, and every caller's frame size is left alone.
+
+**The fallback degrades loudly.** A missing or corrupt model file falls back to
+`webrtcvad` — but the warning names D3 by symptom ("does not reliably end
+captures on this machine") and points at `just fetch-vad`. A silent fallback to
+the detector this ADR exists to remove would reintroduce D3 invisibly, which is
+exactly the M-A3 failure shape.
+
+**Two traps this had to avoid, both already paid for elsewhere.**
+
+1. **Silero v5+ prepends a 64-sample context**, so the graph must see 576
+   samples, not 512. Fed a bare 512 it returns `p≈0.001` on obvious speech,
+   silently, on every frame. The constant is `_CTX` and it is commented.
+2. **Silero is stateful.** `reset()` clears the LSTM state, the context window
+   and the sample buffer — a stale state biases scores, which is the same class
+   of bug as openwakeword's streaming starvation (OQ-29).
+
+**Cost.** 0.048 ms per 32 ms of audio: **0.15 % of one core.** Model file
+2.8 MB. Nothing on the GPU.
+
+**Rejected: the v4 model openwakeword already ships** at
+`openwakeword/resources/models/silero_vad.onnx` — zero fetch, zero pin, zero
+new files, and it also ends 20/20. Rejected because it couples the VAD to
+another package's private resource path: an openwakeword upgrade that moves or
+drops that file breaks end-of-speech, and the failure would look like D3
+returning. Every other model in this project is fetched and SHA256-pinned into
+`~/.local/share/friday/models/`; this one follows that.
+
+**Rejected: raising `VAD_AGGRESSIVENESS` to 3.** It buys exactly one clip
+(15→16 of 20) and leaves the mechanism intact.
+
+**What this does NOT close.** The bench is offline, on clips recorded through
+the real microphone but **not through the AEC path**, and the AEC is known to be
+doing something violent to its input (D18/OQ-52). OQ-39 remains open as the live
+confirmation: one capture with the voiced fraction logged at
+`wake.py:_on_frame`. Per the user's 2026-08-31 decision the swap lands first, so
+that run is a confirmation rather than an exploration.
+
+**Evidence.** `tests/test_vad.py::test_silero_ends_every_real_clip` drives the
+real `SpeechGate` over the real corpus and asserts 20/20 — it is skipped on a
+machine without `~/.cache/whisper-bench/clips`, which on this single-machine
+project means it runs. `uv run pytest` 501 passed, `just eval` 50/50
+regressions 0, `just selftest` 8/8.
+
+## ADR-096 — TTFA is stated per action class, not as one number
+
+**Status:** Accepted 2026-08-31. Closes the open half of OQ-56. Amends NFR-1 and
+ADR-080.
+
+**Context.** ADR-080 re-baselined NFR-1 to p50 2200 ms from 77 live turns on
+Qwen2.5-7B. The Gemma 4 swap (ADR-090) made that number stale, and OQ-56
+re-measured at the microphone, n=38, `balanced`, `llm_on_gpu` confirmed:
+
+```
+all turns   p50 2289 ms   p95 10187 ms   max 13277 ms   0/38 under 1400 ms
+```
+
+**The planner regression is ~117 ms** against the ~430 ms the arithmetic
+predicted. **The cost is verbosity, and it splits cleanly by action:**
+
+| | TTFA |
+| :-- | --: |
+| direct actions (`hypr_*`, `system_*`, notes) | 1858–2466 ms |
+| chat (after ADR-094's 2-sentence cap) | p50 4715 ms, max 6289 ms |
+| web_search | 5553–13277 ms |
+
+**Decision.** State the target per action class rather than as one aggregate:
+
+```
+   direct actions   p50 2200 ms   p95 hard fail 3600 ms
+   chat             p50 5000 ms   p95 hard fail 7000 ms
+   web_search       no hard fail (network + grounding turn), tracked only
+```
+
+**Why not a single re-baseline to 2289 ms.** It is the honest aggregate and it
+is useless: it hides a 4715 ms chat p50 and a 13277 ms max inside one p50, and
+a regression in either class can be absorbed by the other. The aggregate was
+already carrying `web_search` as an explicit exclusion (ADR-080), which is the
+same admission made once and then not followed through.
+
+**Why not leave 2200 ms with chat out of scope.** That leaves the slowest thing
+Friday does with no target at all, and chat is the primary goal (G8).
+
+**The lever, if chat must get faster, is streaming TTS** — ADR-020, deferred at
+G6 with "measure first". This is that measurement: 86–89 % of a chat turn is
+decode plus synthesis of text the user waits on serially, and TTFA includes
+synthesizing the **whole** reply before the first sound. ADR-094's 2-sentence
+cap already took chat p50 from 7177 to 4715 ms without touching the model;
+streaming is what is left.
