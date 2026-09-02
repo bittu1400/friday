@@ -173,6 +173,22 @@ class Daemon:
         if self.state.state is State.CAPTURING:
             self._finish_capture()
 
+    async def on_no_speech(self) -> None:
+        """ADR-066's bail-out fired: this capture contains no speech at all.
+
+        ADR-113. It used to land on `on_speech_end` and run a full turn —
+        Whisper on silence for a flat ~600 ms (F26), an empty transcript, then
+        the same silent return to IDLE. Drop the audio and go back to IDLE
+        directly, so the cost of a false wake is the wait and nothing else.
+        That is what pays for VAD_NO_SPEECH_TIMEOUT_S being 5.0 s (OQ-64).
+        """
+        if self.state.state is not State.CAPTURING:
+            return
+        self._disarm_capture_cap()
+        self.state.end_capture()      # CAPTURING -> TRANSCRIBING
+        self._recorder.reset()        # discard the silence; nothing to collect
+        self.state.reset()            # -> IDLE, wake is live again
+
     async def on_barge(self) -> None:
         """Voice activity detected during playback: barge-in."""
         if self.state.state is State.SPEAKING:

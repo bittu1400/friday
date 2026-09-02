@@ -79,10 +79,11 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-112. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
-OQ-63, and OQ-64 (new — the post-wake pause budget, owed to the owner).
-OQ-39 is CLOSED** (D3 proven live 2026-09-02 night) **and OQ-62 is CLOSED**
-(selftest WARN → exit 2 `[DEGRADED]`).
+**Decisions ADR-098…ADR-113. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
+OQ-63. OQ-39 is CLOSED** (D3 proven live 2026-09-02 night), **OQ-64 is CLOSED**
+(the post-wake pause budget → **ADR-113**: 3.0 → 5.0 s, and an abandoned capture
+now skips STT and the turn) **and OQ-62 is CLOSED** (selftest WARN → exit 2
+`[DEGRADED]`).
 **The power profile is already `balanced`** — verified this session; the old
 "free win, run `powerprofilesctl set balanced`" note is done, and `just selftest`
 now checks it (F28).
@@ -237,12 +238,19 @@ proves the mechanism rather than the outcome: whisper's VAD stripped 1.200 s of
 it, i.e. ~0.4 s lead-in plus the full 0.8 s `VAD_END_SILENCE_S` of trailing
 silence, accumulating exactly as `webrtcvad` could not.
 
-**One question came out of it: OQ-64.** The owner found the post-wake pause
-budget short — *"up to 2 second pause at max, anymore and then no response."*
-That is `VAD_NO_SPEECH_TIMEOUT_S = 3.0` (ADR-066), measured from `capture start`
-to the first voiced frame; blowing it abandons the capture silently. Raising it
-trades thinking time against deafness after a false wake, so it is the owner's
-call and **the constant was not changed**.
+**One question came out of it, and it is already answered: OQ-64 → ADR-113.**
+The owner found the post-wake pause budget short — *"up to 2 second pause at
+max, anymore and then no response."* That was `VAD_NO_SPEECH_TIMEOUT_S = 3.0`
+(ADR-066), counted from `capture start` to the first voiced frame. It is now
+**5.0 s**, affordable because an abandoned capture no longer runs a turn: the
+bail-out routes to `WakeCallbacks.on_no_speech` and the daemon drops the buffer
+and returns to IDLE, instead of putting silence through Whisper for a flat
+~600 ms (F26) to get `""` back. **The re-arm-on-second-wake mechanism the owner
+picked was rejected after reading `_on_frame`** — `_heard_speech` latches on the
+first voiced frame while openWakeWord fires ~0.8 s later at the end of the
+phrase, so the branch could never be reached (ADR-070's shape). **Not proven
+live: no false wake has occurred since. Watch for `capture abandoned: no speech
+within 5.0s`.**
 
 The microphone session of 2026-08-30 evening already proved D1 and D2 and ticked
 every `C?` affirm row; that work is done and is recorded below.
@@ -670,12 +678,13 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  112 ADRs
-                      (ADR-001..ADR-112; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  113 ADRs
+                      (ADR-001..ADR-113; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
                       ADR-110/111/112 are the 2026-09-02 evening verification
                       pass: a real egress check, the PortAudio teardown leak,
-                      and onnxruntime's telemetry.
+                      and onnxruntime's telemetry.  ADR-113 is the post-wake
+                      pause budget (OQ-64).
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
                       keeps the reasoning behind every answered question)
@@ -863,7 +872,7 @@ just eval               # eval fixtures -> pass count (currently 60; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 568
+just test               # full unit + adversarial + injection suite (pytest -q). 573
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -947,6 +956,8 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The analysis cites a real GitHub issue, so the claim is real" | `docs/archive/2026-08-30-gemma-ling-flash.md` cited a genuine llama.cpp discussion and then asserted "Q8 KV cache kills draft acceptance" — the cited source **recommends** `q8_0` KV. Acting on it would have cost 284 MiB for nothing. Check the claim against the source, not against the bibliography. |
 | "28/28 on `just eval`, so the planner is fine" | Two models scored 28/28 and still emitted `action=none` for "copy that to the clipboard" / "close this window" (D16). The fixtures do not cover those rows. The gate that would approve a model swap cannot see the regression it would admit. |
 | "Set `reasoning_format: \"none\"` to stop the model thinking" | It does the opposite of what it looks like: thinking is NOT suppressed, the raw `<|channel>thought` text is moved INTO `message.content`. Friday would then write raw model thought into history and audit rows — invariant #7 (FR-26/57). Use `--reasoning off` or `chat_template_kwargs: {"enable_thinking": false}`. |
+| "Re-arm the capture when the wake word fires again" | Check it can be REACHED first. `_heard_speech` latches on the first **voiced** frame; openWakeWord only crosses threshold ~0.8 s later, at the END of the phrase. So a second "hey jarvis" during the wait already keeps the capture alive as ordinary speech — a re-arm gated on "nothing heard yet" can never fire, and gating it looser lets a command word that scores high wipe the user's real command. Rejected in ADR-113 rather than built; it is `cancel_reminder`'s shape (ADR-070). |
+| "Giving up early is the cheap path" | Only if giving up is actually cheap. ADR-066's bail-out called `on_speech_end` — the ordinary FINISH path — so every false wake ran a full turn on silence: Whisper's cost is flat in audio length (F26), so that was a fixed ~600 ms of FR-5 deafness to produce `""`. The early-exit had a turn bolted to it for months. Route an abandon somewhere that does not transcribe (ADR-113). |
 | "The VAD says it's speech, so it's speech" | `webrtcvad` calls 83-100% of frames speech on 5 of 20 real clips, room noise included, so `SpeechGate` never emits `end` and the capture burns the full 15 s cap. That was D3 (Silero since ADR-095). Check what the gate DID, not what the detector returned. |
 | "Swap the detector, so swap the frame size with it" | `WAKE_FRAME_MS` frames **openwakeword too**. Moving 20 ms to 32 ms to suit Silero's 512-sample graph would change the wake detector's framing to fix a VAD defect. `SileroVad` buffers internally and holds the last verdict instead: no caller changed (ADR-095). |
 | "Fall back to the old library if the new model is missing" | Only if the fallback says so out loud. The `webrtcvad` fallback logs *"does not reliably end captures on this machine (D3)"* and names `just fetch-vad`, because a silent fallback reintroduces the exact defect the swap removed — that is M-A3's shape, where a degradation looked like health. |

@@ -843,53 +843,6 @@ transmission has stopped, and the remaining question is about a payload that no
 longer leaves. Re-open (b) only if a dependency is added that cannot be opted
 out of.
 
-### OQ-64 — How long may the user pause after "hey jarvis" before speaking?
-
-**Decider:** USER · **Blocks:** nothing — hands-free works; this is comfort ·
-**Status:** OPEN, raised 2026-09-02 (night) by the owner during the OQ-39
-capture session.
-
-**The observation, in the owner's words:** *"it could hold up to 2 second pause
-at max, anymore and then no response."*
-
-**It is real and it is one constant.** `VAD_NO_SPEECH_TIMEOUT_S = 3.0`
-(`friday/config.py:158`, ADR-066). `friday/audio/wake.py:299-316` increments
-`_silent_frames` on **every** frame of a capture and latches `_heard_speech` on
-the first voiced frame, so the budget is *3.0 s from `capture start` to your
-first voiced frame* — after which the capture is abandoned and **nothing is
-spoken back**, which is exactly the reported symptom. `VAD_MIN_SPEECH_S` does
-not eat into it. The felt budget is shorter than 3.0 s because openWakeWord
-fires some way after the wake phrase ends and the capture starts there, not
-where the user stops talking.
-
-**Do not confuse it with the other pause.** A pause *mid-sentence* is
-`VAD_END_SILENCE_S = 0.8` and truncates the capture instead of abandoning it —
-a wrong answer, not a silent one. Both were exercised in the OQ-39 session; the
-third capture stripped 1.200 s of silence, which is 0.8 s of that timer plus
-lead-in.
-
-**The tradeoff, which is why this is the user's call and not a default.**
-ADR-066 chose 3.0 s to bound the cost of a *false* wake: FR-5 allows one turn
-in flight, so an abandoned capture is time Friday is deaf. Raising the timeout
-buys thinking time on real commands and pays for it in deafness after every
-false wake. The wake scores in the OQ-39 session were 0.548-0.984 against a
-0.50 threshold, so false wakes are not hypothetical here.
-
-**Options:**
-
-- **(a) Leave it at 3.0 s.** Costs nothing; the owner adapts to the rhythm.
-- **(b) Raise it to 5.0 s.** ~2 s more thinking time; a false wake now costs
-  5 s of deafness instead of 3.
-- **(c) Make it an env override** (`FRIDAY_VAD_NO_SPEECH_TIMEOUT_S`) like
-  `FRIDAY_VAD_THRESHOLD` already is, and tune it live without a redeploy.
-- **(d) Raise it AND cut the cost of being wrong** — abandon on the timeout as
-  today, but let a wake fire again during the wait instead of holding the turn.
-  The largest change and the only one that needs an ADR.
-
-**Default if nobody decides:** (a). Hands-free is working as of 2026-09-02 and
-a constant that has never been measured against a false-wake rate should not be
-moved on a single session's feel.
-
 ---
 
 ## Kept Open (Long-Term / Optional)
@@ -1259,6 +1212,87 @@ grounding turn is grammar-locked exactly like search (ADR-008).
 _(Move entries here with the answer and the date. Do not delete them —
 the reasoning behind a closed question is the thing you will want in six
 months.)_
+
+- **OQ-64 — How long may the user pause after "hey jarvis" before speaking?**
+  **ANSWERED 2026-09-02 (night) by the USER → ADR-113, implemented and deployed
+  the same session.** The user was shown four options and chose the largest:
+  *raise it AND cut the cost of being wrong*. Both halves shipped, but **not the
+  mechanism the option named** — see below, and this is the part worth keeping.
+
+  **Shipped:** `VAD_NO_SPEECH_TIMEOUT_S` 3.0 → 5.0 s, and the ADR-066 bail-out
+  now routes to a new `WakeCallbacks.on_no_speech` whose daemon handler ends the
+  capture, drops the buffer via the `Recorder.reset()` that already existed, and
+  returns to IDLE — **no STT, no turn.** It had been calling `on_speech_end`,
+  the ordinary finish path, which transcribes: Whisper's cost is flat in audio
+  length (F26), so every false wake spent a fixed ~600 ms of FR-5 deafness
+  turning silence into `""`. Removing that surcharge is what pays for the longer
+  wait.
+
+  **REJECTED after reading the code: re-arming the capture on a second wake.**
+  The chosen option named it and it does not survive contact with `_on_frame`.
+  `_heard_speech` latches on the first **voiced frame**; openWakeWord only
+  crosses threshold ~0.8 s later, at the END of the phrase. So a repeated "hey
+  jarvis" during the wait **already** keeps the capture alive as ordinary speech
+  and FR-5 never swallows it — a re-arm gated on "nothing heard yet" could never
+  fire, and gating it looser lets a command word scoring above threshold wipe a
+  real command mid-capture. That is an unreachable branch, the `cancel_reminder`
+  defect shape (ADR-070). Reported back rather than built.
+
+  **Cost of the trade, stated plainly:** a false wake now costs 5.0 s instead of
+  3.0 s + ~600 ms, about 1.4 s worse in the bad case, for 2.0 s more thinking
+  time in the good one.
+
+  **Not yet proven live.** The OQ-39 session produced five real wakes and zero
+  false ones, so the abandon path has not been exercised at a microphone since
+  the change. `capture abandoned: no speech within 5.0s` in the journal is what
+  confirms it. The original write-up follows.
+
+
+  **Decider:** USER · **Blocks:** nothing — hands-free works; this is comfort ·
+  **Status:** OPEN, raised 2026-09-02 (night) by the owner during the OQ-39
+  capture session.
+
+  **The observation, in the owner's words:** *"it could hold up to 2 second pause
+  at max, anymore and then no response."*
+
+  **It is real and it is one constant.** `VAD_NO_SPEECH_TIMEOUT_S = 3.0`
+  (`friday/config.py:158`, ADR-066). `friday/audio/wake.py:299-316` increments
+  `_silent_frames` on **every** frame of a capture and latches `_heard_speech` on
+  the first voiced frame, so the budget is *3.0 s from `capture start` to your
+  first voiced frame* — after which the capture is abandoned and **nothing is
+  spoken back**, which is exactly the reported symptom. `VAD_MIN_SPEECH_S` does
+  not eat into it. The felt budget is shorter than 3.0 s because openWakeWord
+  fires some way after the wake phrase ends and the capture starts there, not
+  where the user stops talking.
+
+  **Do not confuse it with the other pause.** A pause *mid-sentence* is
+  `VAD_END_SILENCE_S = 0.8` and truncates the capture instead of abandoning it —
+  a wrong answer, not a silent one. Both were exercised in the OQ-39 session; the
+  third capture stripped 1.200 s of silence, which is 0.8 s of that timer plus
+  lead-in.
+
+  **The tradeoff, which is why this is the user's call and not a default.**
+  ADR-066 chose 3.0 s to bound the cost of a *false* wake: FR-5 allows one turn
+  in flight, so an abandoned capture is time Friday is deaf. Raising the timeout
+  buys thinking time on real commands and pays for it in deafness after every
+  false wake. The wake scores in the OQ-39 session were 0.548-0.984 against a
+  0.50 threshold, so false wakes are not hypothetical here.
+
+  **Options:**
+
+  - **(a) Leave it at 3.0 s.** Costs nothing; the owner adapts to the rhythm.
+  - **(b) Raise it to 5.0 s.** ~2 s more thinking time; a false wake now costs
+    5 s of deafness instead of 3.
+  - **(c) Make it an env override** (`FRIDAY_VAD_NO_SPEECH_TIMEOUT_S`) like
+    `FRIDAY_VAD_THRESHOLD` already is, and tune it live without a redeploy.
+  - **(d) Raise it AND cut the cost of being wrong** — abandon on the timeout as
+    today, but let a wake fire again during the wait instead of holding the turn.
+    The largest change and the only one that needs an ADR.
+
+  **Default if nobody decides:** (a). Hands-free is working as of 2026-09-02 and
+  a constant that has never been measured against a false-wake rate should not be
+  moved on a single session's feel.
+
 
 - **OQ-39 — What is `webrtcvad` actually reporting on this microphone?**
   **ANSWERED 2026-09-02 (night) at the microphone. D3 IS FIXED LIVE.** Five

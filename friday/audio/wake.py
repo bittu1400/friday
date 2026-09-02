@@ -155,6 +155,13 @@ class WakeCallbacks:
     on_wake: Callable[[], None]
     on_speech_end: Callable[[], None]
     on_barge: Callable[[], None]
+    # ADR-066's bail-out used to call `on_speech_end`, which runs the whole turn
+    # — STT included — on a capture that by definition contains no speech.
+    # Whisper's cost is flat in audio length (F26), so that was a fixed ~600 ms
+    # of deafness added to every false wake, to transcribe silence into "".
+    # ADR-113 routes it here instead. Defaulted so a caller that does not care
+    # keeps the old shape; the daemon overrides it. OQ-64.
+    on_no_speech: Callable[[], None] = lambda: None
 
 
 def _run_now(cb: Callable[[], None]) -> None:
@@ -316,7 +323,10 @@ class WakeListener:
                                  self._no_speech_frames * self.frame_ms / 1000)
                         self._awaiting_end = False
                         self._capture_gate.reset()
-                        self.schedule(self.callbacks.on_speech_end)
+                        # NOT on_speech_end: there is no speech to transcribe
+                        # (ADR-113). Going back to IDLE without a turn is what
+                        # makes the longer VAD_NO_SPEECH_TIMEOUT_S affordable.
+                        self.schedule(self.callbacks.on_no_speech)
             else:
                 # Capture finished or was interrupted
                 self._awaiting_end = False

@@ -155,7 +155,17 @@ VAD_AGGRESSIVENESS: int = 2        # webrtcvad 0-3 (fallback only)
 # ran to MAX_CAPTURE_S, and FR-5 (one turn in flight) left Friday deaf for the
 # whole 15 s. Measured live 2026-08-25: three such captures in one 3-minute
 # session, two of them the full cap. Give up early instead (ADR-066).
-VAD_NO_SPEECH_TIMEOUT_S: float = 3.0
+#
+# Counted from `capture start` to the FIRST VOICED FRAME, so this is the whole
+# budget for thinking before you speak. 3.0 s was too short in real use (the
+# owner, 2026-09-02: "up to 2 second pause at max, anymore and then no
+# response" — it reads shorter than it is because openWakeWord fires at the END
+# of the phrase and the capture clock starts there). Raised to 5.0 s, which is
+# affordable only because abandoning is now free: ADR-113 sends a capture that
+# heard nothing to `on_no_speech`, which skips STT and the turn entirely, so a
+# false wake no longer costs a flat ~600 ms of Whisper on silence (F26) on top
+# of the wait. OQ-64.
+VAD_NO_SPEECH_TIMEOUT_S: float = 5.0
 
 # Voice barge-in (FR-7). OFF by default since 2026-08-25 (ADR-064): the AEC
 # delivers only about -5 to -15 dB on this machine's real acoustic path

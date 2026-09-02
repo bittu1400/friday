@@ -251,12 +251,18 @@ def test_silent_capture_is_abandoned_early(monkeypatch):
     """ADR-066: a false wake starts a capture nobody speaks into. The
     end-of-speech timer can only arm AFTER speech, so such a capture ran to the
     15 s FR-4 cap with Friday deaf the whole time (FR-5). Measured live
-    2026-08-25: three in one 3-minute session, two of them the full cap."""
+    2026-08-25: three in one 3-minute session, two of them the full cap.
+
+    Since ADR-113 the bail-out lands on `on_no_speech`, not `on_speech_end`:
+    the finish path transcribes, and there is nothing here to transcribe. Which
+    callback it is, and that the daemon then skips the turn, is
+    `tests/test_no_speech_abandon.py`; this test keeps the timing contract."""
     ended = []
     calls = WakeCallbacks(
         on_wake=lambda: None,
         on_speech_end=lambda: ended.append("end"),
         on_barge=lambda: None,
+        on_no_speech=lambda: ended.append("no_speech"),
     )
     wl = make(score=0.0, voiced=False, idle=False, speaking=False, calls=calls)
     wl._arm()
@@ -267,7 +273,7 @@ def test_silent_capture_is_abandoned_early(monkeypatch):
     assert ended == [], "must not give up before the timeout"
 
     wl._on_frame(_frame())
-    assert ended == ["end"], "a capture with no speech at all must be abandoned"
+    assert ended == ["no_speech"], "a capture with no speech at all must be abandoned"
 
     # and it must be far cheaper than the 15 s cap it replaces
     assert quiet * wl.frame_ms / 1000 < config.MAX_CAPTURE_S

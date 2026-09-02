@@ -4706,3 +4706,83 @@ it can be wrong; sample until the window is longer than the phenomenon.
 work. Blocking the endpoint in `nftables` — needs root, invisible to the suite,
 and hides the behaviour rather than disabling it. Building onnxruntime from
 source without telemetry — enormous, for a variable that already exists.
+
+---
+
+## ADR-113 — A capture that heard nothing skips the turn, and the no-speech budget goes 3.0 s → 5.0 s
+
+**Status:** Accepted (2026-09-02). Answers **OQ-64**.
+
+**Context.** Immediately after the microphone session that closed OQ-39 and
+proved D3 fixed live, the owner reported the remaining rough edge:
+
+> *"I think, it could hold up to 2 second pause at max, anymore and then no
+> response."*
+
+Verified in code rather than from feel. `VAD_NO_SPEECH_TIMEOUT_S` was 3.0 s
+(ADR-066), and `friday/audio/wake.py:_on_frame` increments `_silent_frames` on
+**every** frame of a capture while `_heard_speech` latches on the first voiced
+one — so the budget is **3.0 s from `capture start` to the first voiced frame**,
+after which the capture is abandoned and nothing is spoken back. It reads
+shorter than 3.0 s because openWakeWord fires at the END of the wake phrase and
+the capture clock starts there, so the fire lag comes out of the user's budget.
+`VAD_MIN_SPEECH_S` does not eat into it.
+
+Distinct from the mid-sentence pause, which is `VAD_END_SILENCE_S = 0.8` and
+**truncates** the capture rather than abandoning it — a wrong answer instead of
+a silent one. Both were exercised in the OQ-39 session; the third capture there
+stripped 1.200 s of silence, which is that 0.8 s plus lead-in.
+
+**The real cost of a false wake was never the timeout.** ADR-066 gave up early
+but handed the abandoned capture to `on_speech_end` — the ordinary finish path.
+`_finish_capture` therefore ran a full turn on audio that by definition contains
+no speech: `_transcribe` puts silence through Whisper, whose cost is **flat in
+audio length** (F26 — 1.0 s of audio costs 556 ms, 5.0 s costs 688 ms, because
+it pads to a 30-second window), gets `""` back, and returns silently to IDLE.
+FR-5 means Friday is deaf for all of it. So a false wake cost the wait **plus**
+a fixed ~600 ms turn, and that surcharge is what made a longer wait look
+expensive.
+
+**Decision.** Both halves, together, because neither is worth much alone:
+
+1. **`VAD_NO_SPEECH_TIMEOUT_S: 3.0 → 5.0`.** This is the owner's complaint.
+2. **The bail-out routes to a new `WakeCallbacks.on_no_speech`**, and
+   `Daemon.on_no_speech` ends the capture, drops the buffer with the
+   `Recorder.reset()` that already existed, and goes straight back to IDLE. No
+   STT, no turn. The wake detector is live again within a frame.
+
+(2) is what pays for (1): the longer wait is affordable precisely because being
+wrong no longer costs a turn on top of it.
+
+**What was considered and REJECTED: re-arming the capture on a second wake.**
+This was the owner's stated preference and it does not survive contact with the
+code. `_heard_speech` latches on the first **voiced frame**; openWakeWord only
+crosses threshold ~0.8 s later, at the END of the phrase. So by the time a
+second "hey jarvis" could be detected, `_heard_speech` is already true — a
+repeated wake word during the wait **already** keeps the capture alive as
+ordinary speech, and FR-5 never swallows it. A re-arm gated on "nothing heard
+yet" could therefore never fire, and gating it any looser lets a command word
+that happens to score above threshold wipe the user's real command mid-capture.
+Shipping it would have been an unreachable branch — the exact defect shape of
+`cancel_reminder` (ADR-070), where the audit was right about the bug and wrong
+that anything could reach it. Reported back to the owner rather than built.
+
+**Consequences.**
+
+- A false wake now costs 5.0 s of deafness instead of 3.0 s + ~600 ms — call it
+  1.4 s worse in the bad case, in exchange for 2.0 s more thinking time in the
+  good one. The owner chose that trade.
+- `on_no_speech` defaults to a no-op on `WakeCallbacks`, so no caller outside
+  the daemon changed.
+- `tests/test_no_speech_abandon.py` is new and its FAIL path was demonstrated:
+  routing the bail-out back to `on_speech_end` fails it with
+  `At index 0 diff: 'speech_end' != 'no_speech'`. A check that cannot fail is
+  worthless in this repo, five times over.
+- `tests/test_wake.py::test_silent_capture_is_abandoned_early` asserted the old
+  callback and was updated; it keeps the timing contract and defers the routing
+  contract to the new file.
+- **Not measured live.** The daemon was restarted onto this code and the unit is
+  healthy, but no false wake has been observed since — the OQ-39 session
+  produced five real wakes and zero false ones, so the path this ADR optimises
+  has not been exercised at a microphone. `capture abandoned: no speech within
+  5.0s` in the journal is what confirms it.

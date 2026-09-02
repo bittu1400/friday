@@ -120,6 +120,7 @@ def _build(args, loop_holder: dict[str, asyncio.AbstractEventLoop]) -> tuple[Dae
             on_wake=_schedule(lambda: state_holder["d"].on_wake()),
             on_speech_end=_schedule(lambda: state_holder["d"].on_speech_end()),
             on_barge=_schedule(lambda: state_holder["d"].on_barge()),
+            on_no_speech=_schedule(lambda: state_holder["d"].on_no_speech()),
         )
         wake_listener = WakeListener(
             detector=wake_det,

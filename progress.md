@@ -217,9 +217,89 @@ ends and the capture clock starts there.
 Distinct from the mid-sentence pause, which is `VAD_END_SILENCE_S = 0.8` and
 **truncates** rather than abandons — a wrong answer instead of a silent one.
 
-Not changed. Raising it trades thinking time against deafness after a false wake
-(FR-5, one turn in flight), which is ADR-066's original tradeoff, so it is the
-owner's call: **OQ-64**, four options, default "leave it".
+Raising it trades thinking time against deafness after a false wake (FR-5, one
+turn in flight), which is ADR-066's original tradeoff, so it went to the owner:
+**OQ-64**, four options. **Answered the same session — see below.**
+
+### OQ-64 answered, ADR-113 shipped and deployed
+
+The owner chose the largest option: *raise it AND cut the cost of being wrong*.
+Both halves shipped. **The mechanism that option named did not**, and that is
+the part worth keeping.
+
+**What the code said when it was read.** The cost of a false wake was never the
+timeout. ADR-066 gave up early but handed the abandoned capture to
+`on_speech_end` — the ordinary finish path — so `_finish_capture` ran a full
+turn on audio that by definition contains no speech: Whisper on silence, whose
+cost is **flat in audio length** (F26), returning `""`, then a silent reset. A
+false wake cost the wait **plus** a fixed ~600 ms turn with Friday deaf
+throughout.
+
+**Shipped (ADR-113, FR-134):**
+
+```
+friday/config.py        VAD_NO_SPEECH_TIMEOUT_S  3.0 -> 5.0
+friday/audio/wake.py    WakeCallbacks gains on_no_speech (defaulted no-op);
+                        the ADR-066 bail-out schedules it instead of
+                        on_speech_end
+friday/daemon.py        Daemon.on_no_speech: end_capture, _recorder.reset(),
+                        state.reset() -- no STT, no turn
+friday/voice_main.py    wires it
+tests/test_no_speech_abandon.py   NEW, 5 checks
+```
+
+`Recorder.reset()` already existed; nothing new was written to discard audio.
+
+**REJECTED after reading `_on_frame`: re-arming the capture on a second wake.**
+`_heard_speech` latches on the first **voiced frame**; openWakeWord only crosses
+threshold ~0.8 s later, at the END of the phrase. So a repeated "hey jarvis"
+during the wait **already** keeps the capture alive as ordinary speech and FR-5
+never swallows it. A re-arm gated on "nothing heard yet" could never fire, and
+gating it looser lets a command word scoring above threshold wipe a real command
+mid-capture. That is an unreachable branch — the `cancel_reminder` shape
+(ADR-070), where the diagnosis was right and nothing could reach the code. Said
+so rather than built it.
+
+**The FAIL path was demonstrated, not asserted.** Routing the bail-out back to
+`on_speech_end`:
+
+```
+$ .venv/bin/python -m pytest -q tests/test_no_speech_abandon.py
+E         At index 0 diff: 'speech_end' != 'no_speech'
+FAILED tests/test_no_speech_abandon.py::test_silent_capture_routes_to_on_no_speech_not_on_speech_end
+1 failed, 4 passed in 0.09s
+```
+
+Restored: `5 passed`. `tests/test_wake.py::test_silent_capture_is_abandoned_early`
+asserted the old callback and was updated — it keeps the timing contract and
+defers the routing contract to the new file.
+
+**Gates after the change:**
+
+```
+.venv/bin/python -m pytest -q                573 passed (was 568; +5, +1 rewritten)
+.venv/bin/python -m friday.eval_harness      60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest          9/9 PASS, rc=0
+tests/test_injection.py                      1 passed (20/20 blocked)
+tests/test_egress.py                         8 passed
+just grammar + git diff --quiet grammars/    clean (byte-identical)
+```
+
+**Deployed, not just committed** (gotcha #3):
+
+```
+$ systemctl --user restart friday
+daemon started: Wed Sep  2 21:07:25 2026
+newest source: 2026-09-02+21:04:58 friday/audio/wake.py
+ActiveState=active  Type=notify  WatchdogUSec=10s  NRestarts=0
+```
+
+**NOT PROVEN LIVE.** The OQ-39 session produced five real wakes and zero false
+ones, so the abandon path has not been exercised at a microphone since the
+change. What confirms it is one line in the journal:
+`capture abandoned: no speech within 5.0s`. The cost of the trade, stated
+plainly: a false wake now costs 5.0 s instead of 3.0 s + ~600 ms — about 1.4 s
+worse in the bad case, for 2.0 s more thinking time in the good one.
 
 ---
 
@@ -3977,7 +4057,7 @@ block. **There is nothing left owed at a microphone before Phase 3.**
 Use the venv interpreter directly. These are the numbers as of this commit:
 
 ```bash
-.venv/bin/python -m pytest -q            # 568 passed, rc=0
+.venv/bin/python -m pytest -q            # 573 passed, rc=0
 .venv/bin/python -m friday.eval_harness  # 60/60 (100%), regressions 0
 .venv/bin/python -m friday.selftest      # 9/9 PASS, rc=0
 .venv/bin/python -m pytest -q tests/test_injection.py   # 20/20 blocked
@@ -3986,22 +4066,29 @@ Use the venv interpreter directly. These are the numbers as of this commit:
 .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
 ```
 
-### Owed to the owner before code: OQ-64
+### OQ-64 is ANSWERED and shipped — ADR-113, deployed 2026-09-02
 
-*"It could hold up to 2 second pause at max, anymore and then no response."*
-That is `VAD_NO_SPEECH_TIMEOUT_S = 3.0` (`friday/config.py:158`, ADR-066):
-`friday/audio/wake.py:299-316` counts **every** capture frame and latches
-`_heard_speech` on the first voiced one, so the budget is 3.0 s from
-`capture start` to the first voiced frame, and blowing it abandons the capture
-with nothing spoken back. Raising it trades thinking time against deafness after
-a false wake (FR-5). Four options are written up in **OQ-64**; the default is to
-leave it. **Do not change the constant without the answer.**
+The post-wake pause budget is now **5.0 s**, and an abandoned capture skips STT
+and the turn entirely (`WakeCallbacks.on_no_speech` → `Daemon.on_no_speech`),
+which is what makes the longer budget affordable. Full reasoning, including the
+re-arm mechanism that was **rejected as an unreachable branch**, is in ADR-113
+and the OQ-64 entry.
 
-Do not confuse it with `VAD_END_SILENCE_S = 0.8`, the mid-sentence pause, which
-truncates instead of abandoning.
+**The one thing it still owes is a live false wake.** Nothing has exercised the
+abandon path at a microphone since the change — the OQ-39 session had five real
+wakes and zero false ones. Watch for exactly this line:
+
+```
+capture abandoned: no speech within 5.0s
+```
+
+Do not confuse the two pause knobs: `VAD_NO_SPEECH_TIMEOUT_S` (5.0 s, before you
+speak) abandons; `VAD_END_SILENCE_S` (0.8 s, mid-sentence) truncates.
 
 ### Still owed, cheap, and NOT done at the microphone session
 
+- **ADR-113's abandon path** — one live false wake, to see
+  `capture abandoned: no speech within 5.0s` in the journal.
 - **OQ-57** — record the G12 vocabulary clips into `~/.cache/whisper-bench/clips`
   with `record.sh`, to test whether the widened `STT_HOTWORDS` actually helps.
 - **D17** — re-run `just bench-stt` in `balanced` more than once. STT p95 spans
@@ -4028,13 +4115,14 @@ audit.
 
 ### Questions owed. Do not re-ask what is answered.
 
-**Open:** **OQ-64** (the pause budget, new) · **OQ-57** (STT hotword efficacy) ·
-**OQ-59** (launch grace 400 → 150 ms?) · **OQ-60** (amend invariant #6 for STT
-on CUDA?) · **OQ-61** (the summarizer's invariant-#7 prompt-only enforcement) ·
-**OQ-63** (rule 7 egress probe) · **OQ-30**, **OQ-32**, **OQ-33** unchanged.
+**Open:** **OQ-57** (STT hotword efficacy) · **OQ-59** (launch grace
+400 → 150 ms?) · **OQ-60** (amend invariant #6 for STT on CUDA?) · **OQ-61**
+(the summarizer's invariant-#7 prompt-only enforcement) · **OQ-63** (rule 7
+egress probe) · **OQ-30**, **OQ-32**, **OQ-33** unchanged.
 
-**CLOSED 2026-09-02 night: OQ-39** — the live hands-free capture. **CLOSED
-2026-09-02 evening: OQ-62** — selftest WARN semantics.
+**CLOSED 2026-09-02 night: OQ-39** (the live hands-free capture) and **OQ-64**
+(the pause budget → ADR-113). **CLOSED 2026-09-02 evening: OQ-62** — selftest
+WARN semantics.
 
 **Do not re-ask D-1…D-8** — they are answered (design §0, ADR-098…107).
 
