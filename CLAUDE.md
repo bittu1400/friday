@@ -12,6 +12,41 @@ enum is generated from the XDG desktop entries and merged over the five
 curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
 and shell `Exec` entries are never offered.
 
+**>>> 2026-09-02: A FULL CODEBASE AUDIT HAS RUN. READ IT BEFORE ANYTHING ELSE.
+`audit-2026-09-02.md` (29 findings, F1-F29) and `design-2026-09-02.md` (8 owner
+decisions, 12 phases, 47 days). No code was changed in that session. Every gate
+below is still built and green — that was never the question. The audit asked
+whether Friday TELLS THE TRUTH and whether this shape can reach "everything on
+this laptop", and found FIVE trust-breaking defects plus a latency wall nobody
+had measured:**
+
+- **F1 — the panic switch does not stop 10 side-effecting paths.** Friday says
+  "I'm switched off." to an `open_app` and, in the same breath, types into your
+  editor and queries the network. FR-36 is annotated as violated in `spec.md`.
+- **F2 — chat denies capabilities that work.** `CHAT_SYSTEM` still says "open
+  five apps" one commit after ADR-097 made it 162. Measured live. And
+  `tests/test_prompt.py:73` asserts `"five apps" in low`, so **a test pins the
+  lie in place**.
+- **F3 — all ten `open_app` eval fixtures use the five curated ids.** Zero for
+  the 157 ADR-097 added. The gate that approved the widening cannot see it.
+- **F20 — `just selftest` prints `[PASSED]` with no mic, no LLM, and the panic
+  switch engaged.** WARN is not counted as failure. "8/8" counts checks that
+  RAN.
+- **F27 — in text mode, quiet mode and dictation speak success and do nothing.**
+  The TUI has no `DndManager` and no `DictationManager`. C1's shape again.
+- **F26 — STT cost is FLAT in audio length** (1.0 s of audio: 556 ms; 5.0 s:
+  688 ms, in `balanced`). Whisper pads to a 30-second window. **Streaming or
+  chunked STT gains nothing**, and that killed a latency target that had already
+  been committed to.
+
+**F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
+Do not fix them twice.
+
+**Decisions ADR-098…ADR-107. Questions still owed: OQ-59…OQ-62.**
+**Free win, 30 seconds, no code:** `powerprofilesctl set balanced` — measured
+1.6x on STT and 1.75x on TTS versus `power-saver` (ADR-106). `performance` was
+measured too and buys nothing.**
+
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
 review passes AND the live-voice pass. The 2026-08-26 audit is FULLY FIXED (all
 12 steps executed 2026-08-29, plus ADR-073/074 from Step 9's real-path run).
@@ -563,13 +598,24 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  96 ADRs
-                      (ADR-001..ADR-096; the count was wrong at 74 for weeks
+   adr.md             decisions + why + what they cost.  107 ADRs
+                      (ADR-001..ADR-107; the count was wrong at 74 for weeks
                       -- verify with `grep -c '^## ADR-' adr.md`).
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
                       keeps the reasoning behind every answered question)
    tech-stack.md      the pinned versions and what each piece is for
+   audit-2026-09-02.md
+                      THE CURRENT AUDIT.  29 findings, F1-F29, severity-ranked.
+                      Every claim is either MEASURED on this machine with the
+                      output pasted, or READ with a how-to-prove line.  Its
+                      section A lists what its own first draft got wrong; G is
+                      the one-line index.  Read this before touching anything.
+   design-2026-09-02.md
+                      THE PLAN.  8 owner decisions (section 0), 12 phases, 47
+                      days, every finding traced to a phase or an explicit
+                      deferral.  Section 11.1 carries the Phase 3 acceptance
+                      criteria and they are not optional.
    Alpha-ox-analysis.md
                       the 2026-08-26 audit.  A SNAPSHOT: its line numbers are
                       stale and some point into deleted code.  Read its
@@ -837,3 +883,16 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The incumbent passes this fixture, so the incumbent is right" | E29 asserted that "copy that to the clipboard" must dispatch. The incumbent "passed" by emitting `clipboard_set{text:"that"}` — **overwriting the user's clipboard with the literal pronoun** while speaking success. The challenger "failed" by refusing, which was correct. A fixture encodes a belief; check the belief before scoring a model against it. |
 | "It's a reasoning model, so set `--reasoning-format none`" | It does NOT suppress thinking — it moves raw thought INTO `message.content`, straight into history and audit rows (invariant #7). Use `--reasoning off`. `tests/test_model_config.py` now fails if either config carries the wrong one. |
 | "History is in the prompt, so anaphora just works" | It also lets Friday's own suggestion become her own command — a bare "hey jarvis" dispatched `open_app{editor}` 4/4. Plan without history first; confirm anything only history could supply (ADR-065). |
+| "The panic switch is engaged, so nothing can run" | `config.is_disabled()` is consulted in **one** place, `executor.execute`. Ten side-effecting paths bypass it: web_search, clipboard read AND write, dictation typing, preference write and forget, reminder create and cancel, note create, notify-send. Friday says "I'm switched off." to an `open_app` and types into your editor in the same breath (F1). A kill switch that kills some things is worse than none, because it is trusted. |
+| "`just selftest` says 8/8, so the system is healthy" | 8/8 is a count of checks that **ran**. `run_selftest` sets `has_fail` only on FAIL, and **WARN prints `[PASSED]`** — WARN is what you get when the panic switch is engaged, when there is no microphone, when llama-server is not running, and when socket binds cannot be audited (F20). `gpu_arch`'s own defect, living inside the tool built to catch it. |
+| "The persona was fixed last time, so it is right now" | D24 fixed `CHAT_SYSTEM` for `system_wifi`. One commit after ADR-097 widened the app enum 5 → 162, chat was again saying *"I cannot open Discord as it is not in my toolset"* while `open_app{discord}` worked (F2). The D24 coverage test checks action NAMES; the app enum is a parameter VALUE set. And `tests/test_prompt.py:73` asserts `"five apps" in low` — **a test now pins the lie in place.** |
+| "Chunk the audio so STT gets faster" | Whisper pads every input to a **30-second window**. Measured in `balanced`: 1.0 s of audio costs 556 ms, 5.0 s costs 688 ms. Transcribing a 1-second tail costs what the whole utterance costs, and `faster_whisper 1.2.1` has no streaming API (F26). This killed a 1.5 s latency target that had already been committed to, in writing, off an unmeasured assumption. |
+| "The launch returned quickly, so there is no latency there" | `_LAUNCH_GRACE_S = 0.4`, and a GUI app never exits, so the `wait_for` **always** runs the full grace. Measured: detached launch 402 ms, command 2 ms (F29). Launches and commands are different latency classes and every budget written before 2026-09-02 conflated them. |
+| "Read the governor to check the power profile" | `scaling_governor` reads `powersave` and `scaling_max_freq` reads `5400` in **all three profiles**. Only `powerprofilesctl get`, `/sys/firmware/acpi/platform_profile`, or `scaling_cur_freq` sampled UNDER LOAD tell them apart (F28). A profile check written the obvious way can never fail — write the FAIL-path test. |
+| "I added fixtures and the eval gate is green" | Regressions are `prev.get(fid) and not passed`. A **newly added** fixture has no baseline entry, so a failing new fixture is **never** a regression (F23). The "≥90%" gate the harness docstring promises exists nowhere in code — `main()` returns 1 only on regressions. Re-baseline after adding, and read the rate, not the exit code. |
+| "It is opt-in, so it does not need a confirm" | `clipboard_read` is gated because reading it aloud can voice a password. A screenshot leaks strictly more, and a misheard "look at my screen" would photograph it and describe it out loud. Opt-in is not a gate; a mishear is exactly what a gate is for (ADR-104). |
+| "One UI does this, so both do" | C1 was the TUI's confirm handler. One layer over, in the same file, `set_dnd` and `dictation_mode` still speak success and change nothing in text mode — the TUI has no `DndManager` and no `DictationManager`, and the **daemon** applies the state (F27). When you find a defect in one caller, grep the other one before you close it. |
+| "The summary is distilled, so no transcript reaches disk" | `distill_dialogue` sends the RAW dialogue to the model and writes the result to `session_summaries`. The only thing stopping verbatim quotes is a sentence in `DISTILL_SYSTEM` saying not to (F22). Invariant #7 is enforced on that path by the exact mechanism ADR-008 rejects for injection defence. |
+| "`argv[0]` is not on the denylist, so the command is safe" | Measured: `env python3 /tmp/x.py`, `flatpak run …`, `distrobox-enter … -- bash` and bare `python3` all PASS `assert_not_banned` (F5). Only `argv[0]` is inspected, and `env`/`flatpak`/`distrobox-enter` each execute an arbitrary following command. `~/.local/share/applications` is user-writable and already holds an `env`-prefixed entry. Resolve the EFFECTIVE binary through wrapper prefixes first. |
+| "The docs say that area is fixed, so start somewhere else" | The 2026-09-02 audit was told to ignore the docs and read the code cold. It found three defects the docs would have talked it out of — F2, F3 and F21 — because a doc records the FIX and not the REGRESSION. Read the code first; read the docs to write them up. |
+| "The number is close enough to write down" | v1 of that audit published "6 of 20" (it was 7, and one value was lost in sorting), "8 paths" (10), "700 ms" (816), and a 1.5 s target derived from an STT assumption a five-minute measurement disproved. Measure, THEN write the number down — and when you re-check, re-check your own work first. |

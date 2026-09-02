@@ -125,7 +125,7 @@ Firefox failed to open.
 | FR-33 | Risk classes: `read_only`, `reversible`, `irreversible`. Phase 1 ships only `read_only` and `reversible` | Registry test: no `irreversible` entries exist |
 | FR-34 | `irreversible` requires typed confirmation (never a spoken "yes"), showing tool name and salient args, with a 30 s timeout defaulting to cancel | Test exists and passes even though no such tool ships |
 | FR-35 | `run_script` does not ship in Phase 1. No registry entry exists | Registry test: `"run_script" not in REGISTRY` |
-| FR-36 | A panic control disables all execution — the file `~/.local/state/friday/DISABLED` OR the env var `FRIDAY_DISABLED` (ADR-034) — checked before every dispatch, fails closed | `test_executor::test_panic_switch_blocks_dispatch`; touch the file, dispatch, zero launches |
+| FR-36 | A panic control disables all execution — the file `~/.local/state/friday/DISABLED` OR the env var `FRIDAY_DISABLED` (ADR-034) — checked before every dispatch, fails closed. **VIOLATED IN CODE as of 2026-09-02 (audit F1): `config.is_disabled()` is consulted only in `executor.execute`, so TEN side-effecting paths run with the switch engaged** — web_search, clipboard read/write, dictation typing, preference write/forget, reminder create/cancel, note create, notify-send. Fixed in Phase 1. | `test_executor::test_panic_switch_blocks_dispatch`; touch the file, dispatch, zero launches. **Phase 1 adds a test per bypassed path, verified against the system (`wl-paste`, a scratch buffer, sqlite), not against Friday's own words.** |
 
 Phase 1 registry:
 
@@ -258,6 +258,33 @@ nowhere else. See ADR-027 and threat T2.
 | FR-111 | A desktop entry in a `Settings` category is launchable but CONFIRMED — it arms a `PendingAction` and never dispatches off a phrase match | ADR-097 · `tests/test_open_app_scope.py::test_settings_panel_is_confirmed_not_dispatched` |
 | FR-112 | A `Terminal=true` entry is wrapped in the curated terminal, and the launch env carries a UTF-8 `LANG`, without which a console program exits 1 and the terminal exits with it — a launch that reports ok and opens nothing | ADR-097 · `tests/test_open_app_scope.py::test_console_app_is_wrapped_in_the_terminal`, `tests/test_registry.py::test_env_omits_session_vars_when_absent` |
 
+### 2.1 PLANNED requirements — decided 2026-09-02, NOT built
+
+Decided in `design-2026-09-02.md`, recorded as ADR-098…ADR-107. They are listed
+here so the acceptance criterion exists **before** the code, per the working
+agreement. None of these is implemented; do not tick any of them from this
+table.
+
+| ID | Requirement | Acceptance | ADR |
+| :-- | :-- | :-- | :-- |
+| FR-113 | The panic switch is checked at **every** side-effecting entry, not only the executor, including the first-use approval write and every step of a multi-action plan | one test per path; each verified from the system, not from Friday's speech | — (fixes FR-36) |
+| FR-114 | One `Capability` record per capability; `PARAM_SCHEMA`, both grammars, both prompt regions, the confirm tier, the eval fixtures, `STT_HOTWORDS`, `habits.describe_action` and the audit row shape are all DERIVED from it | regenerated grammars **byte-identical** to the committed files; `just eval` 50/50 reg 0; `SYSTEM_POLICY` token count within ±5% of 1298; `turn.py` under 400 lines | ADR-099 |
+| FR-115 | A capability with fewer than two `examples` fails the test suite | add a stub capability, watch it go red | ADR-099 |
+| FR-116 | Confirm behaviour is derived from `Risk`; no confirm decision is hand-written in the router. `risk` has no default — a capability may not ship with it unset | the five hand-coded confirms are gone from `turn.py` and reproduced exactly by the tier; a test enumerates every capability and asserts its gate | ADR-100 |
+| FR-117 | A first-use approval is keyed on `(kind, subject, argv_sha256)`; if the argv behind an approved id changes, the approval does not apply. Voice may grant; only the keyboard may revoke | change the argv behind an approved id, assert Friday asks again; `just approvals forget <id>` | ADR-100 |
+| FR-118 | The model never supplies a filesystem path. `file_find{query}` returns at most five candidates with turn-pair-scoped ordinals; acting capabilities take an ordinal from a closed set | zero candidates speaks an outcome and never guesses; a ref cannot be replayed in a later turn | ADR-101 |
+| FR-119 | Hard delete is permanently banned; `file_trash` moves to `~/.local/share/Trash` and the spoken line says "moved to trash" | adversarial fixture: any delete phrasing fails closed to `none` | ADR-101, invariant #10 |
+| FR-120 | A plan carries 1–3 actions; any invalid element fails the WHOLE plan closed to `none`; steps pass no data to each other; `terminal` capabilities (`web_search`, `screen_look`, `file_find`, `run_recipe`) may not appear in a plan | grammar test + a test on the sequencer signature asserting no step output reaches a later step's params | ADR-102 |
+| FR-121 | `final.gbnf` is unchanged by multi-action: an untrusted turn still emits exactly one action named `none` | injection suite still 20/20 blocked | ADR-102, invariant #1 |
+| FR-122 | A recipe is owner-authored, takes no arguments, and its `argv` is a fixed list with `shell=False`. `id` matches `^[a-z][a-z0-9_]{0,31}$` and is validated before it reaches the grammar | a malformed id is refused at load and named; `just selftest` prints the count of `unsafe` recipes | ADR-103 |
+| FR-123 | `unsafe = true` forces `Risk.NAMED`, requires a `0600` user-owned file, and still refuses an irreversible resolved argv (`mkfs*`, `dd`, `fdisk`, `parted`, `shred`, `wipefs`) | a recipe naming a banned-irreversible binary is refused even with `unsafe` | ADR-103, invariant #10 |
+| FR-124 | A screen capture is UNTRUSTED input: the vision turn is `final.gbnf`-locked, cannot dispatch, is confirm-gated at `Risk.ALWAYS`, and the image is never written to disk | injection fixture rendered on screen must not dispatch; `grim` writes to stdout only | ADR-104, invariants #1/#7 |
+| FR-125 | The voiceprint score is recorded on every gated confirm and NEVER blocks until ADR-105's six conditions hold | audit rows carry a similarity column; a confirm below threshold still dispatches, and says nothing about it | ADR-105 |
+| FR-126 | The self-test FAILs outside the `balanced` power profile, and reads `powerprofilesctl get` or `/sys/firmware/acpi/platform_profile` — never `scaling_governor` or `scaling_max_freq`, which read identically in all three profiles | set `power-saver`, assert the check FAILs; assert it does not consult the governor | ADR-106 |
+| FR-127 | A WARN in the self-test does not print `[PASSED]` | engaged panic switch / absent llama-server produce `[DEGRADED]` and a non-zero exit | OQ-62 |
+| FR-128 | TTFA and per-stage durations are recorded unconditionally, without `FRIDAY_DEBUG`, and `duration_ms` is populated on every audit row | `SELECT tool_id, AVG(duration_ms) ... GROUP BY 1` returns non-zero for every tool that ran; `just stats` reports p50/p95 **by action class** | ADR-107 |
+| FR-129 | `just bootstrap` is idempotent and verifies every postcondition, including a running Docker daemon for SearXNG; `--check` performs no action and can FAIL | run `--check` on a machine missing a model and watch it fail | — |
+
 ---
 
 ## 3. Non-functional requirements
@@ -268,6 +295,15 @@ nowhere else. See ADR-027 and threat T2.
 | NFR-1b | TTFA — **chat** | **p50 5.0 s** (measured p50 4715 ms after ADR-094's 2-sentence cap) | **p95 > 7.0 s** |
 | NFR-1c | TTFA — **`web_search`** | tracked only, no target (network round-trip + grounding turn) | — |
 | NFR-2 | Text mode round trip, p95 | 1.2 s | 3.5 s |
+
+**Re-based 2026-09-02 (ADR-106/ADR-107).** Every figure above was measured in
+`power-saver`, which costs **1.6× on STT and 1.75× on TTS**. In `balanced`, and
+after streaming TTS and the launch-grace fix, the measured budget is
+**~1.62 s commands / ~1.80 s launches / ~2.52 s chat**. NFR-1's targets are
+restated against that column when streaming TTS lands — not before, because a
+target nothing has met yet is a wish. Note that **launches and commands are
+different classes**: a GUI launch carries a flat 402 ms executor grace
+(audit F29) that a command does not, and one aggregate number hides it.
 | NFR-3 | Peak VRAM under normal desktop load | <= 6.5 GB | 7.65 GB |
 | NFR-4 | Total Friday RSS | <= 3.5 GB | 6 GB |
 | NFR-5 | Cold start to ready | <= 45 s | 120 s |

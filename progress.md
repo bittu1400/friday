@@ -19,9 +19,8 @@ registry, persistence, voice out, voice in, search, conversation/memory,
 service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
 reminders/DND/briefings, action surface + dictation, and CPU speaker
 verification) implemented and verified.
-`uv run pytest` **497 passed** (450 on 2026-08-29; +26 fix-list Steps 1–2, +4
-TTS fallback, +4 model-config checks, +13 from the 2026-08-30 microphone
-session), `just eval` **50/50 (regressions 0)** — the fixture set was 28 until
+`uv run pytest` **520 passed** (497 before ADR-097's app-scope tests; verified
+again 2026-09-02 by the audit session), `just eval` **50/50 (regressions 0)** — the fixture set was 28 until
 2026-08-30, when D16 was fixed by widening it to every action in `PARAM_SCHEMA`
 (ADR-089),
 `just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
@@ -88,6 +87,253 @@ a human at a keyboard.
    G12 ACTION SURF [x]   <-- System (vol/bright/media/wifi) + Hyprland (ws/win) + notes + dictation + ban.
    G13 SPEAKER VER [x]   <-- 3D-Speaker/CAM++ (sherpa-onnx, CPU) 512-dim voiceprint + 10-utterance enroll.
 ```
+
+**2026-09-02 — A FULL CODEBASE AUDIT HAS RUN AND EVERY GATE ABOVE IS STILL
+TICKED.** All 14 gates are built and green; that was never the question. The
+audit asked a different one — *does Friday tell the truth, and can this shape
+reach "everything on this laptop"* — and found **29 findings, five of them
+trust-breaking**, plus a hard latency wall nobody had measured. Read
+`audit-2026-09-02.md` and `design-2026-09-02.md`, then the `>>> START HERE <<<`
+block. **No code changed in that session.** The gate checklist above is a record
+of what was BUILT; it is not a statement that it is all honest.
+
+
+---
+
+## SESSION 2026-09-02 (later) — FULL CODEBASE AUDIT + the road to (b). 29 findings, 10 ADRs, 8 owner decisions, 0 lines of code changed.
+
+**The owner's ask:** *"deeply audit this codebase and give me full proof todo
+list and the way I should do it… I want it to be stable, fast, secure,
+scaleable, reproducible, robust, reliable, maintainable, and user-centric…
+Ignore the docs for now. Just write what you want in the file from what you want
+and what you get from the code."*
+
+Then, after the first pass: *"re-check everything, from scratch. Do not miss
+anything at all."* Then: *"measure it in balanced and performance both."*
+
+**Deliverables, both in the repo root:**
+
+- **`audit-2026-09-02.md`** — 29 findings (F1–F29), severity-ranked, every claim
+  either MEASURED on this machine with output pasted or READ with a
+  how-to-prove line. Carries its own corrections table.
+- **`design-2026-09-02.md`** — the plan. 8 decisions, 12 phases, 47 days, every
+  finding traced to a phase or an explicit deferral with a reason.
+
+**No code was changed.** `git status` at the end: two untracked `.md` files and
+nothing else. `pytest` 520 passed, `eval` 50/50 reg 0, `selftest` 8/8 —
+unchanged, and re-run to prove it.
+
+### Why the docs were ignored on the first pass (owner's instruction, and it paid)
+
+Reading the code cold, without the docs, found **three defects that the docs
+would have talked me out of** — because the docs record the fix and not the
+regression:
+
+- **F2** — `CHAT_SYSTEM` still says "open five apps" one commit after ADR-097
+  widened the enum to 162. Measured live: *"I cannot open Discord as it is not
+  in my toolset"* — while `open_app{discord}` works. The D24 coverage test
+  checks **action names**; the app enum is a **parameter value set**, so the
+  widening walked straight past it. And `tests/test_prompt.py:73` asserts
+  `"five apps" in low`, so **a test pins the false claim in place**.
+- **F3** — all ten `open_app` eval fixtures use the five curated ids. **Zero**
+  for the 157 ADR-097 added. The gate that approved the widening cannot see it.
+- **F21** — `habits.describe_action` handles four tool_ids and returns `None`
+  for the other 21. **The fifth Phase-1 artifact**, after the eval fixtures
+  (D16), the chat persona (D24), `STT_HOTWORDS` (D26) and `prompt.py` (ADR-097).
+
+### The three findings that are already known defects — do NOT fix twice
+
+| audit | existing | |
+| :-- | :-- | :-- |
+| **F7** | **D14** | dictation does not pause the wake word; `grep -rn is_dictating` finds the property and nothing that tells `WakeListener` |
+| **F8** | **D13** | `stt.py:96` lacks `local_files_only=True`; HF metadata fetch at every daemon start |
+| **F9** | **D15** | `just test-egress` inspects `ss -ltn` — **listening** sockets. Confirmed a duplicate of `selftest.check_socket_binds`. |
+
+F15 supersedes D4+D10 (`file_open` aliases) with a real design. F18 subsumes D7
+/ OQ-42 (`get_time`). F6 is the other half of FR-107 — the 200-char cap is in
+the prompt and the code caps at 600.
+
+### The five S1s (trust-breaking), all measured
+
+1. **F1 — the panic switch does not stop 10 side-effecting paths.** With
+   `FRIDAY_DISABLED=1`:
+   ```
+   executor system_volume       -> disabled          (correct)
+   friday.tools.clipboard       consults is_disabled: False
+   friday.tools.typer           consults is_disabled: False
+   friday.proactive.notifier    consults is_disabled: False
+   friday.store.notes           consults is_disabled: False
+   friday.store.reminders       consults is_disabled: False
+   friday.turn                  consults is_disabled: False
+   friday.daemon                consults is_disabled: False
+   ```
+   Friday says *"I'm switched off."* to an `open_app` and, in the same breath,
+   types into your editor, overwrites your clipboard, reads it aloud, and
+   queries the network. FR-36 is annotated in `spec.md` as violated.
+2. **F2** — above.
+3. **F3** — above.
+4. **F20 — `just selftest` prints `[PASSED]` with no mic, no LLM, and the panic
+   switch engaged.** `run_selftest` sets `has_fail` **only** on `FAIL`; WARN
+   prints yellow and counts as success. Every one of those states returns WARN.
+   "8/8" counts checks that **ran**. It all genuinely passes today — this is
+   latent — but it is `gpu_arch`'s defect living inside the tool built to catch
+   `gpu_arch`.
+5. **F26 — STT cost is FLAT in audio length.** Whisper pads every input to a
+   30-second window. Same clip, truncated, `balanced`:
+   ```
+   1.0s audio -> 556 ms      3.0s audio -> 641 ms
+   2.0s audio -> 594 ms      5.0s audio -> 688 ms
+   ```
+   `faster_whisper 1.2.1` has no streaming API. **Every "make STT faster by
+   streaming it" plan is dead**, including the one in my own first draft.
+6. **F27 — in text mode, quiet mode and dictation speak success and do
+   nothing.** `grep -n "dnd|dictation|scheduler" friday/ui/tui.py` returns
+   **nothing**. `turn.py:297/355` return only the spoken line; the **daemon**
+   applies the state (`daemon.py:388-401`). The TUI never does. C1's exact
+   shape — two UIs, one wired — in the same file, one layer over.
+
+### What I got wrong, and corrected in the re-check
+
+The owner asked for a from-scratch re-check. It found **six errors in my own
+first pass**, which are listed at the top of both documents:
+
+| v1 said | truth |
+| :-- | :-- |
+| "6 of 20 voiceprint clips below threshold" | **7 of 20** — and v1 printed only 19 values; `0.898` was dropped in sorting |
+| panic switch misses "8 paths" | **10** — v1 merged remember/forget and omitted `cancel_reminder` |
+| planner "~700 ms" | **816 ms p50** — v1 measured only short app-opens |
+| file refs "turn-scoped" | the flow spans **two turns**; turn-scoped refs die before the user answers |
+| "the existing validator handles each element" | it rejects any top-level key but `action`; multi-action **requires** a validator change |
+| `screen_look` risk `NONE` | a screenshot leaks more than a clipboard, which **is** gated. Now `ALWAYS`. |
+
+**The lesson, and it is the one this project keeps paying for:** v1 committed to
+a 1.5 s latency target derived from an assumption about STT that a five-minute
+measurement disproved. **Measure, then write the number down.**
+
+### The eight decisions (working agreement rule 2 — asked as one batch)
+
+| # | Question | Owner's answer | Rejected |
+| :-- | :-- | :-- | :-- |
+| D-1 | Capability ceiling | **(b)** — typed capabilities + owner-authored recipes. **Hard cap**; (c) needs written go-ahead + an invariant amendment (ADR-098) | (a) alone: too slow to breadth. (c): repeals invariant #10 |
+| D-2 | File-op gate | **PTT + spoken confirm now**; voiceprint **essential, later** (ADR-105) | gating on the voiceprint as specified — measured 100% false-reject on a spoken "yes" |
+| D-3 | App confirm boundary | **First use, then remembered** (ADR-100) | T3-only; ask-every-time (confirm fatigue at 150 capabilities) |
+| D-4 | Multi-action | **Yes**, and a declined step asks whether to continue (ADR-102) | — |
+| D-5 | Latency target | **1.5 s action / 2.5 s chat, `balanced`** — re-based by F26/ADR-107 | 1.0/2.0 (needs CUDA STT); no target at all |
+| D-6 | Recipes | **Owner authors, no arguments** (ADR-103) | typed enum args; Friday-drafted recipes; free-text args |
+| D-7 | Screen vision | **Opt-in skill**, GPU-or-CPU by free capacity (ADR-104) | — |
+| D-8 | Bootstrap | **Required and verifiable** | a documented sequence |
+
+**One answer was pushed back on with data before it was accepted.** D-2 as asked
+was "voice-match every file operation". Measured first (ADR-105): a voiceprint
+built from all 20 real clips scores those same clips at **0.506–0.936**, with
+**7 of 20 below the 0.75 gate**, and short slices — what a spoken "yes" *is* —
+at **0.21–0.60**, every one below. The gate as specified rejects the owner every
+time. The owner then chose PTT + spoken confirm now, voiceprint later, and the
+six conditions for turning it on are in ADR-105.
+
+### The power-profile measurement (owner's request, ADR-106)
+
+Same harness, same 20 clips, same order, in each profile. Machine **returned to
+`power-saver`**, the profile it was found in.
+
+```
+                             power-saver        balanced     performance
+governor                       powersave       powersave       powersave
+cpu max MHz (sysfs)                 5400            5400            5400
+cpu cur MHz under load              2700            5160            5200
+
+STT p50 / p95 ms              1059 / 1142      653 /  699      643 /  724
+STT 1.0s / 5.0s audio          984 /  930      556 /  688      537 /  675
+Kokoro 117 chars ms / RTF     2452 / 0.263    1401 / 0.150    1337 / 0.143
+speaker embed 1s (ms)                 21              12              14
+planner p50 / min / max ms    818/795/873     691/656/1007    656/625/1002
+```
+
+Chat generation was measured and **discarded**: temperature 0.7 produced a
+different reply of a different length per run (54–130 chars). Not comparable.
+
+Four results:
+
+1. **`power-saver` costs 1.6× on STT, 1.75× on TTS.** Now measured on this
+   machine, not inherited from a document.
+2. **`performance` buys nothing** — +10 ms on STT p50 (1.5%) and **p95 worse**
+   (724 vs 699). Rejected. `balanced` is the target (ADR-106).
+3. **D17 is resolved, pending a repeat.** FR-11's gate is 800 ms; balanced p95
+   is **699 ms**. D17's 713–804 ms was `power-saver`. One run is not eight —
+   re-run to confirm.
+4. **The planner is NOT purely GPU-bound**, contrary to my own assumption:
+   818 → 691 ms, a **127 ms** CPU-side term.
+
+And a finding that came out of doing it (**F28**): `scaling_governor` reads
+`powersave` and `scaling_max_freq` reads `5400` **in all three profiles**. Only
+`powerprofilesctl get`, `/sys/firmware/acpi/platform_profile`, or
+`scaling_cur_freq` **under load** distinguish them. The self-test check I
+specified would, written the obvious way, **never be able to fail**.
+
+### Two things measured because a design decision depended on them
+
+**Multi-action is feasible on this stack** (ADR-102) — verified before deciding,
+not after:
+
+```
+"open my browser and turn the volume up"                 -> 2 actions, 1511 ms
+"open my browser, play some lo-fi, and turn the volume
+ down"                                                    -> 3 actions, 1662 ms
+   {"actions":[{"name":"open_app","params":{"app":"browser"}},
+               {"name":"youtube_search","params":{"query":"lo-fi music"}},
+               {"name":"system_volume","params":{"direction":"down"}}]}
+```
+
+GBNF `{0,2}` bounded repetition works on this llama.cpp build. **Cost: +109 ms
+on every single-action turn** (816 → 925 ms p50), which is why ADR-102 adds a
+conjunction-gated fast path.
+
+**Every GUI launch pays a flat 402 ms** (**F29**, ADR-107), measured with a
+synthetic `ToolSpec` over `/usr/bin/sleep` so no app was launched:
+
+```
+detach=True  (GUI launch): 402 ms  outcome=ok  duration_ms=402
+detach=False (command)   :   2 ms  outcome=ok  duration_ms=1
+```
+
+`_LAUNCH_GRACE_S = 0.4`, and a GUI app never exits, so the `wait_for` always
+runs the full grace. Launches and commands never had the same budget.
+
+### Evidence
+
+```
+$ .venv/bin/python -m pytest -q
+520 passed, 1 warning in 7.85s
+
+$ .venv/bin/python -m friday.eval_harness
+fixture-set revision: cbf807a3072f
+passed 50/50  (100%)
+known-failing: 0
+regressions vs baseline: 0
+
+$ .venv/bin/python -m friday.selftest
+[PASS] llama-server / searxng / gpu_arch / llm_on_gpu (7010 MiB) /
+       database (schema v3) / audio_devices / panic_switch / socket_binds
+[PASSED] All required system checks passed successfully.
+
+$ sqlite3 memory.db  -- 134 audit rows, 134 distinct request_id (D2 holds),
+                     -- 48 rows with duration_ms = 0 (F10)
+
+$ git status --porcelain
+?? audit-2026-09-02.md
+?? design-2026-09-02.md
+```
+
+### What this session did NOT do
+
+- Changed no code. Every finding is a report, not a fix.
+- Did not read `progress.md` / `adr.md` / `spec.md` as evidence during the audit
+  (the owner's instruction). They were read afterwards, to write these updates.
+- Did not test at a microphone. Every audio finding is a source or structural
+  finding. **D3's live hands-free capture is still owed and is still the first
+  thing to do at a microphone.**
+- Did not set the power profile persistently. The machine is in `power-saver`.
+- Did not commit. Both new documents are untracked.
 
 ---
 
@@ -3307,7 +3553,143 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (amended **2026-09-02**. **D3 IS FIXED IN CODE AND NOT PROVEN LIVE — that live confirmation is still the whole job.** Defects D1-D26; fixed: D1, D2, D3(code), D11, D12, D16, D19-D25.) <<<
+## >>> START HERE: NEXT SESSION (written **2026-09-02** after the full codebase audit) <<<
+
+**Read these two files before anything else. They are the plan:**
+
+- **`audit-2026-09-02.md`** — 29 findings (F1–F29), every claim measured or
+  traced. Its §A lists what the first draft of itself got wrong; §G is the
+  one-line index.
+- **`design-2026-09-02.md`** — 8 owner decisions (§0), 12 phases, 47 days,
+  §11.1 the Phase 3 acceptance criteria.
+
+Then `adr.md` **ADR-098…ADR-107**, which are this session's decisions with the
+rejected alternatives, and `open-questions.md` **OQ-59…OQ-62**, which are the
+four still owed.
+
+### The one-line summary
+
+Friday is a 25-action assistant with a hand-written dispatch chain and **five
+trust-breaking defects**. The order is **stop lying → make it measurable → make
+it extensible → make it wide → make it fast**, and it is not negotiable:
+Phase 4 without Phase 3 is seventeen new capabilities × **ten** edit sites,
+which is the arithmetic that produced every defect in the audit.
+
+### Do this first — 30 seconds, no code, −533 ms on every single turn
+
+```bash
+powerprofilesctl set balanced
+```
+
+Measured this session (ADR-106): `power-saver` costs **1.6× on STT** (1059 vs
+653 ms p50) and **1.75× on TTS**. `performance` buys nothing — +10 ms on p50 and
+a **worse** p95. The machine was left in `power-saver` because that is where it
+was found; setting it is the owner's action, not a code change.
+
+### Then: PHASE 1 — "stop lying". Pure code, no microphone needed.
+
+Ordered. Each item names its finding; the audit has the evidence and the fix
+sketch, `spec.md` §2.1 has the acceptance criterion (FR-113…FR-129).
+
+```
+1.1  ONE panic gate over all 10 side-effecting paths            F1  -> FR-113
+     web_search, clipboard read+write, dictation typing,
+     pref write+forget, reminder create+cancel, note create,
+     notify-send. Put it where the audit row is written; every
+     side effect already owes one, so they share a chokepoint.
+     PROVE IT PER PATH, against the system (wl-paste, sqlite),
+     never against Friday's own words.
+
+1.2  Persona truth                                              F2
+     Delete the app count from prompt.py:75 and prompt.py:149.
+     State the RULE instead. DELETE tests/test_prompt.py:73
+     (`assert "five apps" in low`) -- a test is pinning the lie.
+     Prove: chat.generate_reply(c, "can you open discord?") no
+     longer contains "cannot" / "not in my toolset". Paste it.
+
+1.3  A coverage test that could have caught F2                  F2
+     Must fail on ANY numeral app count in CHAT_SYSTEM, and must
+     cover enum VALUE classes, not just action names. Prove the
+     FAIL path by reverting 1.2.
+
+1.4  Eval fixtures for the scanned app tail                     F3
+     8-10 non-curated installed apps. Then RE-BASELINE: a new
+     fixture has no baseline entry, so a failing one can never
+     register as a regression (F23).
+
+1.5  "not installed" != "didn't understand"                     F3
+     `open steam` currently speaks "I didn't understand."
+
+1.6  local_files_only=True on WhisperModel        F8 == D13
+1.7  Rename test-egress -> test-binds; write a real one
+                                                  F9 == D15
+1.8  Dictation mutes wake (add is_muted to WakeListener)
+                                                  F7 == D14
+1.9  Enforce the 200-char chat cap in CODE                      F6
+1.10 selftest: WARN must not print [PASSED]              F20 -> OQ-62
+1.11 habits.describe_action covers every action                 F21
+1.12 Eval gate: enforce a rate AND fail an unbaselined fixture  F23
+1.13 Text-mode DND + dictation actually change state            F27
+```
+
+**F7/F8/F9 are D14/D13/D15.** Same defects, found independently. Do not fix
+them twice or open new ids.
+
+### Then Phase 2 (measurable), then Phase 3 (the Capability record)
+
+Phase 3 is the one that decides whether the goal is reachable. **Its safety net
+is in `design-2026-09-02.md` §11.1 and it is not optional:** the regenerated
+grammars must be **byte-identical** to the committed files, and `just eval` must
+stay 50/50 with 0 regressions. If either moves, the refactor changed behaviour
+and is wrong.
+
+### Four questions are owed and nothing else blocks on them
+
+**OQ-59** launch grace 400 → 150 ms? · **OQ-60** amend invariant #6 for STT on
+CUDA? · **OQ-61** the summarizer's invariant-#7 prompt-only enforcement ·
+**OQ-62** selftest WARN exit semantics. Each carries a default so Phase 1 is not
+blocked. **Do not re-ask D-1…D-8 — they are answered** (design §0, ADR-098…107).
+
+### STILL OWED AT A MICROPHONE — unchanged, and the audit did not touch it
+
+**D3: one live hands-free capture.** Say "hey jarvis", speak, stop, and watch
+whether the capture ends on silence or runs the 15 s cap. Log the voiced
+fraction at `wake.py:_on_frame`. That is OQ-39. If it still runs the cap, the
+suspect is **D18** (the 16 kHz software AEC reference on a 48 kHz SOF-DSP
+device), not the detector.
+
+Same session: record the G12 clips into `~/.cache/whisper-bench/clips` with
+`record.sh` (OQ-57), and **re-run `just bench-stt` in `balanced`** to confirm
+D17 with more than one run.
+
+The rest of the old fix list is unchanged and now has better homes:
+**D4+D10** are superseded by the filesystem design (design §5, FR-118);
+**D7** by `local_time` (design §2); **D5**, **D6**, **D8**, **D9** and
+**OQ-30** are untouched and still owed.
+
+### Gate commands — `uv` is NOT on PATH here
+
+```bash
+.venv/bin/python -m pytest -q            # 520 passed
+.venv/bin/python -m friday.eval_harness  # 50/50, regressions 0
+.venv/bin/python -m friday.selftest      # 8/8 -- but see F20 before trusting it
+```
+
+To watch a live voice session you MUST use
+`env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice`, and stop the service first
+(`systemctl --user stop friday`) — two daemons fight over the mic and the PTT
+socket.
+
+### The two documents are untracked and nothing is committed
+
+`audit-2026-09-02.md` and `design-2026-09-02.md` are new and unstaged, as are
+the edits to `adr.md`, `spec.md`, `open-questions.md`, `progress.md` and
+`CLAUDE.md`. Commit them before starting Phase 1 so the plan and its execution
+are separable in the history.
+
+---
+
+## >>> (superseded 2026-09-02 by the block above) START HERE (D3 fixed in code, not proven live) <<<
 
 ### Added 2026-09-02 — what changed, and what did NOT
 

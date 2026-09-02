@@ -3955,3 +3955,501 @@ on the scan.
 from the compositor: `loupe` opened a window
 (`org.gnome.Loupe | Image Viewer`, pid 66160) and `btop` opened one after the
 `LANG` fix (`foot -e btop`, pid 66805) — both closed afterwards.
+
+---
+
+## ADR-098 — The capability ceiling is option (b): typed capabilities plus an owner-authored command library
+
+**Date:** 2026-09-02
+**Status:** Accepted
+**Context:** The owner's goal is "Friday can do everything on this laptop, and I
+can trust it with anything in scope". A 2026-09-02 audit
+(`audit-2026-09-02.md`) established that the current shape — 25 actions through
+19 hand-written `if plan.name ==` branches — will not reach that. Three
+coherent ceilings were put to the owner:
+
+- **(a)** typed capabilities only, extended to hundreds of records.
+- **(b)** (a) **plus** a curated command library the owner authors, which
+  Friday can *select* by id but never compose.
+- **(c)** arbitrary shell behind a confirm.
+
+**Decision.** **(b), with a hard cap there.** Option (c) is out of scope and
+stays out until the owner says otherwise **in writing**, with invariant #10
+amended first. The design is written now (`design-2026-09-02.md` §4) and built
+when the phases before it land.
+
+**Consequences.** Friday can be taught a repeatable task without the model ever
+composing a command — the recipe's argv is fixed at author time by a human, and
+the model supplies only an id. The cost is that every genuinely new *kind* of
+capability is still a code change, which is the friction ADR-007 chose
+deliberately. Four things (b) may never grow into are enumerated in
+`design-2026-09-02.md` §4.6, written down so a later session cannot drift into
+(c) by increments.
+
+**Rejected:** (a) alone — too slow to reach breadth for a daily driver.
+(c) — it repeals invariant #10 and makes every prompt-injection surface a
+remote-code-execution surface.
+
+---
+
+## ADR-099 — One `Capability` record; the schema, both grammars, both prompts, the confirm tier, the fixtures and the hotwords are DERIVED
+
+**Date:** 2026-09-02
+**Status:** Accepted (design; built in Phase 3)
+**Context:** A capability currently lives in **nine** places: `PARAM_SCHEMA`,
+`SYSTEM_POLICY`, `CHAT_SYSTEM`, the tool registry, a `turn.py` branch, that
+branch's hand-written confirm, an eval fixture, `test_prompt.py`'s coverage map,
+and `STT_HOTWORDS` — plus `habits.describe_action`, making ten.
+
+Every recent defect is a site someone skipped:
+
+| defect | the site that was missed |
+| :-- | :-- |
+| D16 | eval fixtures (20 of 28 actions had none) |
+| D24 | `CHAT_SYSTEM` (`system_wifi` missing since G12) |
+| D26 | `STT_HOTWORDS` (no G12 vocabulary) |
+| ADR-097 | `prompt.py` (still said "exactly one of these five ids") |
+| F2 (audit) | `CHAT_SYSTEM` again, one commit after ADR-097 — **and a test pinned the stale claim**: `tests/test_prompt.py:73` asserts `"five apps" in low` |
+| F3 (audit) | eval fixtures again — **zero** for the 157 ids ADR-097 added |
+| F21 (audit) | `habits.describe_action` — handles 4 tool_ids, `None` for the other 21 |
+
+The problem is not discipline. It is that there are ten places.
+
+**Decision.** One frozen `Capability` record per capability, carrying `id`,
+`params`, `summary` (the planner prompt line), `persona` (the chat prompt
+clause), `examples` (**required**, ≥2, which become eval fixtures), `risk`,
+`subject`, `hotwords`, `describe`, `audit`, `handler`, `plannable` and
+`terminal`. `PARAM_SCHEMA`, `plan.gbnf`, `final.gbnf`, both prompt regions, the
+confirm decision, the fixture set, `STT_HOTWORDS`, `describe_action` and the
+audit row shape are all **derived**, each with a test asserting the derivation.
+
+**Consequences.** The persona can no longer contradict the schema **because it
+is the same string** — F2 closed by construction, not by a test someone has to
+remember. A capability with empty `examples` fails the suite, so F3 cannot
+recur. `risk` becomes load-bearing instead of decorative (it currently has
+exactly one use, `tests/test_registry.py:12`).
+
+The safety net for the refactor is stated in `design-2026-09-02.md` §11.1: the
+regenerated grammars must be **byte-identical** to the committed files and
+`just eval` must stay 50/50 with 0 regressions. A refactor that moves either
+changed behaviour and is wrong.
+
+**Cost.** Roughly eight days that ship no user-visible capability, and a period
+where the prompt is machine-generated and must be re-read by a human once.
+**This is why it must come before Phase 4:** seventeen new capabilities times
+ten edit sites is the arithmetic that produced every defect above.
+
+---
+
+## ADR-100 — Five risk tiers, and a first-use allowlist keyed on an argv fingerprint
+
+**Date:** 2026-09-02
+**Status:** Accepted (design; built in Phase 3)
+**Context:** ADR-057's three-tier confirm was written for a handful of
+disruptive actions. With 162 apps and a filesystem surface coming, a
+hand-written confirm per branch is a defect generator, and a strict
+"confirm everything risky" policy makes Friday ask constantly.
+
+The owner was given the measured tier table for this machine (103 distinct
+apps) and chose: **ask on first use, then remember.**
+
+**Decision.** Risk is a **field on the capability**, not code in the router:
+
+```
+NONE       read-only. never confirms.
+LOW        reversible, undramatic. never confirms.
+FIRST_USE  confirms once per subject, then remembered.
+ALWAYS     confirms every time.
+NAMED      confirms every time AND speaks the consequence.
+```
+
+`NAMED` exists because "Are you sure?" is not informed consent when the question
+is *which* file moves *where*.
+
+App tiers, from the measured scan: **T1 → FIRST_USE (85)**, **T2 → ALWAYS (13)**
+(the real config panels), **T3 → NAMED (5)** — `timeshift`,
+`oracle_virtualbox`, `debian_box`, `forgetales_on_debian_box`,
+`android_file_transfer_mtp`. The current code gates all 28 `Settings`-category
+entries including `about_xfce` and `fcitx_5_migration_wizard`; that noise goes.
+
+Approvals live in a new table with **`argv_sha256`**, and that column is not
+optional. App ids are derived from the `.desktop` `Name`
+(`desktop.app_key(name)`) and `scan()` resolves key collisions with
+`setdefault` — first wins. So two applications can normalise to one id, and an
+uninstall followed by an install can silently hand a stored approval to a
+**different binary**. If the argv behind an approved id has changed, the
+approval does not apply and Friday asks again.
+
+**Consequences.** Voice can grant; **only the keyboard can revoke**
+(`just approvals list | forget <id> | reset --yes`), mirroring ADR-036's split.
+Approvals are never swept by retention — they are user intent, like preferences.
+The panic switch blocks the **approval write**, not merely the launch.
+
+**Rejected:** ask for T3 only (config panels open silently, which the owner did
+not want); ask every time (confirm fatigue at 150 capabilities).
+
+---
+
+## ADR-101 — Filesystem access is resolve-then-choose; the model never supplies a path
+
+**Date:** 2026-09-02
+**Status:** Accepted (design; built in Phase 4b)
+**Context:** `file_open` handles three hardcoded aliases and matches by
+substring, first key wins — so `"my notes and todo"` resolves to `notes`
+(audit F15). The owner wants real file access. Invariant #2 forbids the model
+supplying a path.
+
+**Decision.** A two-step, code-mediated resolution:
+
+1. `file_find{query}` — `query` is text and **never** becomes a path, an argv
+   element, or a glob. Code searches a closed root set and returns at most five
+   candidates.
+2. Each candidate gets an **ordinal**, held in a **pending selection** — the
+   same slot, the same 30-second window and the same barge-in clearing as a
+   `PendingAction`.
+3. `file_open{ref}` / `file_move{ref, dest}` take an **ordinal from a closed
+   set**; code maps it to the real path.
+
+The path exists only in code. The model sees titles and ordinals.
+
+**Root set:** `~/Documents ~/Downloads ~/Pictures ~/Videos ~/Music ~/Desktop
+~/Projects`. Excluded unconditionally: any dotfile or dot-directory, `~/.ssh`,
+`~/.gnupg`, `~/.local/state/friday`, anything inside `.git/`, anything mode
+`0600` or stricter, and any symlink whose target leaves the root set.
+
+Search is an **index** (SQLite FTS over name + mtime) on a debounce, not a live
+`find` — a `find` across 510 GB on the event loop is deafness.
+
+**Writes** (`file_move`, `file_rename`, `file_trash`) are `NAMED`, and the
+confirm names source **and** destination. **Hard delete stays permanently
+banned** (invariant #10); `file_trash` moves to `~/.local/share/Trash` — which
+is reversible — and the spoken line says "moved to trash", never "deleted".
+
+**Consequences.** Zero candidates is a spoken outcome, never a guess. A ref
+cannot be replayed, guessed, or carried into a later turn. The same
+resolve-then-choose shape is reused for every runtime-discovered target set
+(Bluetooth devices, audio sinks, windows) — one pattern, learned once.
+
+**Note (design correction).** The first draft called refs "turn-scoped". The
+flow spans **two turns** — find, speak, choose — so a turn-scoped ref would be
+dead before the user could answer. Pending-scoped is the correct lifetime.
+
+---
+
+## ADR-102 — Multi-action turns, bounded at three, with terminal capabilities and no data flow between steps
+
+**Date:** 2026-09-02
+**Status:** Accepted (design; built in Phase 4c)
+**Context:** One action per turn is the difference between a voice shortcut and
+an assistant. The owner asked for multi-action, and for a declined step to ask
+whether to continue rather than silently abort the rest.
+
+**Measured feasible on this stack** before deciding (2026-09-02, live server):
+
+```
+ "open my browser and turn the volume up"              -> 2 actions, 1511 ms
+ "open my browser, play some lo-fi, and turn the
+  volume down"                                         -> 3 actions, 1662 ms
+```
+
+GBNF bounded repetition `{0,2}` is supported by this llama.cpp build; an
+explicit-alternation form behaves identically.
+
+**Decision.** `plan.gbnf` gains an `actions` array capped at **3**.
+`final.gbnf` **does not change** — a turn that consumed untrusted data still
+emits exactly one action named `none`.
+
+Four rules, each a test:
+
+1. **The validator changes, and the single-action form is REMOVED.**
+   `validate()` currently rejects any top-level key but `action`; that check is
+   what stops AS-4. It becomes: exactly one top-level key `actions`, a list of
+   1–3, each element validated through the existing per-action path, and **any**
+   element failing fails the **whole plan** closed to `none`. Two accepted
+   shapes would be the C1 defect (two implementations of one protocol) waiting
+   to happen.
+2. **Steps pass no data to each other.** Not now, not later. Every step's params
+   come from the plan the model emitted **before** any step ran. If a later
+   change let step 2 read step 1's output, an untrusted search result could
+   steer a dispatch — the exact attack T1 exists to prevent.
+3. **Terminal capabilities may not appear in a plan at all.** `web_search`,
+   `screen_look`, `file_find` and `run_recipe` carry `terminal = True`. The
+   first two consume untrusted data; the third needs a user turn in the middle;
+   the fourth is (b)'s escape hatch and stays a deliberate single confirmed act.
+4. **At most one gated step per plan.** A three-step plan with two confirms is
+   worse than three separate commands. With two or more, run the ungated prefix
+   and say "the rest needs confirming — say it again on its own".
+
+**Execution.** The panic switch is checked **before each step**. Each step
+writes its own audit row sharing a `plan_id`. A failure stops the plan. A
+declined step asks *"Stop here, or carry on with the rest?"*. FR-5 (one turn in
+flight) covers the **whole plan**.
+
+**A mid-plan confirm needs a plan cursor.** The daemon's `_pending` is a single
+slot holding one `PendingAction`; it becomes
+`(action, remaining_steps, plan_id)`, and its 30-second expiry aborts the
+**whole plan**, saying so.
+
+**Cost, measured:** the multi-action grammar adds **+109 ms to every
+single-action turn** (816 → 925 ms p50). Mitigated by a fast path: route to the
+multi grammar only when the utterance carries a coordinating token ("and",
+"then", ",", "also"). The heuristic fails **safely** — a missed conjunction
+costs the second action and the user repeats it; it can never cause an extra
+action.
+
+---
+
+## ADR-103 — The command library: the owner authors, no arguments, and `unsafe` is explicit and expensive
+
+**Date:** 2026-09-02
+**Status:** Accepted (design; built in Phase 4d)
+**Context:** ADR-098 chose option (b). The owner then chose the strictest of the
+four authoring models offered: **owner authors, no arguments.**
+
+**Decision.** Recipes are TOML files in `~/.config/friday/recipes/`, dir `0700`,
+files `0600`, enforced on read the way `store/db.py` enforces the database.
+They carry `id`, `name`, `description`, `argv`, `risk`, `consequence`, `unsafe`.
+`argv` is an **argv list, `shell=False`** and fixed at author time. The model
+supplies only a recipe **id** from a closed enum.
+
+A recipe needing a pipeline points at a **script the owner wrote**. The shell
+lives in a file a human authored, read and saved; Friday assembles nothing.
+**That is the whole difference between (b) and (c).**
+
+**Validated at load, because an `id` becomes a grammar enum member:** `id` must
+match `^[a-z][a-z0-9_]{0,31}$` and not collide with an existing capability or
+app id; `argv` must be a non-empty list of strings whose `argv[0]` resolves;
+`consequence` is required when `risk` is `named`. A malformed id could otherwise
+corrupt `plan.gbnf`.
+
+**Recipes are read once at startup.** Editing one requires a daemon restart.
+`just recipes reload` is deliberately **not** provided: a live enum swap during
+an in-flight turn is a race this project has already paid for twice.
+
+**`unsafe = true`.** The ban list blocks `rm`, `pacman`, `systemctl`, `sudo`, so
+a library that cannot touch any of those is not useful — but a silent bypass
+would make (b) into (c). So the bypass is explicit, per recipe, set by hand, and
+expensive: it is **forced to `Risk.NAMED`** regardless of the file, the file
+must be `0600` and user-owned or it is refused at load with a spoken reason,
+`just recipes list` marks it, and **`just selftest` prints the unsafe count as
+its own line** so it is never invisible.
+
+**Still forbidden even with `unsafe`:** anything irreversible. `unsafe` widens
+the *binary denylist*; it does not repeal invariant #10. Concretely the executor
+still refuses a resolved argv naming `mkfs*`, `dd`, `fdisk`, `parted`, `shred`
+or `wipefs`. Package management, service control and `rm` become reachable;
+disk destruction does not.
+
+**Rejected:** typed enum arguments (more useful, but it generalises the ADR-027
+exception a second time and the owner chose stricter); Friday drafting recipes
+for approval (the model would be writing shell); free-text arguments (that is
+option (c) in a costume).
+
+---
+
+## ADR-104 — A screenshot is untrusted data: screen vision is `final.gbnf`-locked and confirm-gated
+
+**Date:** 2026-09-02
+**Status:** Accepted (design; built in Phase 6)
+**Context:** The owner asked for screen vision as an **opt-in skill** — invoked
+only when explicitly asked — and for it to run on "whichever is free", CPU or
+GPU.
+
+**Decision, and it is the load-bearing part:** **text on screen can be
+attacker-authored** — a web page, a chat message, an email. A vision turn is
+therefore exactly a `web_search` turn:
+
+- locked to **`final.gbnf`**, so it **cannot dispatch**, structurally, whatever
+  the screen says;
+- output sanitized before speech, as in `grounding.py`;
+- never written to disk (invariant #7): `grim` to stdout, held in RAM, dropped
+  at end of turn;
+- `terminal = True` (ADR-102) — never a step in a multi-action plan.
+
+**Risk is `ALWAYS`, not `NONE`.** `clipboard_read` is gated (ADR-068a) because
+reading it aloud can voice a password; **a screenshot leaks strictly more than a
+clipboard**. A misheard trigger would photograph the screen and describe it out
+loud. Being opt-in is not a substitute for a gate — a mishear is exactly what a
+gate is for.
+
+**Placement.** Per invocation: GPU if free VRAM ≥ footprint + margin, else CPU.
+Measured 2026-09-02: **1131 MiB VRAM free** (llama-server holds 7010 of 8151)
+and **~4 GiB system RAM free**. Honest expectation: **CPU almost always**, so a
+CPU-viable model must be chosen first. Model selection is its own ADR-041 drill.
+Hard constraint: `onnxruntime-gpu` in this venv would break invariant #6, so a
+GPU path needs a separate process or an amendment.
+
+---
+
+## ADR-105 — The voiceprint gate is deferred on measured evidence; the hook ships and logs
+
+**Date:** 2026-09-02
+**Status:** Accepted
+**Context:** The owner asked that file operations require **both** a spoken
+confirm **and** a voiceprint match, so that only they can move a file.
+
+Measured before agreeing (2026-09-02). Best case: voiceprint built from **all
+20** real DMIC clips, then those same clips scored against it — training data as
+test data. Threshold 0.75.
+
+```
+full clips (2.0-7.0s), same speaker, own training data:
+  0.506 0.562 0.576 0.602 0.631 0.654 0.662 0.773 0.784 0.801
+  0.808 0.825 0.831 0.877 0.889 0.891 0.896 0.898 0.912 0.936
+  -> 7 of 20 BELOW threshold.
+
+short slices, i.e. what a spoken "yes" is:
+  0.4s: 0.224-0.365    0.6s: 0.208-0.344
+  1.0s: 0.216-0.465    1.5s: 0.356-0.603
+  -> every one below 0.75. 100% false reject.
+```
+
+The model does **not** crash on short audio (10–30 ms on 0.3–2.5 s, CPU; the
+SIGSEGV recorded in ADR-088 is an NPU-only artefact). The problem is that half a
+second of one word does not carry enough voice, and 0.75 was never calibrated
+against data. There is also a **content mismatch**: enrollment reads ten long
+scripted sentences while verification would score a short natural reply.
+
+**Decision.** The gate ships as **PTT press + spoken confirm naming the
+consequence**. The PTT key is a physical presence proof — someone is at the
+keyboard — and on this hardware it is a stronger signal than the voiceprint.
+`SpeakerVerifier` runs on **every gated confirm anyway** and writes its
+similarity score into the audit row. It **never blocks**. After a few weeks that
+column *is* the calibration dataset: real voice, real mic, real confirm phrases.
+
+**Six conditions before the gate turns on** (owner: "the voiceprint is
+essential, just later"):
+
+1. A voiceprint is enrolled — **none exists today**.
+2. Threshold chosen from ≥200 logged real confirms, not a constant.
+3. Measured false-reject rate **below 2%** on the owner, from that data.
+4. At least one **impostor sample** exists, proving the threshold rejects
+   something. A threshold that has never rejected anyone is not a control.
+5. Verification runs on the **command utterance** (2–7 s), not the 0.5 s "yes".
+6. The failure mode is decided in writing: fail **closed** once enrolled. Today
+   it fails **open**, which is worse than absent — it invites the assumption
+   that it works.
+
+**Consequences.** The gate is not dropped; it is being built on evidence. Until
+all six hold, the score is logged and ignored.
+
+---
+
+## ADR-106 — `balanced` is the power profile, measured against both alternatives; `performance` is rejected
+
+**Date:** 2026-09-02
+**Status:** Accepted. Supersedes the assumption in ADR-087, which named
+`balanced` as the target without measuring `performance`.
+**Context:** ADR-087 made `balanced` the benchmark profile after finding that
+`power-saver` had silently reversed an external audit's verdict. It never
+measured `performance`. The owner asked for both.
+
+**Measured 2026-09-02** — same harness, same 20 clips, same order, machine
+returned to the profile it was found in:
+
+```
+                             power-saver        balanced     performance
+governor                       powersave       powersave       powersave
+cpu max MHz (sysfs)                 5400            5400            5400
+cpu cur MHz under load              2700            5160            5200
+STT p50 / p95 ms              1059 / 1142      653 / 699       643 / 724
+Kokoro 117 chars, ms / RTF    2452 / 0.263    1401 / 0.150    1337 / 0.143
+planner p50 ms                       818             691             656
+speaker embed 1s, ms                  21              12              14
+```
+
+**Decision.** **`balanced`.** `power-saver` costs **1.6× on STT** and **1.75× on
+TTS**. `performance` improves STT p50 by 10 ms (1.5%) and makes **p95 worse**
+(724 vs 699) — inside run-to-run noise — for thermal and battery cost. It buys
+nothing.
+
+**Three things this settles beyond the choice:**
+
+1. **D17 is resolved, pending a repeat.** FR-11's gate is 800 ms; balanced STT
+   p95 is **699 ms** on the 20-clip corpus. D17 recorded 713–804 ms over eight
+   runs — that was `power-saver`. One run is not eight; re-run to confirm.
+2. **The planner is NOT purely GPU-bound**, contrary to the assumption in the
+   audit's first draft: p50 moves 818 → 691 ms, a **127 ms** CPU-side term
+   (tokenization, HTTP, sampling, grammar evaluation).
+3. **The profile is invisible to every signal a check would naturally use**
+   (audit F28). `scaling_governor` reads `powersave` and `scaling_max_freq`
+   reads `5400` in **all three**. Only `powerprofilesctl get`,
+   `/sys/firmware/acpi/platform_profile`, or `scaling_cur_freq` **sampled under
+   load** distinguish them. A self-test profile check written against the
+   governor **can never fail** — the `gpu_arch` defect exactly. Write the
+   FAIL-path test.
+
+**Consequences.** `selftest` gains a check that FAILs outside `balanced`, using
+`powerprofilesctl`. Every latency figure in this project is re-based on the
+balanced column. The machine was left in `power-saver`, the profile it was found
+in; setting it persistently is the owner's action.
+
+---
+
+## ADR-107 — TTFA is budgeted per action class, and launches carry a 402 ms grace nobody had named
+
+**Date:** 2026-09-02
+**Status:** Accepted. Extends ADR-096 (TTFA per action class) with the measured
+launch term and re-bases NFR-1 on ADR-106's profile.
+**Context:** The owner set a target of **1.5 s** for a direct action and
+**2.5 s** for chat. The first budget written for it assumed streaming STT and
+one budget for all direct actions. Both were wrong.
+
+**Two measurements changed the shape.**
+
+**(1) STT cost is flat in audio length (audit F26).** Same clip, truncated, in
+`balanced`:
+
+```
+  1.0s audio -> 556 ms      3.0s audio -> 641 ms
+  2.0s audio -> 594 ms      5.0s audio -> 688 ms
+```
+
+Whisper pads every input to a **30-second window**: ~900 ms of fixed work in
+`power-saver`, ~500 ms in `balanced`, plus ~50 ms per second of real audio.
+Transcribing a 1-second tail costs what the whole utterance costs.
+`faster_whisper 1.2.1` exposes no streaming API. **Chunked or streaming STT
+gains nothing here, at any clock speed.** The wall is architectural.
+
+**(2) Every GUI launch pays a flat 402 ms (audit F29).**
+`executor._LAUNCH_GRACE_S = 0.4`, and a GUI app never exits, so the `wait_for`
+**always** runs the full grace:
+
+```
+  detach=True  (GUI launch): 402 ms   outcome=ok   duration_ms=402
+  detach=False (command)   :   2 ms   outcome=ok   duration_ms=1
+```
+
+So launches and commands never had the same budget, and every earlier table
+conflated them.
+
+**Decision.** Budget per action class, in `balanced`, after streaming TTS and
+the single-action fast path:
+
+| stage | command | launch | chat |
+| :-- | --: | --: | --: |
+| STT p50 | 653 | 653 | 653 |
+| planner p50 | 691 | 691 | 691 |
+| execute | 2 | **402** | — |
+| chat generation | — | — | ~900 |
+| TTS **first chunk**, streamed | 224 | ~250 | ~224 |
+| daemon overhead | ~50 | ~50 | ~50 |
+| **TTFA** | **~1.62 s** | **~2.05 s** | **~2.52 s** |
+
+Ordered levers: **streaming TTS** (−1177 ms on chat, removes reply length from
+TTFA); **move to `balanced`** (−533 ms every turn, free, no code); **conditional
+second planner call** (−691 ms on `none` turns); **single-action fast path**
+(−109 ms); **enforce the 200-char chat cap in code** — which after streaming TTS
+is a *control*, not a latency lever, and no TTFA win is claimed for it.
+
+**Two sub-decisions are OPEN and are the owner's** (OQ-59, OQ-60): shortening
+the launch grace 400 → 150 ms (recommended; brings launches to ~1.80 s), and
+whether to amend invariant #6 for STT on CUDA (recommended: evaluate in Phase 5
+with its own ADR, not now).
+
+**Consequences.** `just stats` must report TTFA **by action class**; one number
+hides a 400 ms difference between two things a user cannot tell apart. NFR-1's
+targets are re-based on the balanced column once streaming TTS lands.
+ADR-020's deferral of streaming TTS ends here: it is now the single largest
+measured term, at 2452 ms for a 117-character reply in `power-saver` and 1401 ms
+in `balanced`.

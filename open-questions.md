@@ -707,6 +707,18 @@ every latency target is missed silently. The owner's framing (2026-08-30):
 Open: which intents are "cheap", whether Friday says so out loud, whether it
 reads `powerprofilesctl get` or the D-Bus property, and how often.
 
+**NARROWED 2026-09-02 by measurement (ADR-106).** All three profiles were
+benchmarked at the owner's request. `balanced` is the target and `performance`
+is rejected (it improves STT p50 by 10 ms and makes p95 **worse**). The
+"how does Friday detect it" half is **answered**: `powerprofilesctl get` or
+`/sys/firmware/acpi/platform_profile`, because `scaling_governor` and
+`scaling_max_freq` read **identically in all three profiles** (audit F28) — a
+check written against them can never fail.
+
+What remains open is only the **degradation policy**: should Friday cap what it
+attempts in `power-saver`, or merely be slower and say so? Nothing blocks on it;
+the Phase 2 self-test check simply FAILs outside `balanced`.
+
 **Default if undecided:** do nothing. Silent slowness is bad; guessing which
 features to amputate without the owner naming them is worse.
 
@@ -724,6 +736,132 @@ as though it shipped.
 
 **Default if undecided:** leave it disarmed and re-read this entry before the
 next release.
+
+## Blocking the 2026-09-02 audit plan (raised by `audit-2026-09-02.md`)
+
+### OQ-59 — Shorten the GUI launch grace from 400 ms to 150 ms?
+
+**Decider:** USER · **Blocks:** the launch-class TTFA budget only (ADR-107) ·
+**Status:** OPEN (raised 2026-09-02, audit F29)
+
+`executor._LAUNCH_GRACE_S = 0.4`. A GUI app never exits, so the `wait_for`
+**always** runs the full grace. Measured:
+
+```
+  detach=True  (GUI launch): 402 ms   outcome=ok   duration_ms=402
+  detach=False (command)   :   2 ms   outcome=ok   duration_ms=1
+```
+
+Every `open_app`, `open_youtube`, `youtube_search` and `file_open` therefore
+carries **402 ms of dead time** between the spawn and the spoken line — a fifth
+of the whole budget, on the most common thing a user asks for.
+
+The grace exists to catch a binary that dies at startup. Against it: the outcome
+template already declines to claim a window appeared (`"Launching Brave."` —
+ADR-043), `shutil.which` has already preflighted, a real exec failure raises
+`FileNotFoundError` → NOT_FOUND regardless, and **a binary that dies at 500 ms is
+reported OK today anyway**.
+
+| option | saves | costs |
+| :-- | --: | :-- |
+| keep 400 ms | 0 | status quo; launch TTFA ~2.05 s |
+| **150 ms (recommended)** | **252 ms** | catches a death inside 150 ms instead of 400. Launch TTFA ~1.80 s. |
+| drop the wait | 402 ms | the last cheap signal that the spawn survived is gone |
+
+**Default if nobody decides:** keep 400 ms. It is the safe direction and it only
+costs latency.
+
+---
+
+### OQ-60 — Amend invariant #6 to let STT use CUDA?
+
+**Decider:** USER · **Blocks:** the 1.5 s direct-action target, nothing else ·
+**Status:** OPEN (raised 2026-09-02, audit F26 / ADR-107)
+
+STT cost is **flat in audio length** — Whisper pads to a 30-second window, so a
+1-second tail costs what the whole utterance costs (556 ms vs 688 ms for 5 s, in
+`balanced`). `faster_whisper 1.2.1` has no streaming API. **There is no software
+path to a faster STT on CPU**, which is what makes this a real question rather
+than an optimisation.
+
+With `balanced` + streaming TTS + the launch-grace fix, the achievable figures
+are **~1.62 s commands / ~1.80 s launches / ~2.52 s chat**. Against the owner's
+1.5 s / 2.5 s target: chat lands, commands are ~120 ms over, launches are over.
+
+| option | command | launch | chat | cost |
+| :-- | --: | --: | --: | :-- |
+| stay CPU | 1.62 s | 1.80 s | 2.52 s | none |
+| **STT on CUDA** | **1.07 s** | **1.25 s** | **1.97 s** | amends invariant #6; contends for 1131 MiB of free VRAM. ADR-088 measured p95 **107 ms**, 7.5×. |
+| variable-length STT model | ~1.4 s | ~1.6 s | ~2.3 s | ADR-086 measured **10/20 misses vs 4/20**. Rejected: that is a different product, not a latency trade. |
+
+Invariant #6 exists because STT stealing VRAM from the LLM under load is a real
+failure mode, and that has not stopped being true. **Recommendation:** evaluate
+in Phase 5 with its own ADR and a measured contention test; do not amend now.
+
+**Default if nobody decides:** stay CPU, accept ~1.6 s.
+
+---
+
+### OQ-61 — Invariant #7 on the session-summary path is enforced by a prompt. Accept, or add a control?
+
+**Decider:** USER · **Blocks:** nothing; it is a standing exposure ·
+**Status:** OPEN (raised 2026-09-02, audit F22)
+
+`store/summarizer.py:distill_dialogue` sends the **raw dialogue** — verbatim
+user speech and Friday's replies — to the model, and writes the result to
+`session_summaries` on disk.
+
+The only thing stopping a verbatim transcript reaching disk is a sentence in
+`DISTILL_SYSTEM`: *"Never use verbatim quotes."* `_sanitize_summary` strips
+markdown, URLs and control characters and caps at 250 chars. **None of that
+prevents the model from quoting the user.**
+
+Invariant #7 says raw transcripts are NEVER written to disk. On this one path it
+is enforced by the same mechanism this project rejects for injection defence
+(ADR-008: a prompt is not a control).
+
+| option | cost |
+| :-- | :-- |
+| accept as a bounded exception, and **write it into invariant #7** | honest; the invariant stops being absolute |
+| add a real control — reject a summary whose longest common substring with the dialogue exceeds N words | cheap, ~15 lines, and it can fail loudly |
+| drop session summaries entirely | loses ADR-050's cross-session memory |
+
+**Default if nobody decides:** add the substring control. It is the smallest
+change that makes the invariant true again.
+
+---
+
+### OQ-62 — What should `just selftest` do with a WARN?
+
+**Decider:** USER · **Blocks:** Phase 1 item, weakly ·
+**Status:** OPEN (raised 2026-09-02, audit F20)
+
+`run_selftest` sets `has_fail` **only** on `Status.FAIL`. WARN prints yellow and
+the run still ends `[PASSED] All required system checks passed`. WARN is
+returned when the panic switch is **engaged**, when there is **no default audio
+input device**, when `sounddevice` is missing, when **llama-server is not
+running**, when `nvidia-smi` cannot be parsed, and when socket binds are
+**unverifiable**.
+
+So "`just selftest` 8/8" — the sentence this project uses to mean healthy — is
+compatible with an assistant that cannot hear, has no brain, and is
+deliberately disabled. It all genuinely passes today; this is latent, not
+active. It is `gpu_arch`'s defect living inside the tool built to catch
+`gpu_arch`.
+
+The question is only about **exit-code semantics**, because something may be
+scripted on the current behaviour:
+
+| option | |
+| :-- | :-- |
+| **three states (recommended)** | FAIL → 1, WARN → 2 with a `[DEGRADED]` headline, clean → 0. `panic_switch` engaged moves out of the tally entirely — it is a fact about *intent*, not health. |
+| WARN → exit 1 | simplest; makes an engaged panic switch look like a broken system |
+| keep as is, change only the headline | no script breaks; the exit code still lies |
+
+**Default if nobody decides:** three states. Nothing in this repo scripts the
+exit code.
+
+---
 
 ## Kept Open (Long-Term / Optional)
 
