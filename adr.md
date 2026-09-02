@@ -4453,3 +4453,20 @@ targets are re-based on the balanced column once streaming TTS lands.
 ADR-020's deferral of streaming TTS ends here: it is now the single largest
 measured term, at 2452 ms for a 117-character reply in `power-saver` and 1401 ms
 in `balanced`.
+
+
+## ADR-108 — Phase 1 "Stop Lying" Hardening & Integrity
+
+**Status:** Accepted (2026-09-02). Delivered in commit `44d59fb`.
+
+**Context.** The 2026-09-02 audit identified 29 discrepancies where documentation, prompts, tests, and runtime behavior diverged. Phase 1 resolved the 11 non-audio truth and integrity findings (F1–F3, F6–F9, F20–F21, F23, F27).
+
+**Decisions.**
+1. **Unified Panic Gate (FR-113, F1):** Bounded `config.is_disabled()` check across all 10 side-effecting paths (`web_search`, `clipboard_set`, `clipboard_read`, `dictation_type`, `remember_preference`, `forget_preference`, `set_reminder`, `cancel_reminder`, `create_note`, `notify`). Every path fails closed, writes `policy_decision="disabled"`, `outcome="disabled"`, and prevents subprocess execution or database modification.
+2. **Persona Truth & Error Distinction (FR-114, FR-115, F2, F3):** Prompts (`SYSTEM_POLICY`, `CHAT_SYSTEM`) now declare the general installed app rule instead of hardcoding numeral counts like "five apps". Schema validator introduces `AppNotInstalledError(SchemaError)` so that unknown apps yield `"I couldn't find {app} on this system."` (logged as `E_TOOL_NOTFOUND`) rather than generic syntax confusion (`"I didn't understand."`).
+3. **Egress & Offline Integrity (F8, F9, D13, D15):** Added `local_files_only=True` to `WhisperModel` instantiation to prevent startup telemetry requests. Renamed `test-egress` to `test-binds` in `justfile` and added `tests/test_egress.py` proving loopback-only service binding.
+4. **Dictation State Coordination (F7, D14):** `WakeListener` accepts `is_muted: Callable[[], bool]` callback, preventing wake-word false positives during active dictation typing.
+5. **Selftest Warning Semantics (F20, OQ-62):** `selftest.py` prints `[DEGRADED]` and exits with code `2` when `Status.WARN` is encountered, reserving code `0` and `[PASSED]` strictly for fully passing suites.
+6. **Habits & State Parity (F21, F27):** `habits.describe_action` expanded to cover all 24 schema actions. `FridayTUI` maintains live `DndManager` and `DictationManager` instances to synchronize text-mode UI state with daemon semantics.
+7. **Eval Harness Gating (F23):** `eval_harness.py` enforces $\ge 90\%$ pass rate and returns non-zero on any unbaselined fixture failures. Baseline updated to 60/60 passing fixtures ($100\%$).
+

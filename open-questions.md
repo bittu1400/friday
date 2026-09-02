@@ -1437,6 +1437,10 @@ months.)_
   3D-Speaker/CAM++ ONNX model (`3dspeaker_campplus.onnx`, 512-dim, 31.9 ms/2s audio on CPU, 0 torch/CUDA). See ADR-063.
 - **OQ-24 — VAD library choice (G10):** ANSWERED 2026-08-24. `webrtcvad` mode 2 paired with
   pure `SpeechGate` debouncer (4.0 µs/frame, RTF 0.00020). See ADR-062.
+- **OQ-62 — Selftest WARN exit semantics (Phase 1, F20):** ANSWERED 2026-09-02. When any
+  check returns `Status.WARN`, `run_selftest()` prints `[DEGRADED]` and exits with code `2`,
+  reserving `0` / `[PASSED]` strictly for all-clean checks. See ADR-108.
+
 
 
 
