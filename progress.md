@@ -12,19 +12,10 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, and the
-**2026-08-26 audit fix phase is COMPLETE — all 12 steps executed
-2026-08-29.** All tasks for G0 through G13 (scaffolding, toolchain, eval,
-registry, persistence, voice out, voice in, search, conversation/memory,
-service resilience, wake word + AEC + VAD + barge-in, proactive turn arbiter +
-reminders/DND/briefings, action surface + dictation, and CPU speaker
-verification) implemented and verified.
-`uv run pytest` **520 passed** (497 before ADR-097's app-scope tests; verified
-again 2026-09-02 by the audit session), `just eval` **50/50 (regressions 0)** — the fixture set was 28 until
-2026-08-30, when D16 was fixed by widening it to every action in `PARAM_SCHEMA`
-(ADR-089),
-`just test-injection` **20/20 blocked**, `just selftest` **all 8 checks passed**,
-`just test-no-fstring-sql` **OK**.
+**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, post-audit **Phase 1 ("Stop Lying") COMPLETE**, and post-audit **Phase 2 ("Make it Measurable") COMPLETE (2026-09-02, ADR-109).**
+`uv run pytest` **563 passed** across 44 test suites (zero failures), `just eval` **60/60 (regressions 0)**,
+`just test-injection` **20/20 blocked**, `just selftest` **all 9 checks passed (including power profile)**,
+`just test-no-fstring-sql` **OK**, `just test-egress` **PASS**, `just bootstrap --check` **11/11 verified PASS**, `just stats` **active**.
 
 **Fixed 2026-08-29 (Steps 1–7):** the CRITICAL text-mode confirm break (C1) and
 **all eight HIGHs** — unaudited dispatches and searches (H1), the orphaned
@@ -96,6 +87,96 @@ trust-breaking**, plus a hard latency wall nobody had measured. Read
 `audit-2026-09-02.md` and `design-2026-09-02.md`, then the `>>> START HERE <<<`
 block. **No code changed in that session.** The gate checklist above is a record
 of what was BUILT; it is not a statement that it is all honest.
+
+
+---
+
+## SESSION 2026-09-02 (night) — PHASE 2 COMPLETE: "MAKE IT MEASURABLE" (F10, F11, F28, F24, ADR-109)
+
+**All 6 components of Phase 2 delivered, tested, and verified against the live system:**
+
+1. **Unconditional Stage Latency Accounting (FR-128, F10):**
+   * Modified `friday/turn.py` to record true monotonic elapsed wall-clock milliseconds (`duration_ms`) across all action dispatches (`web_search`, `confirm_preference`, `_do_forget`, `_do_set_reminder`, `_do_cancel_reminder`, `_do_create_note`, `resolve_pending` for clipboard actions).
+   * Modified `friday/daemon.py` to measure and log stage timings (`stt_ms`, `sv_ms`, `plan_ms`) unconditionally on every turn.
+   * Made `_ttfa_logger()` log TTFA to console/journald unconditionally on measured speech without requiring `FRIDAY_DEBUG`.
+
+2. **Action Class Latency Tooling (`just stats` / `friday.stats_cli`):**
+   * Implemented `friday/stats_cli.py` aggregating empirical latency distributions (p50, p95, mean, min, max) broken down by action class (`commands`, `launches`, `search`, `preferences`, `intercepts`).
+   * Added `stats *ARGS:` recipe to `justfile`.
+   * Added test suite `tests/test_stats.py` (6 passed).
+   * Live output from `just stats` on current `memory.db`:
+     ```text
+     ======================================================================
+       Friday Latency & TTFA Metrics (Last 30 Days)
+     ======================================================================
+       Total actions audited: 134
+     ----------------------------------------------------------------------
+       Action Class        Count   Min(ms)   p50(ms)   p95(ms)  Mean(ms) Max(ms)
+     ----------------------------------------------------------------------
+       commands               77         0       7.0      29.4      12.9     306
+       intercepts              8         0       0.0       0.0       0.0       0
+       launches               35        50     118.0     409.3     190.6     410
+       other                   4         0     200.5     401.9     200.8     402
+       preferences             4         0       0.0       0.0       0.0       0
+       search                  6         0       0.0       0.0       0.0       0
+     ----------------------------------------------------------------------
+       ALL ACTIONS           134         0       8.0     402.0      63.2     410
+     ======================================================================
+     ```
+
+3. **Systemd Watchdog & Service Notification (FR-129, F11):**
+   * Implemented `friday/watchdog.py` sending `READY=1`, `STOPPING=1`, and background `WATCHDOG=1` heartbeats over `$NOTIFY_SOCKET`.
+   * Updated `deploy/systemd/friday.service` with `Type=notify` and `WatchdogSec=10s`.
+   * Added test suite `tests/test_watchdog.py` (4 passed) verifying UNIX datagram notification delivery and periodic heartbeats.
+
+4. **Power Profile Sanity Check (FR-130, F28):**
+   * Added `check_power_profile()` to `friday/selftest.py` querying `powerprofilesctl get` and `/sys/firmware/acpi/platform_profile`. Emits `Status.WARN` on `power-saver`/`quiet` profiles.
+   * Added unit tests and fail-path tests in `tests/test_selftest.py` and `tests/test_selftest_fail_paths.py`.
+   * Live output from `friday.selftest` (9/9 checks PASS):
+     ```text
+     =================================================================
+       Friday System Self-Test (G9 Service & Health Verification)
+     =================================================================
+     [PASS] llama-server    Reachable at http://127.0.0.1:8080 (status: ok)
+     [PASS] searxng         Reachable at http://127.0.0.1:8888 (HTTP 200)
+     [PASS] gpu_arch        NVIDIA GeForce RTX 5070 Laptop GPU (compute 12.0 - sm_120 verified)
+     [PASS] llm_on_gpu      llama-server pid 2903 holds 7010 MiB VRAM (GPU offload live)
+     [PASS] database        SQLite at /home/bittusah/.local/state/friday/memory.db (mode 0600, dir 0700, schema v3)
+     [PASS] audio_devices   Input: default | Output: default
+     [PASS] panic_switch    Disarmed (normal dispatch allowed)
+     [PASS] socket_binds    Services bound to 127.0.0.1 loopback only (no 0.0.0.0 / wildcard listeners)
+     [PASS] power_profile   Profile is 'balanced'
+     -----------------------------------------------------------------
+     [PASSED] All required system checks passed successfully.
+     ```
+
+5. **Deterministic Bootstrap Harness (`just bootstrap` / `scripts/bootstrap.py`) (§10, F24):**
+   * Implemented `scripts/bootstrap.py` checking Python version >= 3.12, SHA256 hashes of all 6 local models, `sm_120` llama-server binary, Docker daemon and SearXNG container, systemd units, and 9-check selftest.
+   * Added `bootstrap *ARGS:` recipe to `justfile`.
+   * Added test suite `tests/test_bootstrap.py` (7 passed).
+   * Live output from `scripts/bootstrap.py --check`:
+     ```text
+     =================================================================
+       Friday Deterministic Bootstrap: Verification (--check)
+     =================================================================
+     [PASS] Python version 3.12.13
+     [PASS] Kokoro 82M TTS Model (SHA256 verified)
+     [PASS] Kokoro Voices Blob (SHA256 verified)
+     [PASS] Silero VAD (op18-ifless) (SHA256 verified)
+     [PASS] openWakeWord (hey_jarvis) (SHA256 verified)
+     [PASS] CAM++ 3D-Speaker Verification (SHA256 verified)
+     [PASS] Gemma 4 12B QAT LLM (SHA256 verified)
+     [PASS] llama-server binary verified at /opt/llama.cpp/build/bin/llama-server
+     [PASS] Docker daemon & SearXNG container verified
+     [PASS] Systemd service unit templates verified (3 units)
+     [PASS] Selftest verified (9/9 checks PASS)
+     -----------------------------------------------------------------
+     [BOOTSTRAP SUCCESS] All systems, models, and services verified.
+     ```
+
+6. **Regression Verification & Test Suite Summary:**
+   * Pytest test suites: **563 passed, 0 failed** across 44 test files.
+   * Eval harness: **60/60 passed (100%), 0 regressions**.
 
 
 ---

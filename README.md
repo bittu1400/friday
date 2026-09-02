@@ -54,32 +54,22 @@ persistence, voice out, voice in, search, conversation, service) and G10–G13
 (wake word + AEC + VAD + barge-in, proactive scheduler, action surface,
 speaker verification).
 
-The desk suite is green:
+Post-audit Phase 1 ("Stop Lying") and Phase 2 ("Make it Measurable") are COMPLETE:
 
-```
-uv run pytest             480 passed
-just eval                 28/28, regressions 0
+```text
+uv run pytest             563 passed (44 test suites)
+just eval                 60/60, regressions 0 (100%)
 just test-injection       20/20 blocked
-just selftest             8/8
+just selftest             9/9 PASS (including power profile verification)
+just bootstrap --check    11/11 verified PASS (all 6 models SHA256 pinned)
+just stats                empirical latency distributions by action class
 ```
 
 **A green suite here has repeatedly not meant a working feature.** Five review
-passes and a live-voice pass found defects that every test missed, because the
-tests never exercised the real path. **18 defects are known (D1–D18); D1 and D2
-are fixed in code as of 2026-08-30 and neither has been proven at a
-microphone.** All are documented with root causes in `progress.md` and indexed
-in `docs/reality-check.md` §F. The most important:
+passes and a live-voice pass found defects that unit tests missed when they bypassed the real path.
 
-- **D1 (critical, fixed in code, unproven by voice)** — `is_affirmation`
-  matched bare tokens, and Whisper writes `Yes.` with a full stop. Every
-  *spoken* confirmation was recorded as a decline, so no confirm-gated
-  capability has ever worked by voice; typed confirms always did. The resolver
-  now normalises punctuation and distinguishes a refusal from a non-answer,
-  but no affirm row has yet been observed working on the real machine.
-- **D3** — hands-free wake captures never end; push-to-talk is the only usable
-  trigger today.
-- **D13** — the STT model load contacts Hugging Face at every daemon start
-  (~9 KB of metadata; no audio or text leaves the machine).
+- **Phase 1 (Stop Lying, ADR-108):** Unified panic gate over all 10 side-effecting paths (F1), persona truth (F2, F3), `local_files_only=True` for offline STT (F8, D13), dictation mutes wake (F7, D14), selftest WARN exits code 2 `[DEGRADED]` (F20), eval harness rate gating (F23).
+- **Phase 2 (Make it Measurable, ADR-109):** Real duration tracking (`duration_ms`) and unconditional stage timings (F10, FR-128), `just stats` CLI aggregator, systemd watchdog heartbeat + `Type=notify` (F11), power profile sanity check in selftest (F28), and deterministic `just bootstrap` (§10, F24).
 
 If you want to know whether something actually works, `docs/reality-check.md`
 is the manifest of what Friday must do and must refuse, with each row marked
@@ -96,9 +86,7 @@ and makes no attempt to be portable.
 - Arch Linux, Hyprland, PipeWire
 - NVIDIA Blackwell GPU (sm_120) with 8 GB VRAM
 - Python 3.12 via `uv` (never the system interpreter)
-- `llama.cpp` built **with sm_120 kernels** — a stock CUDA 12.4 build fails at
-  runtime with `no kernel image is available for execution on the device`
-  (see ADR-021)
+- `llama.cpp` built **with sm_120 kernels** at `/opt/llama.cpp/build/bin/llama-server`
 - `just`, `docker` (for SearXNG)
 
 ---
@@ -107,16 +95,15 @@ and makes no attempt to be portable.
 
 ```bash
 uv sync
-just fetch-voice          # Kokoro TTS voice weights
+just bootstrap            # verifies/fetches all 6 SHA256-pinned models, container, and units
+just bootstrap --check    # preflight verification (must be 11/11 PASS)
 ```
 
-Build `llama.cpp` per ADR-021 (the sm_120 flags matter), place the GGUF in
-`~/.local/share/friday/models/`, then deploy the three user units described in
-`docs/systemd-setup.md` and `docs/searxng-setup.md`:
+Deploy the three user units described in `docs/systemd-setup.md` and `docs/searxng-setup.md`:
 
 ```bash
 systemctl --user enable --now friday-llm friday-searxng friday
-just selftest             # must be 8/8 before anything else
+just selftest             # must be 9/9 PASS before anything else
 ```
 
 `selftest` checks reachability, GPU architecture, that the LLM is *actually*

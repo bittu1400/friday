@@ -15,6 +15,10 @@ serve:
       --parallel 1 --cache-type-k q8_0 --cache-type-v q8_0 -fa on \
       --reasoning off --no-webui
 
+# Bootstrap dependencies, models, systemd units, and run self-test (ADR-107, §10). `just bootstrap` / `just bootstrap --check`.
+bootstrap *ARGS:
+    uv run python scripts/bootstrap.py {{ARGS}}
+
 # Manage the loopback SearXNG unit (ADR-045). `just searxng start|stop|status`.
 # The unit binds 127.0.0.1:8888 ONLY (invariant #8). Install once with:
 #   systemctl --user link $PWD/deploy/searxng/friday-searxng.service
@@ -68,6 +72,10 @@ test-egress:
 # `just prefs list`; `just prefs forget editor`; `just prefs reset --yes`.
 prefs *ARGS:
     uv run python -m friday.prefs_cli {{ARGS}}
+
+# Inspect latency and TTFA metrics by action class (ADR-107, FR-128). `just stats` / `just stats --tools`.
+stats *ARGS:
+    uv run python -m friday.stats_cli {{ARGS}}
 
 # Speak a line with Kokoro (G5, ADR-039/040). `just say "hello"`.
 say *ARGS:

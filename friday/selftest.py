@@ -15,6 +15,8 @@ Performs full-system sanity and health verification (architecture.md §7, friday
   7. Panic switch status (~/.local/state/friday/DISABLED)
   8. Loopback socket bind audit: ANY non-loopback bind on 8080/8888 fails, not
      just wildcard literals, across `ss` and both `/proc/net/tcp` and `tcp6`.
+  9. Power profile verification (F28 / ADR-107): ensures power profile is
+     `balanced`/`performance` via `powerprofilesctl get` or sysfs; warns on `power-saver`.
 
 Every check must be able to FAIL (M-L3/L4/L9, 2026-08-29). `gpu_arch` returned
 PASS on output it could not parse — and PASSed through a whole GPU outage;
@@ -23,9 +25,8 @@ not the same as "probably fine"; `check_database` opened the database to read
 its version, which CREATED a missing one, then reported PASS on the file it had
 just conjured. A check that cannot fail is worthless.
 
-Eight checks, and this list says eight: it listed seven while eight ran until
-2026-08-29 (audit L25). A docstring that miscounts the checks is a small lie
-about the one tool whose whole job is telling you the truth about the system.
+Nine checks, and this list says nine. A docstring that miscounts the checks is a
+small lie about the one tool whose whole job is telling you the truth about the system.
 """
 
 from __future__ import annotations
@@ -551,6 +552,60 @@ def check_llm_on_gpu() -> CheckResult:
         )
 
 
+def check_power_profile() -> CheckResult:
+    """Verify system power profile is balanced/performance, not power-saver (F28 / ADR-107).
+
+    The scaling governor and scaling_max_freq are identical across all profiles ('powersave'
+    and 5.4 GHz). Only powerprofilesctl get or /sys/firmware/acpi/platform_profile report
+    the real profile. A power-saver profile imposes a +406ms STT latency penalty.
+    """
+    profile = None
+    # 1. Try powerprofilesctl get
+    try:
+        proc = subprocess.run(
+            ["powerprofilesctl", "get"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        if proc.returncode == 0:
+            profile = proc.stdout.strip()
+    except (FileNotFoundError, PermissionError, subprocess.TimeoutExpired):
+        pass
+
+    # 2. Fallback to ACPI platform_profile sysfs
+    if not profile:
+        sysfs_path = Path("/sys/firmware/acpi/platform_profile")
+        if sysfs_path.exists():
+            try:
+                profile = sysfs_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                pass
+
+    if not profile:
+        return CheckResult(
+            "power_profile",
+            Status.PASS,
+            "Power profile not managed on host (desktop/unsupported)",
+        )
+
+    profile_clean = profile.lower().strip()
+    if profile_clean in ("power-saver", "powersave", "quiet", "low-power"):
+        return CheckResult(
+            "power_profile",
+            Status.WARN,
+            f"Power profile is '{profile_clean}' (+406ms STT latency penalty; recommend 'balanced')",
+            details="Run `powerprofilesctl set balanced` to restore full interactive performance",
+        )
+
+    return CheckResult(
+        "power_profile",
+        Status.PASS,
+        f"Profile is '{profile_clean}'",
+    )
+
+
 def run_all_checks() -> list[CheckResult]:
     """Execute all self-test checks and return results."""
     return [
@@ -562,6 +617,7 @@ def run_all_checks() -> list[CheckResult]:
         check_audio_devices(),
         check_panic_switch(),
         check_socket_binds(),
+        check_power_profile(),
     ]
 
 

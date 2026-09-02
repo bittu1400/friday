@@ -52,7 +52,9 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
                             must run the same text as a fresh command
      dialogue.py            in-RAM session dialogue ring buffer (ADR-048)
      logging_config.py      structured JSON logging, 10MB x 5 rotation, redaction (FR-43)
-     selftest.py            unified 8-subsystem sanity & health check CLI (G9)
+     selftest.py            unified 9-subsystem sanity & health check CLI (G9, F28, ADR-109)
+     stats_cli.py           `just stats` — latency & TTFA breakdown by action class (ADR-107, FR-128)
+     watchdog.py            systemd sd_notify READY/STOPPING + periodic WATCHDOG task (F11, ADR-109)
      prefs_cli.py           `just prefs` — list/export/forget/reset
      ptt_cli.py             `friday-ptt toggle|press|release|cancel` client
      speaker_enroll.py      `just enroll-voice` — interactive 10-utterance profiler (G13)
@@ -104,7 +106,7 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
                             still goes to `af_heart` first.
        say.py               `just say` / audition CLI (G5)
        aec.py               WebRTC APM EchoCanceller adapter (G10)
-       vad.py               WebRTC VAD & SpeechGate debounce state machine (G10)
+       vad.py               Silero / WebRTC VAD & SpeechGate debounce state machine (G10, ADR-087)
        wake.py              openWakeWord hey_jarvis detector, FarEndRef, WakeListener (G10)
        dictation.py         DictationManager & spoken punctuation formatter (G12)
        speaker.py           SpeakerVerifier using sherpa-onnx 3D-Speaker CAM++ (G13)
@@ -141,9 +143,10 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        settings.yml             SearXNG loopback configuration
      systemd/
        friday-llm.service       llama-server systemd user unit
-       friday.service           orchestrator daemon systemd user unit
+       friday.service           orchestrator daemon systemd user unit (Type=notify, WatchdogSec=10s)
 
    scripts/
+     bootstrap.py           deterministic bootstrap & verification harness (§10, F24, ADR-109)
      wake_bench.py          live wake-word, AEC, and VAD benchmark harness
      stt_accel_bench.py     STT across CPU / OpenVINO(CPU,NPU,iGPU) / CUDA, and
                             moonshine, on the 20 real DMIC clips (ADR-086/088)
@@ -160,10 +163,10 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
 
    tests/
      fixtures/
-       eval.jsonl           28 fixtures (ADR-030)
+       eval.jsonl           60 fixtures (ADR-030, ADR-089)
        adversarial.jsonl    AS-1..12 (+ youtube AS-13..16 in test_youtube)
        injection.jsonl      20 hostile search results (FR-63)
-     test_*.py              290 unit tests across all subsystems
+     test_*.py              563 unit tests across 44 test files
 
    diagrams/                ASCII, authoritative, updated with code
 ```
@@ -389,19 +392,22 @@ exits non-zero on any failure. Run it at every gate.
 ```
    ~/.config/systemd/user/friday-llm.service
      ExecStart=/opt/llama.cpp/build/bin/llama-server \
-       --model  %h/.local/share/friday/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf \
+       --model  %h/.local/share/friday/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf \
        --host   127.0.0.1 --port 8080 \
        --ctx-size 8192 --n-gpu-layers 99 \
-       --cache-type-k q8_0 --cache-type-v q8_0 \
-       --no-webui
-     Restart=on-failure
-     RestartSec=5s
+       --cache-type-k q8_0 --cache-type-v q8_0 -fa on \
+       --reasoning off --no-webui
+     Restart=always
+     RestartSec=3s
 
    ~/.config/systemd/user/friday.service
      After=friday-llm.service
      Requires=friday-llm.service
-     ExecStart=%h/Projects/Personal/Intern/friday/.venv/bin/python -m friday
-     Restart=on-failure
+     Type=notify
+     WatchdogSec=10s
+     ExecStart=%h/Projects/Personal/Intern/friday/.venv/bin/python -m friday.voice_main
+     Restart=always
+     RestartSec=3s
 ```
 
 Hardening on the orchestrator unit: `NoNewPrivileges=yes`,

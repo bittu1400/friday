@@ -737,9 +737,10 @@ Two systemd user units (`architecture.md` §8). Restart with backoff.
 Ordering with a tolerant health ping — the orchestrator must survive
 `llama-server` not being ready yet without crash-looping.
 
-`friday --selftest` checks: server reachable, GPU arch is sm_120, DB
-schema version, DB permissions `0600`/`0700`, audio devices present,
-panic file state, and no wildcard bind. Non-zero exit on any failure.
+`friday --selftest` checks: llama-server reachability, SearXNG reachability, GPU
+arch (sm_120), LLM on GPU (VRAM hold), DB schema & permissions `0600`/`0700`, audio
+devices, panic file state, loopback socket binds, and power profile (9 checks).
+Non-zero exit (1 on fail, 2 on warn/degraded) on any non-pass (ADR-108, ADR-109).
 
 Log rotation 10 MB x 5. Graceful shutdown unloads the model.
 

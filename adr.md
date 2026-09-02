@@ -4470,3 +4470,29 @@ in `balanced`.
 6. **Habits & State Parity (F21, F27):** `habits.describe_action` expanded to cover all 24 schema actions. `FridayTUI` maintains live `DndManager` and `DictationManager` instances to synchronize text-mode UI state with daemon semantics.
 7. **Eval Harness Gating (F23):** `eval_harness.py` enforces $\ge 90\%$ pass rate and returns non-zero on any unbaselined fixture failures. Baseline updated to 60/60 passing fixtures ($100\%$).
 
+
+## ADR-109 — Phase 2 "Make It Measurable" Instrumentation, Observability & Bootstrap
+
+**Status:** Accepted (2026-09-02).
+
+**Context.** In the 2026-09-02 audit, Friday had zero production latency measurements (F10), missing watchdog health monitoring (F11), no check for power profile throttling (F28), unpopulated `duration_ms` on half of `action_audit` records, and lacked a deterministic bootstrap verification tool (§10, F24). Phase 2 delivers end-to-end observability, stage latency accounting, systemd watchdog monitoring, power profile verification, and reproducible bootstrap checks.
+
+**Decisions.**
+1. **Unconditional Stage Timing & Duration Accounting (FR-128, F10):**
+   * All turn actions (`web_search`, `remember_preference`, `forget_preference`, `set_reminder`, `cancel_reminder`, `create_note`, `clipboard_set`, `clipboard_read`, `dictation_type`) measure elapsed wall-clock execution time and populate `action_audit.duration_ms` with exact non-zero integer milliseconds.
+   * Daemon turn loop captures per-stage timing (`stt_ms`, `sv_ms`, `plan_ms`) and logs structured stage metrics unconditionally.
+   * `_speak(measure=True)` and `_ttfa_logger()` log TTFA to console and journald on every measured turn without requiring `FRIDAY_DEBUG`.
+2. **Action Class Latency Tooling (`just stats` / `friday.stats_cli`):**
+   * Introduces `friday/stats_cli.py` to aggregate empirical p50, p95, mean, min, and max latencies grouped by action class (`commands`, `launches`, `search`, `preferences`, `intercepts`).
+   * Prevents a single aggregate latency metric from hiding the ~400ms launch-grace delta between shell commands and GUI application launches.
+3. **Systemd Watchdog & Process Notification (FR-129, F11):**
+   * Implements `friday/watchdog.py` sending `READY=1` on startup and periodic `WATCHDOG=1` heartbeats over `$NOTIFY_SOCKET`.
+   * Updates `deploy/systemd/friday.service` to `Type=notify` and `WatchdogSec=10s` with `Restart=always`.
+   * A wedged event loop or deadlocked audio callback fails to send heartbeat pings within the watchdog window, causing systemd to automatically restart the service.
+4. **Power Profile Sanity Check (FR-130, F28):**
+   * Adds `check_power_profile()` to `selftest.py` querying `powerprofilesctl get` and `/sys/firmware/acpi/platform_profile`.
+   * Emits `Status.WARN` on `power-saver` / `quiet` / `low-power` profiles (which exit with code 2 `[DEGRADED]` per ADR-108), alerting the user to restore `balanced` performance.
+5. **Deterministic Bootstrap & Self-Check (`just bootstrap` / `scripts/bootstrap.py`) (§10, F24):**
+   * Implements `scripts/bootstrap.py` checking Python version >= 3.12, verifying SHA256 checksums of all 6 local models (Kokoro, Silero, openWakeWord, CAM++, Gemma 4 12B QAT), verifying the `sm_120` llama-server binary, verifying Docker daemon reachability and the SearXNG image, verifying systemd unit templates, and running the 9-check selftest suite.
+   * Provides `just bootstrap --check` for fast read-only preflight verification with strict failure paths.
+

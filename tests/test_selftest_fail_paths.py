@@ -137,3 +137,32 @@ def test_check_database_does_not_create_the_database_it_verifies(tmp_path):
 
     assert res.status is Status.FAIL
     assert not db.exists(), "the check created the database it claims to verify"
+
+
+# --- F28: power profile verification ---------------------------------------
+
+def test_power_profile_warns_on_powersave_profile(monkeypatch):
+    monkeypatch.setattr(
+        selftest.subprocess, "run",
+        lambda *a, **k: _Proc("power-saver\n", returncode=0),
+    )
+    res = selftest.check_power_profile()
+    assert res.status is Status.WARN
+    assert "power-saver" in res.message
+
+
+def test_power_profile_warns_on_acpi_quiet_profile(monkeypatch, tmp_path):
+    # Simulate powerprofilesctl failing and falling back to platform_profile
+    def fake_run(*a, **k):
+        raise FileNotFoundError("no powerprofilesctl")
+
+    fake_sysfs = tmp_path / "platform_profile"
+    fake_sysfs.write_text("quiet\n")
+
+    monkeypatch.setattr(selftest.subprocess, "run", fake_run)
+    monkeypatch.setattr(selftest, "Path", lambda p: fake_sysfs if str(p) == "/sys/firmware/acpi/platform_profile" else Path(p))
+
+    res = selftest.check_power_profile()
+    assert res.status is Status.WARN
+    assert "quiet" in res.message
+

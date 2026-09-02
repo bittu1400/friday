@@ -16,7 +16,8 @@ PartOf=graphical-session.target
 StartLimitIntervalSec=0
 
 [Service]
-Type=simple
+Type=notify
+WatchdogSec=10s
 WorkingDirectory=%h/Projects/Personal/Intern/friday
 ExecStart=%h/Projects/Personal/Intern/friday/.venv/bin/python -m friday.voice_main
 Restart=always

@@ -16,6 +16,7 @@ from friday.selftest import (
     check_gpu_arch,
     check_llama_server,
     check_panic_switch,
+    check_power_profile,
     check_searxng,
     check_socket_binds,
     run_all_checks,
@@ -153,6 +154,28 @@ def test_check_socket_binds_wildcard_fails():
         assert "Non-loopback bind" in res.message
 
 
+def test_check_power_profile_pass():
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "balanced\n"
+
+    with patch("subprocess.run", return_value=mock_proc):
+        res = check_power_profile()
+        assert res.status is Status.PASS
+        assert "balanced" in res.message
+
+
+def test_check_power_profile_warn():
+    mock_proc = MagicMock()
+    mock_proc.returncode = 0
+    mock_proc.stdout = "power-saver\n"
+
+    with patch("subprocess.run", return_value=mock_proc):
+        res = check_power_profile()
+        assert res.status is Status.WARN
+        assert "power-saver" in res.message
+
+
 def test_run_selftest_overall(capsys):
     with patch("friday.selftest.check_llama_server", return_value=CheckResult("llama", Status.PASS, "ok")), \
          patch("friday.selftest.check_searxng", return_value=CheckResult("searxng", Status.PASS, "ok")), \
@@ -161,7 +184,8 @@ def test_run_selftest_overall(capsys):
          patch("friday.selftest.check_database", return_value=CheckResult("db", Status.PASS, "ok")), \
          patch("friday.selftest.check_audio_devices", return_value=CheckResult("audio", Status.PASS, "ok")), \
          patch("friday.selftest.check_panic_switch", return_value=CheckResult("panic", Status.PASS, "ok")), \
-         patch("friday.selftest.check_socket_binds", return_value=CheckResult("sockets", Status.PASS, "ok")):
+         patch("friday.selftest.check_socket_binds", return_value=CheckResult("sockets", Status.PASS, "ok")), \
+         patch("friday.selftest.check_power_profile", return_value=CheckResult("power", Status.PASS, "ok")):
         code = run_selftest()
         assert code == 0
         captured = capsys.readouterr()
@@ -176,7 +200,8 @@ def test_run_selftest_warn_returns_exit_code_2(capsys):
          patch("friday.selftest.check_database", return_value=CheckResult("db", Status.PASS, "ok")), \
          patch("friday.selftest.check_audio_devices", return_value=CheckResult("audio", Status.WARN, "no mic")), \
          patch("friday.selftest.check_panic_switch", return_value=CheckResult("panic", Status.PASS, "ok")), \
-         patch("friday.selftest.check_socket_binds", return_value=CheckResult("sockets", Status.PASS, "ok")):
+         patch("friday.selftest.check_socket_binds", return_value=CheckResult("sockets", Status.PASS, "ok")), \
+         patch("friday.selftest.check_power_profile", return_value=CheckResult("power", Status.PASS, "ok")):
         code = run_selftest()
         assert code == 2
         captured = capsys.readouterr()

@@ -291,7 +291,9 @@ class Daemon:
         tag = f"v{self._seq}"
         try:
             # TRANSCRIBING
+            t_stt_0 = time.monotonic()
             text = await self._transcribe(pcm)
+            stt_ms = int((time.monotonic() - t_stt_0) * 1000)
             if text is None:  # timeout already handled
                 return
             self.state.got_transcript(nonempty=bool(text))
@@ -302,13 +304,16 @@ class Daemon:
             if not text:  # FR-12 empty / FR-13 over-limit -> IDLE, silent
                 return
 
+            sv_ms = 0
             if self._speaker_verifier is not None:
                 # ONNX embedding inference — hundreds of ms. Inline it and the
                 # loop is deaf for that whole span, every turn (H6). STT and TTS
                 # were already threaded; this was not.
+                t_sv_0 = time.monotonic()
                 matched, score = await asyncio.to_thread(
                     self._speaker_verifier.verify, pcm
                 )
+                sv_ms = int((time.monotonic() - t_sv_0) * 1000)
                 if not matched:
                     log.info("Impostor detected (similarity %.3f < threshold); turn dropped", score)
                     self.state.reset()
@@ -343,11 +348,13 @@ class Daemon:
                 # timeout now scales with the sentence, so on the loop it would
                 # make Friday deaf for seconds. This is the last of H6's class
                 # of blocking call sites (D12).
+                t_type_0 = time.monotonic()
                 if config.is_disabled():
                     await self._audit_intercept(
                         rid, "dictation_type", {"chars": str(len(text))},
                         outcome="disabled",
                         policy_decision="disabled",
+                        duration_ms=int((time.monotonic() - t_type_0) * 1000),
                     )
                     self.state.reset()
                     return
@@ -355,6 +362,7 @@ class Daemon:
                 await self._audit_intercept(
                     rid, "dictation_type", {"chars": str(len(text))},
                     outcome="ok" if typed else "error",
+                    duration_ms=int((time.monotonic() - t_type_0) * 1000),
                 )
                 self.state.reset()
                 return
@@ -403,6 +411,7 @@ class Daemon:
                     prompt_digests, db
                 )
 
+            t_plan_0 = time.monotonic()
             result = await asyncio.wait_for(
                 run_turn(
                     text, self._client, request_id=rid, dry_run=self._dry_run,
@@ -413,6 +422,11 @@ class Daemon:
                     summaries_digest=summaries_digest,
                 ),
                 timeout=_PLANNING_TIMEOUT,
+            )
+            plan_ms = int((time.monotonic() - t_plan_0) * 1000)
+            log.info(
+                "%s stage_timings stt_ms=%d sv_ms=%d plan_ms=%d action=%s",
+                tag, stt_ms, sv_ms, plan_ms, result.plan_name,
             )
 
             if result.plan_name == "set_dnd":
@@ -575,6 +589,7 @@ class Daemon:
         *,
         outcome: str = "ok",
         policy_decision: str = "allowed",
+        duration_ms: int = 0,
     ) -> None:
         """Write the audit row for a turn that never reaches the planner.
 
@@ -600,7 +615,7 @@ class Daemon:
             params=params,
             policy_decision=policy_decision,
             outcome=outcome,
-            duration_ms=0,
+            duration_ms=duration_ms,
         )
 
     async def _finish_intercept(self, rid: str, tool_id: str, spoken: str) -> None:
@@ -630,7 +645,7 @@ class Daemon:
             if self.state.state is State.SPEAKING:
                 self.state.done_speaking()
             return True
-        on_play = self._ttfa_logger() if (measure and config.DEBUG) else None
+        on_play = self._ttfa_logger() if measure else None
         task = self._speak_task = asyncio.create_task(
             asyncio.to_thread(self._speaker.say, text, on_play)
         )
@@ -665,7 +680,8 @@ class Daemon:
         seq = self._seq
 
         def on_play() -> None:
-            log.info("[debug] v%d TTFA %.0f ms", seq, (time.monotonic() - start) * 1000)
+            dur_ms = (time.monotonic() - start) * 1000
+            log.info("v%d TTFA %.0f ms", seq, dur_ms)
 
         return on_play
 
@@ -754,9 +770,15 @@ class Daemon:
 
         server = await ptt.serve(config.PTT_SOCKET, self.on_ptt)
         log.info("friday daemon listening on %s", config.PTT_SOCKET)
+
+        from .watchdog import notify_ready, notify_stopping, watchdog_task
+        notify_ready()
+        watchdog_bg = asyncio.create_task(watchdog_task())
         try:
             await asyncio.Event().wait()  # run until cancelled
         finally:
+            notify_stopping()
+            watchdog_bg.cancel()
             if self._scheduler is not None:
                 self._scheduler.stop()
             if self._sched_task is not None:

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -410,12 +411,14 @@ async def _do_web_search(
     # Capped, not redacted-away: the query IS the useful audit content, and it
     # is already model-generated text over a first-party utterance.
     q_audited = {"query": query[:80]}
+    t0 = time.monotonic()
 
     async def _row(outcome: str, policy_decision: str = "allowed") -> None:
         if audit is not None:
+            dur_ms = int((time.monotonic() - t0) * 1000)
             await audit.arecord(
                 request_id=request_id, tool_id="web_search", params=q_audited,
-                policy_decision=policy_decision, outcome=outcome, duration_ms=0,
+                policy_decision=policy_decision, outcome=outcome, duration_ms=dur_ms,
             )
 
     if config.is_disabled():
@@ -471,6 +474,7 @@ async def confirm_preference(
     request_id: str,
 ) -> str:
     """Execute the confirmed write, THEN return the spoken line (ADR-009)."""
+    t0 = time.monotonic()
     if config.is_disabled():
         if audit is not None:
             await audit.arecord(
@@ -479,7 +483,7 @@ async def confirm_preference(
                 params={"key": pending.key},
                 policy_decision="disabled",
                 outcome="disabled",
-                duration_ms=0,
+                duration_ms=int((time.monotonic() - t0) * 1000),
             )
         return templates.render(Outcome.DISABLED, "")
     if prefs is None:
@@ -492,7 +496,7 @@ async def confirm_preference(
             params={"key": pending.key},  # value is user data — key only
             policy_decision="allowed",
             outcome="ok",
-            duration_ms=0,
+            duration_ms=int((time.monotonic() - t0) * 1000),
         )
     return templates.remembered(pending.key, pending.value)
 
@@ -548,11 +552,13 @@ async def resolve_pending(
     if pending.tool_id == "clipboard_set":
         # Not a subprocess-registry tool: text goes to wl-copy on STDIN (see
         # tools/clipboard.py). Speak the real outcome — never a blanket "done".
+        t0 = time.monotonic()
         if config.is_disabled():
             await _audit_confirmed(
                 audit, request_id, "clipboard_set", audit_params(pending),
                 "disabled",
                 policy_decision="disabled",
+                duration_ms=int((time.monotonic() - t0) * 1000),
             )
             return templates.render(Outcome.DISABLED, "")
         from .tools.clipboard import set_clipboard
@@ -564,17 +570,20 @@ async def resolve_pending(
         await _audit_confirmed(
             audit, request_id, "clipboard_set", audit_params(pending),
             "ok" if ok else "error",
+            duration_ms=int((time.monotonic() - t0) * 1000),
         )
         return "Copied to your clipboard." if ok else "Clipboard unavailable."
 
     if pending.tool_id == "clipboard_read":
         # ADR-068a: read only now, on an explicit yes — a declined confirm must
         # not so much as fetch the selection, let alone voice it.
+        t0 = time.monotonic()
         if config.is_disabled():
             await _audit_confirmed(
                 audit, request_id, "clipboard_read", audit_params(pending),
                 "disabled",
                 policy_decision="disabled",
+                duration_ms=int((time.monotonic() - t0) * 1000),
             )
             return templates.render(Outcome.DISABLED, "")
         from .tools.clipboard import read_clipboard
@@ -584,7 +593,8 @@ async def resolve_pending(
         # Contents are never audited — the row records that a read-aloud was
         # confirmed and happened, which is the fact worth keeping.
         await _audit_confirmed(
-            audit, request_id, "clipboard_read", audit_params(pending), outcome
+            audit, request_id, "clipboard_read", audit_params(pending), outcome,
+            duration_ms=int((time.monotonic() - t0) * 1000),
         )
         if raw is None:
             return "Clipboard unavailable."
@@ -676,6 +686,7 @@ async def _do_forget(
     audit: AuditLog | None,
     request_id: str,
 ) -> TurnResult:
+    t0 = time.monotonic()
     if config.is_disabled():
         if audit is not None:
             await audit.arecord(
@@ -684,7 +695,7 @@ async def _do_forget(
                 params=params,
                 policy_decision="disabled",
                 outcome="disabled",
-                duration_ms=0,
+                duration_ms=int((time.monotonic() - t0) * 1000),
             )
         return TurnResult("forget_preference", params, templates.render(Outcome.DISABLED, ""), False)
     if prefs is None:
@@ -706,7 +717,7 @@ async def _do_forget(
             params={"key": ck},
             policy_decision="allowed",
             outcome="ok" if n else "not_found",
-            duration_ms=0,
+            duration_ms=int((time.monotonic() - t0) * 1000),
         )
     return TurnResult("forget_preference", params, spoken, bool(n))
 
@@ -747,6 +758,7 @@ async def _do_set_reminder(
     audit: AuditLog | None,
     request_id: str,
 ) -> TurnResult:
+    t0 = time.monotonic()
     if config.is_disabled():
         if audit is not None:
             await audit.arecord(
@@ -755,7 +767,7 @@ async def _do_set_reminder(
                 params=params,
                 policy_decision="disabled",
                 outcome="disabled",
-                duration_ms=0,
+                duration_ms=int((time.monotonic() - t0) * 1000),
             )
         return TurnResult("set_reminder", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else (audit._db if audit else None)
@@ -794,7 +806,7 @@ async def _do_set_reminder(
             params={"seconds": str(int(sec)), "message": msg[:40]},
             policy_decision="allowed",
             outcome="ok",
-            duration_ms=0,
+            duration_ms=int((time.monotonic() - t0) * 1000),
         )
 
     return TurnResult("set_reminder", params, spoken, True)
@@ -824,9 +836,13 @@ async def _do_cancel_reminder(
     audit: AuditLog | None = None,
     request_id: str = "",
 ) -> TurnResult:
+    t0 = time.monotonic()
     if config.is_disabled():
         if audit is not None:
-            await _audit_confirmed(audit, request_id, "cancel_reminder", {}, "disabled", policy_decision="disabled")
+            await _audit_confirmed(
+                audit, request_id, "cancel_reminder", {}, "disabled",
+                policy_decision="disabled", duration_ms=int((time.monotonic() - t0) * 1000)
+            )
         return TurnResult("cancel_reminder", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else None
     if db is None:
@@ -850,7 +866,10 @@ async def _do_cancel_reminder(
     target = max(active, key=lambda r: r.created_at)
     ok = await store.acancel(target.id)
     if ok:  # a dispatch, so a row (FR-58)
-        await _audit_confirmed(audit, request_id, "cancel_reminder", {}, "ok")
+        await _audit_confirmed(
+            audit, request_id, "cancel_reminder", {}, "ok",
+            duration_ms=int((time.monotonic() - t0) * 1000)
+        )
     # Say WHICH one, so a wrong pick is audible instead of silent.
     spoken = f"Cancelled: {target.message}." if ok else "No active timer to cancel."
     return TurnResult("cancel_reminder", params, spoken, ok)
@@ -862,6 +881,7 @@ async def _do_create_note(
     audit: AuditLog | None,
     request_id: str,
 ) -> TurnResult:
+    t0 = time.monotonic()
     if config.is_disabled():
         if audit is not None:
             await audit.arecord(
@@ -870,7 +890,7 @@ async def _do_create_note(
                 params=params,
                 policy_decision="disabled",
                 outcome="disabled",
-                duration_ms=0,
+                duration_ms=int((time.monotonic() - t0) * 1000),
             )
         return TurnResult("create_note", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else (audit._db if audit else None)
@@ -893,7 +913,7 @@ async def _do_create_note(
             params={"content": content[:40]},
             policy_decision="allowed",
             outcome="ok",
-            duration_ms=0,
+            duration_ms=int((time.monotonic() - t0) * 1000),
         )
 
     return TurnResult("create_note", params, "Note saved.", True)

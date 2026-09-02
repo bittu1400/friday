@@ -91,3 +91,44 @@ def test_colliding_request_id_never_replaces_a_row(tmp_path) -> None:
     assert [r["tool_id"] for r in db.query("SELECT tool_id FROM action_audit")] == [
         "web_search"
     ]
+
+
+def test_duration_ms_populated_on_turn_actions(tmp_path) -> None:
+    """FR-128 / F10: duration_ms must be tracked as non-negative integer on all audit rows."""
+    import asyncio
+    from friday.turn import (
+        _do_set_reminder,
+        _do_create_note,
+        _do_forget,
+        confirm_preference,
+    )
+    from friday.store.reminders import ReminderStore
+    from friday.store.notes import NoteStore
+
+    db = Database(tmp_path / "test_timing.db")
+    audit = AuditLog(db)
+    prefs = PrefStore(db)
+
+    # 1. set_reminder
+    res1 = asyncio.run(_do_set_reminder({"seconds": "60", "message": "pasta"}, prefs, audit, "req-rem"))
+    assert res1.dispatched is True
+
+    # 2. create_note
+    res2 = asyncio.run(_do_create_note({"content": "buy milk"}, prefs, audit, "req-note"))
+    assert res2.dispatched is True
+
+    # 3. confirm_preference
+    pending = resolve("editor", "neovim")
+    res3 = asyncio.run(confirm_preference(pending, prefs, audit, request_id="req-pref"))
+    assert "neovim" in res3
+
+    # 4. forget_preference
+    res4 = asyncio.run(_do_forget({"key": "editor"}, prefs, audit, "req-forget"))
+    assert res4.dispatched is True
+
+    rows = db.query("SELECT tool_id, outcome, duration_ms FROM action_audit ORDER BY created_at ASC")
+    assert len(rows) == 4
+    for r in rows:
+        assert isinstance(r["duration_ms"], int)
+        assert r["duration_ms"] >= 0
+
