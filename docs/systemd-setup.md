@@ -73,6 +73,31 @@ just searxng status        # Check SearXNG proxy status
 
 ## Sandboxing & Security Guarantees
 - **Loopback isolation**: `llama-server` and `SearXNG` bind strictly to `127.0.0.1`.
-- **Systemd hardening**: `NoNewPrivileges=yes`, `PrivateTmp=yes`, `ProtectSystem=strict`.
+- **Systemd hardening**: `NoNewPrivileges=yes`, `ProtectSystem=strict`,
+  `ReadWritePaths=` for the three Friday state directories.
+- **`/tmp` is in `ReadWritePaths=` (ADR-115)** and must stay there.
+  `ProtectSystem=strict` mounts everything not listed read-only, and `PrivateTmp`
+  had been supplying the daemon's only *writable* `/tmp`. Removing that directive
+  alone leaves `/tmp` **visible but read-only**, which is still broken —
+  connecting to a unix socket needs write access to it, Chromium creates its own
+  `/tmp/org.chromium.Chromium.*` when it is the first instance, and Python's
+  `tempfile.gettempdir()` falls through to the `WorkingDirectory`, dropping two
+  `tmp*/libespeak-ng.so` directories into the repo on every daemon start.
+- **`PrivateTmp` is deliberately NOT set (ADR-115)** and must not be added back.
+  A GUI app's session IPC lives in `/tmp`: Chromium/Brave keeps its singleton
+  **socket** there and only a **symlink** to it in the profile under `$HOME`. A
+  private `/tmp` therefore let a Friday-launched Brave see the shared lock, fail
+  to reach the socket, and exit 0 in ~50 ms with no window — reported as a
+  successful launch. It also hid `/tmp/.X11-unix`. The daemon runs as the user
+  and launches the user's own apps, so the isolation separated the user from
+  themselves and bought nothing.
+- **`KillMode=process` (ADR-114)** and must not be left at systemd's default.
+  Launched apps are children of the daemon and inherit its cgroup — a fork
+  cannot leave a cgroup — so `control-group` SIGKILLed every app Friday had
+  opened on any stop or restart, and the unit is `Restart=always` with a 10 s
+  watchdog.
+- Both are asserted by `tests/test_service_unit.py`, with demonstrated FAIL
+  paths, because both are exactly the lines a later "harden the service" pass
+  would put back.
 - **Wayland integration**: Passes `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `HYPRLAND_INSTANCE_SIGNATURE` for native application dispatch.
 - **Fail-soft resilience**: The daemon tolerates `llama-server` startup delays and automatically recovers from server restarts.

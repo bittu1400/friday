@@ -12,6 +12,15 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-09-02 (night, last): THE LAUNCH BUG IS FOUND AND FIXED — D30,
+ADR-115.** `PrivateTmp=yes` gave the daemon an empty `/tmp`, so a Brave it
+launched could not reach the Chromium singleton socket the user's own Brave had
+created there; it exited **0 in ~50 ms** with no window while Friday said
+"Launching Brave." **`KillMode=process` (ADR-114, D29) was shipped first as this
+bug and was wrong about it** — real defect, kept, different symptom. **Neither
+is confirmed by the owner yet.** Read the `>>> START HERE <<<` block: item 1 is
+one spoken "open the browser". <<<
+
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, post-audit
 **Phase 1 ("Stop Lying") COMPLETE** (ADR-108, plus F9 finished properly in ADR-110),
 and post-audit **Phase 2 ("Make it Measurable") — ALL 7 items** (ADR-109).
@@ -32,7 +41,9 @@ onnxruntime phones home to `*.events.data.microsoft.com` on import, on every
 daemon start, and had been doing so for the life of the project — ADR-112, fixed
 and verified live.** `just bootstrap --check` **11/11**, `just stats` **active**.
 
-`uv run pytest` is now **568 passed**.
+`uv run pytest` is now **581 passed** (568 → 573 with ADR-113's tests → 575
+with ADR-114a's → 580 with `tests/test_service_unit.py`). Note `uv` is not on
+PATH in this environment; use `.venv/bin/python -m pytest -q`.
 
 **Fixed 2026-08-29 (Steps 1–7):** the CRITICAL text-mode confirm break (C1) and
 **all eight HIGHs** — unaudited dispatches and searches (H1), the orphaned
@@ -106,6 +117,184 @@ trust-breaking**, plus a hard latency wall nobody had measured. Read
 block. **No code changed in that session.** The gate checklist above is a record
 of what was BUILT; it is not a statement that it is all honest.
 
+
+---
+
+## SESSION 2026-09-02 (night, last) — **D30: `PrivateTmp` WAS WHY NOTHING EVER OPENED** (ADR-115). The previous fix was real and was the wrong bug.
+
+**The owner's report:** *"Even if friday says launching [app], nothing opens."*
+**Then, after ADR-114 shipped:** *"Tested, browser didn't open before or after
+the restart. Both times, Friday confirmed done, but nothing happened."*
+
+That retest is the important line in this whole session. **ADR-114 was proven,
+committed, pushed — and was not the reported defect.**
+
+### The cause: one directive, and it had been there since G9
+
+```
+~/.config/BraveSoftware/Brave-Browser/SingletonLock   -> bittusah-305526
+~/.config/BraveSoftware/Brave-Browser/SingletonSocket -> /tmp/org.chromium.Chromium.xMufGM/SingletonSocket
+```
+
+Chromium/Brave keeps its singleton **socket** in `/tmp` and only a **symlink**
+to it in the profile. The **lock is under `$HOME`**, which the daemon shares, so
+a Brave launched by Friday correctly saw that another instance held the profile
+— then tried to hand off through the **socket**, under `/tmp`, and
+`PrivateTmp=yes` had given the service a private, *empty* `/tmp`. The handoff
+could not connect, so Brave exited **0 in ~50 ms** having done nothing, and
+ADR-043's amendment reports a launch as OK regardless of exit code.
+
+**Measured, both directions:**
+
+```
+$ ls -d /tmp/org.chromium.Chromium.*                    # the real /tmp
+/tmp/org.chromium.Chromium.HciEea
+/tmp/org.chromium.Chromium.xMufGM
+
+$ systemd-run --user -p PrivateTmp=yes ... ls /tmp
+chromium dirs visible: 0
+/tmp contents: 0 entries
+
+$ systemd-run --user ...            (no PrivateTmp)
+chromium dirs visible: 2
+```
+
+**The audit table had been signing the confession all along** — every
+`open_app{browser}` row exits far inside the 400 ms launch grace and is recorded
+`ok`:
+
+```
+21:28:50  open_app {"app": "browser"}  allowed ok   49ms
+21:28:21  open_app {"app": "browser"}  allowed ok   91ms
+14:16:23  open_app {"app": "browser"}  allowed ok  119ms
+14:15:20  open_app {"app": "browser"}  allowed ok  109ms
+18:00:21  open_app {"app": "browser"}  allowed ok   73ms
+```
+
+Compare `editor` at **409 ms** — the grace *timing out*, i.e. a process still
+alive. A launch faster than the grace is a launch that died.
+
+**It also hid `/tmp/.X11-unix`.** So `DISPLAY=:0`, added by ADR-043 on
+2026-08-25 after Brave printed *"Missing X server or $DISPLAY"*, **could never
+have reached XWayland from this daemon at all.** Only the Wayland-native path
+ever worked. That is a second, older thing the directive was quietly breaking.
+
+### The fix has TWO halves, and the first alone is a trap
+
+**Half 1: remove `PrivateTmp`.** Half 2 was found by noticing the daemon had
+started littering the repo: `git status` grew a `tmp*/libespeak-ng.so` directory,
+two per daemon start, 4 → 6 across one restart.
+
+**`ProtectSystem=strict` mounts everything read-only apart from
+`ReadWritePaths=`, and `PrivateTmp` had been supplying the daemon's only
+WRITABLE `/tmp`.** Removing it made `/tmp` **visible but read-only**:
+
+```
+$ systemd-run --user -p ProtectSystem=strict ... 'touch /tmp/friday-probe'
+touch: cannot touch '/tmp/friday-probe': Read-only file system
+/tmp READ-ONLY
+sockets visible
+tempdir resolves to: /home/bittusah          <- tempfile's FALLBACK chain
+
+$ ... + -p ReadWritePaths=/tmp
+/tmp WRITABLE
+sockets visible
+tempdir resolves to: /tmp
+```
+
+Visible-but-read-only would NOT have fixed D30: **connecting to a unix socket
+needs write access to it**, and Chromium creates its own
+`/tmp/org.chromium.Chromium.*` when it is the first instance. The same
+read-only state pushed Python's `tempfile.gettempdir()` past `/tmp` and
+`/var/tmp` down to the **working directory** — which is the repo.
+
+**Half 2: `/tmp` added to `ReadWritePaths=`.** After it, stray directories per
+restart: **0** (was 2).
+
+### The fix, deployed and read back from systemd
+
+`PrivateTmp` removed from `deploy/systemd/friday.service`, `/tmp` added to
+`ReadWritePaths=`.
+
+```
+$ systemctl --user daemon-reload && systemctl --user restart friday
+$ systemctl --user show friday -p PrivateTmp -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload
+PrivateTmp=no   KillMode=process   Type=notify   WatchdogUSec=10s   NeedDaemonReload=no
+
+$ ls -d /proc/$(systemctl --user show friday -p MainPID --value)/root/tmp/org.chromium.Chromium.* | wc -l
+2                                  # the daemon now sees the real sockets; was 0
+
+$ ls -d tmp*/ | wc -l              # stray dirs in the repo per daemon restart
+0                                  # was 2 with /tmp read-only
+```
+
+**`NeedDaemonReload=yes` bit me during this very session**, because the
+FAIL-path test edited the unit file after the last reload. The running config
+was already correct while systemd flagged the file as changed — gotcha #2,
+live. Always re-read `systemctl --user show` as the last step.
+
+`tests/test_service_unit.py` is new — **6 checks**: `PrivateTmp` is not enabled,
+`/tmp` is in `ReadWritePaths` whenever `ProtectSystem=strict`, `KillMode=process`,
+the `Type=notify`/`WatchdogSec` pairing, and ADR-112's `ORT_DISABLE_TELEMETRY`.
+Both new FAIL paths demonstrated:
+
+```
+FAILED tests/test_service_unit.py::test_private_tmp_is_not_enabled
+FAILED tests/test_service_unit.py::test_tmp_is_writable_by_the_service
+```
+
+These are exactly the lines a later "harden the service" pass would restore.
+
+**Security:** this removes a hardening directive on purpose. The daemon runs as
+**the user** and launches **the user's own apps in the user's own session**, so
+a private `/tmp` separated the user from themselves rather than two trust
+domains. Every control the threat model relies on is untouched and none reads
+`/tmp`. `ProtectSystem=strict`, `NoNewPrivileges=yes` and `ReadWritePaths=` are
+kept. Written up as a dated row in `threat-model.md` with the residual risk
+stated, not made quietly.
+
+### Four wrong causes were chased before this one. All four are recorded, because each looked right.
+
+1. **The sandbox blocks the window.** An A/B said sandboxed 0, unsandboxed 1 —
+   **the control was broken**: the sandboxed arm used `systemd-run --wait`, so
+   the count was taken after the unit had exited and the window was already
+   gone. Bisecting the three directives one at a time showed all three produce a
+   window.
+2. **`PrivateTmp` is innocent.** That bisect used **`foot`**, which has no
+   `/tmp` socket, so it never exercised the broken path. **This was the real
+   cause, tested and cleared, by the wrong subject.** ADR-115a.
+3. **VS Code never opens under the daemon.** True, and **self-inflicted** — an
+   earlier `pkill` left its single-instance state stale, so `code` opened
+   nothing from a plain shell either. Caught by testing the control.
+4. **`KillMode=control-group` is why nothing opens.** A genuine defect (D29),
+   proven, shipped, pushed — and **not the owner's symptom**, which the owner
+   established by retesting. It is kept because it is real.
+5. **"`PrivateTmp` removed, done."** Half a fix. `ProtectSystem=strict` then
+   leaves `/tmp` read-only, which still breaks the socket connect. Caught only
+   because the daemon started littering `git status`; nothing in the suite or
+   the selftest would have noticed.
+
+**The `pgrep`/`pkill` trap fired again, too:** a cleanup one-liner using
+`pkill -f "[/]usr/bin/foot"` killed its own shell (exit 144) because the
+*unbracketed* literal also appeared elsewhere on the same command line. The
+bracket trick only works when the pattern appears once.
+
+### Gates
+
+```
+.venv/bin/python -m pytest -q                581 passed (was 575; +6 unit-file)
+.venv/bin/python -m friday.eval_harness      60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest          9/9 PASS, rc=0
+scripts/bootstrap.py --check                 11/11 PASS
+just grammar + git diff --quiet grammars/    clean
+```
+
+### What is NOT proven
+
+**No app has been opened by the live daemon since the fix.** Everything above is
+mechanism-level: the daemon can now *see* the sockets it could not see before.
+Whether "open the browser" produces a window is the owner's to confirm, and it
+is item 1 of the next session.
 
 ---
 
@@ -317,8 +506,8 @@ anything; it is recorded because it was measured, not as a claim.
 
 The owner reported: *"it could hold up to 2 second pause at max, anymore and
 then no response."* Verified in code rather than by feel.
-`VAD_NO_SPEECH_TIMEOUT_S = 3.0` (`friday/config.py:158`, ADR-066), and
-`friday/audio/wake.py:299-316` increments `_silent_frames` on **every** capture
+`VAD_NO_SPEECH_TIMEOUT_S = 3.0` (`friday/config.py`, the `VAD_NO_SPEECH_TIMEOUT_S` constant, ADR-066), and
+`friday/audio/wake.py`'s `_on_frame` bail-out branch increments `_silent_frames` on **every** capture
 frame while `_heard_speech` latches on the first voiced frame — so the budget is
 **3.0 s from `capture start` to the first voiced frame**, after which the capture
 is abandoned and nothing is spoken back. That is the reported symptom exactly.
@@ -4142,7 +4331,195 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-02 night**, after the microphone session) <<<
+## >>> START HERE: NEXT SESSION (written **2026-09-02 night, last**, after the launch-bug session) <<<
+
+**Read this whole block before touching anything. It is four minutes of reading
+and it will save you the session I just spent.**
+
+### The state in six lines
+
+- **Phase 1 and Phase 2 (post-audit) are COMPLETE, 7 of 7.** D3 was proven live
+  and **OQ-39 is closed**.
+- **Three fixes shipped after that, and NONE of the three has been confirmed by
+  a human.** ADR-113 (pause budget), ADR-114 (D29, cgroup), ADR-115 (D30,
+  `PrivateTmp`).
+- **ADR-115 is the owner's actual bug** — *"Friday says launching X and nothing
+  opens"* — and it is fixed in the unit and running.
+- **ADR-114 was shipped first as that bug and was WRONG about it.** It is a real
+  defect and it stays. Two defects, one report.
+- Gates: `pytest` **580**, `eval` **60/60 / 0 regressions**, `selftest` **9/9
+  rc=0**, `bootstrap --check` **11/11**, grammars byte-identical.
+- Everything is committed and pushed to `main`.
+
+### DO THIS FIRST — five minutes at the microphone, in this order
+
+Nothing below is optional and nothing after it matters until it is done.
+
+```bash
+# 0. confirm the running daemon is this code and the unit is deployed
+systemctl --user show friday -p PrivateTmp -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload
+#    MUST read: PrivateTmp=no  KillMode=process  Type=notify  WatchdogUSec=10s  NeedDaemonReload=no
+grep '^ReadWritePaths=' deploy/systemd/friday.service
+#    MUST contain /tmp -- without it ProtectSystem=strict leaves /tmp READ-ONLY,
+#    which still breaks the Chromium handoff and drops tmp*/ dirs in the repo
+ls -d tmp*/ 2>/dev/null | wc -l    # MUST be 0; 2 per restart means /tmp is read-only again
+ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
+find friday -name '*.py' -printf '%T+ %p\n' | sort -r | head -1
+#    the daemon must have started AFTER the newest source mtime
+```
+
+1. **Say "open the browser."** A window must appear. **This is D30 / ADR-115.**
+2. **Then `systemctl --user restart friday`.** The window must still be there.
+   **This is D29 / ADR-114.**
+3. **Watch for one false wake** and the journal line
+   `capture abandoned: no speech within 5.0s`. **This is ADR-113.**
+
+Record the result in this file either way. A negative result here is worth more
+than anything in Phase 3.
+
+### IF STEP 1 STILL FAILS — do not start where I started
+
+Four causes were chased and eliminated this session. **Do not re-eliminate
+them:**
+
+| already eliminated | how |
+| :-- | :-- |
+| `NoNewPrivileges=yes` | bisected on its own; produces a window |
+| `ProtectSystem=strict` **as such** | bisected on its own; produces a window. **But it is why `/tmp` needed adding to `ReadWritePaths=`** — it mounts everything not listed read-only. If `/tmp` ever leaves that list, this row stops being true |
+| the GUI env (`DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `HYPRLAND_INSTANCE_SIGNATURE`, `LANG`) | read straight out of `/proc/<daemon pid>/environ`; all present |
+| `PATH` / a missing binary | all **162** app ids resolve under the daemon's own narrower `PATH` |
+| `KillMode` | fixed (ADR-114) and separately proven; it kills apps LATER, it does not stop them opening |
+
+**Start instead by reading `stderr`.** `executor.py` sends it to `DEVNULL`,
+which is the single reason this took a whole session to find. Spawn the app by
+hand with the daemon's exact env and keep it:
+
+```bash
+.venv/bin/python - <<'EOF'
+import asyncio, os
+from friday.tools import registry as R
+from friday.tools.apps import APPS
+env = dict(R._APP_ENV); env["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/bin"
+async def go():
+    p = await asyncio.create_subprocess_exec(*APPS["browser"].argv,
+        cwd=os.path.expanduser("~"), env=env,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        start_new_session=True)
+    try:
+        rc = await asyncio.wait_for(p.wait(), timeout=8)
+        print("rc", rc, (await p.stderr.read()).decode()[:800])
+    except asyncio.TimeoutError:
+        print("still running -- this is the healthy case")
+asyncio.run(go())
+EOF
+```
+
+**And read the duration column in `action_audit`.** It is a diagnostic nobody
+was using: `_LAUNCH_GRACE_S` is 0.4 s and a GUI app does not exit, so
+
+- **~400 ms** = the grace timed out = the process is still alive = healthy.
+- **anything well under 400 ms** = it exited = **it died or handed off**. Every
+  browser row was 49-119 ms for the life of the project.
+
+### Rules this session paid for. Break them and you will repeat it.
+
+1. **Bisect with the subject that actually fails.** `PrivateTmp` was tested and
+   cleared using `foot`, which has no `/tmp` socket. It was the real cause. The
+   owner said "the browser" — launch the browser.
+2. **A proof that your mechanism is real is not a proof that it is the user's
+   symptom.** ADR-114 was measured, committed, pushed, and wrong about the bug.
+   Reproduce the exact complaint before claiming it.
+3. **Check what your control actually measured.** One A/B "proved" the sandbox
+   guilty because the sandboxed arm was counted after `systemd-run --wait` had
+   already reaped it.
+4. **Do not trust a subject you have touched.** VS Code "never opened under the
+   daemon" — because an earlier `pkill` had left its single-instance state
+   stale. It opened nothing from a plain shell either.
+5. **`pkill -f "[x]pattern"` still kills your own shell** if the unbracketed
+   literal appears anywhere else on the same command line. Exit 144. Again.
+6. **A fix that removes a restriction is not finished until you check what the
+   restriction was also providing.** Dropping `PrivateTmp` removed the daemon's
+   only *writable* `/tmp`, leaving it visible and read-only — still broken, and
+   now littering the repo through `tempfile`'s fallback chain. Nothing in the
+   suite or the selftest saw it; `git status` did.
+7. **Read `git status` before you commit, and ask what put anything new there.**
+   Four `tmp*/libespeak-ng.so` directories were the only evidence of half of
+   ADR-115.
+
+### Gate commands — `uv` is NOT on PATH in this environment
+
+```bash
+.venv/bin/python -m pytest -q            # 581 passed, rc=0
+.venv/bin/python -m friday.eval_harness  # 60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest      # 9/9 PASS, rc=0
+.venv/bin/python -m pytest -q tests/test_injection.py   # 20/20 blocked
+.venv/bin/python -m pytest -q tests/test_egress.py      # 8 passed
+.venv/bin/python -m pytest -q tests/test_service_unit.py # 5 passed -- the unit directives
+.venv/bin/python scripts/bootstrap.py --check           # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
+```
+
+### Then, and only then: Phase 3 — the Capability record
+
+Acceptance criteria are **`design-2026-09-02.md` §11.1** and they are not
+optional. Two are already verified true:
+
+```
+[verified 2026-09-02] `just grammar` output is byte-identical to the committed .gbnf
+[verified 2026-09-02] PARAM_SCHEMA has exactly 25 actions (criterion 3.8's table)
+```
+
+**Contract:** if the regenerated grammars move, or `just eval` drops below
+**60/60 with 0 regressions**, the refactor changed behaviour and is wrong.
+**Do not reorder 1 → 2 → 3.**
+
+### Still owed, cheap, and not done
+
+- **OQ-57** — record the G12 vocabulary clips into `~/.cache/whisper-bench/clips`
+  with `record.sh`, to test whether the widened `STT_HOTWORDS` actually helps.
+- **D17** — re-run `just bench-stt` in `balanced` more than once. STT p95 spans
+  713-804 ms against an 800 ms gate; one run cannot settle it.
+
+### Questions owed. Do not re-ask what is answered.
+
+**Open:** **OQ-57** · **OQ-59** (launch grace 400 → 150 ms? — note it is also the
+launch health signal now, see the duration rule above) · **OQ-60** (amend
+invariant #6 for STT on CUDA?) · **OQ-61** (the summarizer's invariant-#7
+prompt-only enforcement) · **OQ-63** (rule 7 egress probe) · **OQ-30**,
+**OQ-32**, **OQ-33** unchanged.
+
+**CLOSED 2026-09-02 night: OQ-39** (the live hands-free capture) and **OQ-64**
+(the pause budget → ADR-113). **CLOSED 2026-09-02 evening: OQ-62** (selftest
+WARN semantics). **Do not re-ask D-1…D-8** — design §0, ADR-098…107.
+
+### Environment gotchas that have each cost a session
+
+1. **`uv` is not on PATH here.** Use `.venv/bin/python`. A `uv run …` in a
+   background command exits **0** while doing nothing, so it looks like a pass.
+2. **Editing a systemd unit is not deploying it.** The installed unit is a
+   symlink to `deploy/systemd/`, so `diff` says IDENTICAL while systemd runs the
+   old config. After ANY unit edit:
+   `systemctl --user daemon-reload && systemctl --user restart friday`, then
+   confirm with `systemctl --user show friday -p <directive>`.
+3. **A committed fix is not a running fix.** Compare `ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)`
+   against the source mtimes. Two whole phases had never executed live.
+4. **`FRIDAY_DEBUG=1` shows nothing under systemd.** Use
+   `env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice`, and
+   `systemctl --user stop friday` first — two daemons fight over the mic and the
+   PTT socket.
+5. **A single sample is not an observation.** The ORT telemetry socket takes
+   **15-45 s** to appear; three checks at 12 s produced a confident wrong cause.
+6. **A capture's real length is in the `faster_whisper` line, not the log gap.**
+   `Processing audio with duration` is the capture itself; a gap between daemon
+   lines also contains STT and planning.
+7. **The executor throws `stderr` away.** `DEVNULL` on both pipes. Any "it
+   launched and nothing happened" investigation starts by spawning it by hand
+   with stderr kept — see the snippet above.
+
+---
+
+## >>> (superseded 2026-09-02 night, last, by the block above) START HERE: NEXT SESSION (written **2026-09-02 night**, after the microphone session) <<<
 
 **D3 is fixed live. OQ-39 is closed. Post-audit Phase 2 is 7 of 7.** The item
 Phase 2 shipped without has now been measured at the microphone — five

@@ -79,7 +79,7 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-114. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
+**Decisions ADR-098…ADR-115. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
 OQ-63. OQ-39 is CLOSED** (D3 proven live 2026-09-02 night), **OQ-64 is CLOSED**
 (the post-wake pause budget → **ADR-113**: 3.0 → 5.0 s, and an abandoned capture
 now skips STT and the turn) **and OQ-62 is CLOSED** (selftest WARN → exit 2
@@ -110,7 +110,8 @@ below and one live measurement.**
 | **D26** | fixed; **efficacy unproven — OQ-57** |
 | **D27** | **NEW, FIXED 2026-09-02** — `import onnxruntime` phones home to `*.events.data.microsoft.com`. `ORT_DISABLE_TELEMETRY=1` (**ADR-112**) |
 | **D28** | **NEW, FIXED 2026-09-02** — `pytest -q` crashed at session finish; `Daemon.close()` leaked a PortAudio stream (**ADR-111**) |
-| **D29** | **NEW, FIXED 2026-09-02** — every app Friday launched died with the daemon. Children inherit `friday.service`'s cgroup and `KillMode` defaulted to `control-group`, so a stop/restart SIGKILLed the lot — with `Restart=always` + `WatchdogSec=10s` behind it. `KillMode=process` (**ADR-114**). Also fixed: embedded XDG field codes reached the binary (`--uri=%u`), **ADR-114a** |
+| **D29** | **NEW, FIXED 2026-09-02** — every app Friday launched died with the daemon. Children inherit `friday.service`'s cgroup and `KillMode` defaulted to `control-group`, so a stop/restart SIGKILLed the lot — with `Restart=always` + `WatchdogSec=10s` behind it. `KillMode=process` (**ADR-114**). Real, proven, **and NOT the defect the owner reported.** Also fixed: embedded XDG field codes reached the binary (`--uri=%u`), **ADR-114a** |
+| **D30** | **NEW, FIXED 2026-09-02 — THIS is "Friday says launching X and nothing opens."** `PrivateTmp=yes` gave the daemon an empty `/tmp`. Chromium keeps its singleton SOCKET in `/tmp` and only a SYMLINK to it under `$HOME`, so a Friday-launched Brave saw the shared lock, could not reach the socket, and exited **0 in ~50 ms** with no window — announced as a successful launch. Directive removed **and `/tmp` added to `ReadWritePaths=`** — removing it alone leaves `/tmp` visible but READ-ONLY under `ProtectSystem=strict`, which still breaks the socket connect and sent `tempfile` into the repo (**ADR-115**). **Fixed in code and in the running unit; NOT yet confirmed by the owner at a microphone** |
 
 **What is fixed, and what that does NOT mean.** `is_affirmation` normalises STT
 punctuation, head-matches with a negative-word veto, and a `_DECLINE` set
@@ -226,9 +227,23 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: nothing is owed at a microphone. The next work is Phase 3.**
-Read `progress.md`'s `>>> START HERE <<<` block first — it carries the runnable
-commands, the gate numbers, and the one question owed to the owner.
+**NEXT SESSION: three things are owed at a microphone and they take five
+minutes between them. Then Phase 3.** Read `progress.md`'s
+`>>> START HERE <<<` block first — it carries the runnable commands and the
+gate numbers. In order:
+
+1. **Say "open the browser."** A window must appear. This is D30/ADR-115 and it
+   is the owner's own bug; it is fixed in the unit and unconfirmed by a human.
+2. **Then `systemctl --user restart friday`.** The window must still be there.
+   That is D29/ADR-114.
+3. **Watch for one false wake** and the line
+   `capture abandoned: no speech within 5.0s`. That is ADR-113.
+
+If (1) still fails, do **not** start from the sandbox again — `ProtectSystem`,
+`NoNewPrivileges` and `KillMode` are all measured innocent for the *window*
+question. Read `stderr`: the executor sends it to `DEVNULL`, which is why this
+took a whole session. Spawn the app by hand with the daemon's exact `_APP_ENV`
+and keep stderr.
 
 **D3 / OQ-39 is CLOSED, measured 2026-09-02 (night).** Five hands-free captures
 through the real AEC path, ended by Silero at 2.988 / 3.684 / 3.093 / 2.337 /
@@ -238,6 +253,37 @@ line, which is the capture itself and needs no arithmetic. The third capture
 proves the mechanism rather than the outcome: whisper's VAD stripped 1.200 s of
 it, i.e. ~0.4 s lead-in plus the full 0.8 s `VAD_END_SILENCE_S` of trailing
 silence, accumulating exactly as `webrtcvad` could not.
+
+**THE LAUNCH BUG IS FIXED AND IS THE LAST THING THAT HAPPENED THIS SESSION —
+D30, ADR-115.** The owner reported *"even if friday says launching [app],
+nothing opens"*. **`PrivateTmp=yes` on `friday.service` was the cause.** A GUI
+app's session IPC lives in `/tmp`: Chromium keeps its singleton **socket**
+there and only a **symlink** to it in the profile under `$HOME`. The lock was
+visible and the socket was not, so a Friday-launched Brave saw another instance,
+failed the handoff, and exited **0 in ~50 ms** — inside the 400 ms launch grace,
+recorded `ok`, no window. Every `open_app{browser}` row shows it: **49, 73, 91,
+109, 119 ms**. It also hid `/tmp/.X11-unix`, so ADR-043's `DISPLAY=:0` could
+never have reached XWayland from this daemon. **The fix has two halves and the first alone is a
+trap:** removing `PrivateTmp` makes `/tmp` visible but **read-only**, because
+`ProtectSystem=strict` mounts everything not in `ReadWritePaths=` read-only and
+`PrivateTmp` had been supplying the only writable `/tmp`. Connecting to a unix
+socket needs write access to it, so `/tmp` is now in `ReadWritePaths=` too. The
+read-only state also pushed `tempfile.gettempdir()` down to the
+`WorkingDirectory`, littering the repo with two `tmp*/libespeak-ng.so`
+directories per daemon start — 0 after the full fix. The daemon now resolves
+`/proc/<pid>/root/tmp/org.chromium.Chromium.*` to 2 where a `PrivateTmp` unit
+sees 0. **`tests/test_service_unit.py` (6 checks) fails if either half is
+undone.**
+
+**`KillMode=process` (ADR-114, D29) was shipped FIRST as the cause and was
+WRONG about the symptom.** It is a real defect, proven and kept — launched apps
+inherit the daemon's cgroup and `control-group` SIGKILLed them all on every
+restart — but the owner retested and the browser still did not open. Two fixes,
+two defects, one report. Do not re-fix either.
+
+**NEITHER IS CONFIRMED BY THE OWNER YET.** Both are verified at the mechanism
+level only. The first job of the next session is one spoken *"open the browser"*
+— see `progress.md`'s `>>> START HERE <<<`.
 
 **One question came out of it, and it is already answered: OQ-64 → ADR-113.**
 The owner found the post-wake pause budget short — *"up to 2 second pause at
@@ -679,8 +725,8 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  114 ADRs
-                      (ADR-001..ADR-114; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  115 ADRs
+                      (ADR-001..ADR-115; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
                       ADR-110/111/112 are the 2026-09-02 evening verification
                       pass: a real egress check, the PortAudio teardown leak,
@@ -873,7 +919,7 @@ just eval               # eval fixtures -> pass count (currently 60; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 575
+just test               # full unit + adversarial + injection suite (pytest -q). 581
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -950,6 +996,10 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The GUI env is settled, ADR-043 and ADR-074 already fixed it" | A third variable was missing: `LANG`. A console app inherits the "C" locale, btop exits 1, `foot` exits with its child, and the detached launch reports ok with no window — measured 2026-09-02. Three vars, three separate live discoveries (`DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`, `LANG`). When a launch reports ok and nothing opens, suspect the env before the code. |
 | "Widen the app list with a fuzzy matcher, it's friendlier" | It converts an adversarial fixture into a launch: a substring match resolves `"browser; rm -rf ~"` to `browser`, and AS-8 must reject. The enum stayed CLOSED and was generated instead — and it was free, because the GBNF grammar never enumerated param values (ADR-097). |
 | "Escalation is already banned, `sudo` is in the list" | `.desktop` files escalate through **`pkexec`**, which was not. Found by a scanner test, fixed in `ban.py` so the executor gets it too. A denylist written against one attack shape does not cover the next one that arrives through a different file format. |
+| "I removed PrivateTmp, /tmp works now" | Half a fix. `ProtectSystem=strict` mounts everything not in `ReadWritePaths=` read-only, and `PrivateTmp` had been supplying the only WRITABLE `/tmp`. Remove it alone and `/tmp` is visible and read-only — which still breaks the Chromium handoff, because connecting to a unix socket needs write access to it. It also pushes `tempfile.gettempdir()` past `/tmp` and `/var/tmp` to the **WorkingDirectory**, so the daemon drops two `tmp*/libespeak-ng.so` dirs into the repo per start. That litter in `git status` is the only reason it was caught — no test or selftest check saw it (ADR-115). |
+| "The service is hardened, that's good" | `PrivateTmp=yes` broke **every browser launch for the life of the project**. A GUI app's session IPC lives in `/tmp`: Chromium keeps its singleton SOCKET there and only a SYMLINK to it under `$HOME`. The lock is visible, the socket is not, so Brave saw another instance, failed the handoff and exited **0 in ~50 ms** — inside the 400 ms grace, recorded `ok`, no window. It also hid `/tmp/.X11-unix`, so ADR-043's `DISPLAY=:0` could never have worked. The daemon runs as the user launching the user's own apps; the directive isolated the user from themselves (D30, ADR-115). |
+| "I bisected the sandbox and PrivateTmp was clean" | You bisected with `foot`, which has no `/tmp` socket. The probe never touched the broken path — ninth time in this project a green check sat on a live defect, and the second time in ONE session. **Bisect with the subject that actually fails.** The owner said "the browser"; launch the browser. A cheaper substitute is not a control, it is a different experiment (ADR-115a). |
+| "The fix is proven, so the bug is fixed" | ADR-114 was proven at the mechanism level — foot window alive, `systemctl stop`, foot gone — shipped, pushed, and **was not the reported bug**. The owner retested: the browser did not open before or after a restart. A proof that your mechanism is real is not a proof that it is THEIR symptom. Reproduce the user's exact complaint, with their exact app, before claiming it. |
 | "`start_new_session=True`, so the app is detached" | It is detached from the terminal and the process group. It is NOT detached from the **cgroup** — membership is inherited and a process cannot leave it by forking. Under systemd's default `KillMode=control-group`, every app Friday launched was SIGKILLed the moment the service stopped or restarted, and `Restart=always` + `WatchdogSec=10s` mean that happens unasked. Measured: a foot window alive while the parent lived, gone one second after `systemctl stop` (D29, ADR-114). |
 | "The obvious fix is `systemd-run --scope`" | It gives each app its own cgroup and it puts a WRAPPER at argv[0] — and `assert_not_banned` inspects only argv[0]. That is F5, the open hole about `env`/`flatpak`/`distrobox-enter` prefixes. Do not reopen a known security hole to fix a lifecycle bug; `KillMode=process` is one line in the unit (ADR-114). |
 | "The field-code filter strips `%u`" | Only where `%u` is the WHOLE token. `^%[a-zA-Z]$` never matched `--uri=%u`, which is how Spotify writes it, so it reached the binary verbatim — 1 of 162 scanned entries. Anchors are the bug. And strip `%%` first: it is a literal percent (ADR-114a). |

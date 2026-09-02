@@ -1256,7 +1256,7 @@ months.)_
   at max, anymore and then no response."*
 
   **It is real and it is one constant.** `VAD_NO_SPEECH_TIMEOUT_S = 3.0`
-  (`friday/config.py:158`, ADR-066). `friday/audio/wake.py:299-316` increments
+  (`friday/config.py`, the `VAD_NO_SPEECH_TIMEOUT_S` constant, ADR-066). `friday/audio/wake.py`'s `_on_frame` bail-out branch increments
   `_silent_frames` on **every** frame of a capture and latches `_heard_speech` on
   the first voiced frame, so the budget is *3.0 s from `capture start` to your
   first voiced frame* — after which the capture is abandoned and **nothing is

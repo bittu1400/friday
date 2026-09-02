@@ -106,8 +106,26 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 | "play a video" / "open mpv" | mpv launches | |
 | "open VLC" | VLC launches | |
 
-- [x] **Four of five launch and appear on screen — verified by the user
-      2026-08-29:** Brave, foot, VS Code, VLC.
+- [ ] **UN-TICKED 2026-09-02 (D30). The browser did NOT appear**, reported by
+      the owner twice: *"even if friday says launching [app], nothing opens"*,
+      and again after the ADR-114 fix. Cause found and fixed the same evening:
+      **`PrivateTmp=yes`** on `friday.service` gave the daemon an empty `/tmp`,
+      and Chromium keeps its singleton **socket** there with only a **symlink**
+      to it under `$HOME` — so a Friday-launched Brave saw the shared lock,
+      failed the handoff, and exited **0 in ~50 ms** with no window (ADR-115).
+      The signature is in `action_audit`: every `open_app{browser}` row is
+      **49/73/91/109/119 ms**, all far inside the 400 ms launch grace, all `ok`.
+      **The directive is removed and the daemon now sees the real sockets, but
+      no human has watched a window appear since.** Re-tick this row by saying
+      "open the browser" — it is item 1 of the next session.
+      *(The 2026-08-29 tick that this replaces read "four of five launch and
+      appear on screen: Brave, foot, VS Code, VLC". `foot` genuinely does — it
+      has no `/tmp` socket — which is exactly why it was the wrong subject to
+      bisect `PrivateTmp` with.)*
+- [ ] **Also un-ticked with it: an app must SURVIVE a daemon restart** (D29,
+      ADR-114). Launched apps inherit `friday.service`'s cgroup and `KillMode`
+      defaulted to `control-group`, so every stop or restart SIGKILLed them.
+      `KillMode=process` now; proven with a probe, unconfirmed by a human.
 - [ ] **mpv does NOT open. `'Play a video'` → `youtube_search` (audit v28),
       never `open_app{video}`.** That is OQ-30, open since 2026-08-23 and now
       ANSWERED: YouTube stays the default, with a VLC/mpv fallback when the
@@ -572,7 +590,11 @@ still present after the debug `v{n}` counter reset to `v1`.
 
 - **A1** all five apps dispatched `ok`; `open_app{browser}` with Brave already
   running still reported success (the ADR-043-amendment row). *Windows not yet
-  eyeballed — see "still not verified".*
+  eyeballed — see "still not verified".* **2026-09-02: that "reported success"
+  was the defect, not the feature.** With `PrivateTmp=yes` the handoff could not
+  reach the singleton socket, so the row was `ok` and no window ever opened
+  (D30, ADR-115). A dispatch recorded `ok` is not a window; the duration column
+  is the tell — under the 400 ms grace means the process exited.
 - **A2** `open_youtube` and `youtube_search` (`{"query": "lo-fi"}`).
 - **A3** `web_search` answered and **never dispatched** — invariant #1 holds
   live. But see D7 below: time questions are answered wrongly from the web.
@@ -622,14 +644,20 @@ microphone session**, and **D27–D28 from the 2026-09-02 verification pass**.
   leaked PortAudio stream, **ADR-111**) are new and both fixed.
 - **D3 is FIXED AND PROVEN LIVE** (2026-09-02 night) — the Silero swap
   (ADR-095) confirmed through the real AEC path: five hands-free captures ended
-  at 2.3-3.7 s, none reaching the 15 s cap. **OQ-39 CLOSED.** Nothing is now
-  owed at a microphone.
+  at 2.3-3.7 s, none reaching the 15 s cap. **OQ-39 CLOSED.**
+- **D29** (launched apps died with the daemon — cgroup + `KillMode`, **ADR-114**)
+  and **D30** (`PrivateTmp` hid the Chromium singleton socket, so no browser ever
+  opened — **ADR-115**) are new, both fixed, **and neither is confirmed by a
+  human.** D30 is the owner's own long-standing report. Three things are owed at
+  a microphone now, listed in `progress.md`'s START HERE block.
 
 | # | Sev | What | Where |
 | :-- | :-- | :-- | :-- |
 | D1 | CRITICAL | spoken "yes" recorded as decline — **FIXED IN CODE 2026-08-30, unproven by voice** | was `friday/turn.py:47-53`, now `turn.py:53-92` |
 | D2 | HIGH | audit rows overwritten every daemon restart — **FIXED IN CODE 2026-08-30, unproven across a live restart** | was `store/audit.py:56` + `daemon.py:136,288`, now `audit.py:59` + `daemon.py:290` |
 | D3 | HIGH | hands-free capture never ends (no VAD end, no ADR-066 bail) — **FIXED (ADR-095) AND PROVEN LIVE 2026-09-02, 5/5 captures ended 2.3-3.7 s** | `friday/audio/wake.py:294-315` |
+| D29 | HIGH | every app Friday launched was SIGKILLed when the daemon stopped or restarted — children inherit the service cgroup and `KillMode` defaulted to `control-group` — **FIXED, `KillMode=process` (ADR-114)** | `deploy/systemd/friday.service` |
+| D30 | HIGH | **no browser ever opened.** `PrivateTmp=yes` gave the daemon an empty `/tmp`; Chromium's singleton socket lives there with only a symlink under `$HOME`, so the handoff failed and Brave exited 0 in ~50 ms with no window, announced as a successful launch — **FIXED, directive removed (ADR-115)** | `deploy/systemd/friday.service` |
 | D4 | MED | `open my todo` refused — STT spells it `to-do` | `friday/tools/registry.py:231` |
 | D5 | MED | garbled duration silently becomes a timer | `friday/llm/schema.py:72` |
 | D6 | MED | Friday spoke the literal `String.Empty` | `friday/proactive/briefing.py:57-62` |

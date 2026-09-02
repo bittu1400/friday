@@ -434,7 +434,7 @@ exits non-zero on any failure. Run it at every gate.
 ```
 
 Hardening on the orchestrator unit: `NoNewPrivileges=yes`,
-`PrivateTmp=yes`, `ProtectSystem=strict`, `ReadWritePaths=%h/.local/state/friday`.
+`ProtectSystem=strict`, `ReadWritePaths=%h/.local/state/friday`, and `KillMode=process` (ADR-114). **`PrivateTmp` is deliberately NOT set** (ADR-115): a GUI app's session IPC lives in `/tmp` — Chromium keeps its singleton socket there and only a symlink to it under `$HOME` — so a private `/tmp` made every browser launch exit 0 in ~50 ms with no window, and hid `/tmp/.X11-unix` besides. `tests/test_service_unit.py` fails if either directive is changed back.
 Note that `open_app` must still reach the Hyprland socket — verify the
 sandbox does not break `hyprctl` before enabling `ProtectSystem`.
 

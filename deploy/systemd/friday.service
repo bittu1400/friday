@@ -54,12 +54,51 @@ RuntimeDirectoryMode=0700
 # reading the unit sees it, and so it holds even if the import order changes.
 Environment=ORT_DISABLE_TELEMETRY=1
 PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE DBUS_SESSION_BUS_ADDRESS PATH
-ReadWritePaths=%h/.local/state/friday %t/friday %h/.local/share/friday
+# /tmp is in this list for the same reason PrivateTmp is absent (D30, ADR-115).
+# ProtectSystem=strict mounts the whole hierarchy read-only apart from what is
+# named here, and PrivateTmp had been supplying the daemon's only writable /tmp.
+# Removing PrivateTmp alone made /tmp VISIBLE but READ-ONLY, which is not enough:
+# connecting to a unix socket needs write access to it, and Chromium creates its
+# own /tmp/org.chromium.Chromium.* directory when it is the first instance. It
+# also sent Python's tempfile.gettempdir() down its fallback chain to the
+# WorkingDirectory, so every daemon start dropped a `tmp*/libespeak-ng.so`
+# directory into the repo (2 per start, measured).
+ReadWritePaths=%h/.local/state/friday %t/friday %h/.local/share/friday /tmp
 
 # Sandboxing and security
 NoNewPrivileges=yes
-PrivateTmp=yes
 ProtectSystem=strict
+# PrivateTmp is DELIBERATELY NOT SET (D30, ADR-115). It was `yes` and it is why
+# "open the browser" opened nothing for the life of the project.
+#
+# A GUI app's session IPC lives in /tmp. Chromium/Brave keeps its singleton
+# socket there and only a SYMLINK to it in the profile:
+#
+#   ~/.config/BraveSoftware/Brave-Browser/SingletonLock   -> bittusah-<pid>
+#   ~/.config/BraveSoftware/Brave-Browser/SingletonSocket -> /tmp/org.chromium.Chromium.xMufGM/SingletonSocket
+#
+# The lock is under $HOME, which the daemon shares, so a Brave launched here
+# SEES that another instance holds the profile — then tries to hand off through
+# the socket, which is under /tmp, which PrivateTmp made a private empty
+# directory. The handoff cannot connect, so Brave exits 0 in ~50 ms having done
+# nothing, and ADR-043's amendment (correctly) reports a launch as OK regardless
+# of exit code. Every open_app{browser} row in action_audit shows it: 49, 73, 91,
+# 109, 119 ms, all `ok`, no window. Measured 2026-09-02: the real /tmp holds two
+# org.chromium.Chromium.* directories and a PrivateTmp=yes unit sees ZERO, in a
+# /tmp with 0 entries.
+#
+# It also hid /tmp/.X11-unix, so the DISPLAY=:0 added by ADR-043 could never
+# have reached XWayland at all.
+#
+# The isolation bought nothing here: the daemon runs as the user, and the apps
+# it launches are the user's own apps in the user's own session. Friday's real
+# controls are the closed enum, code-built argv, the ban list and the panic
+# switch (threat-model.md), none of which depend on /tmp.
+#
+# Do NOT "restore hardening" by setting this back. Do not try to keep it and
+# point TMPDIR elsewhere either: the socket the daemon must reach was created by
+# the user's ALREADY-RUNNING Brave in the real /tmp, so nothing the daemon sets
+# for itself can produce it.
 
 [Install]
 WantedBy=graphical-session.target

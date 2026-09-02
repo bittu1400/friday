@@ -4861,3 +4861,124 @@ on this machine. Now stripped in place the way GLib's launcher expands them (a
 bare `%u` disappears, `--uri=%u` becomes `--uri=`), with `%%` protected as the
 literal percent the spec says it is. `tests/test_desktop_apps.py` gains two
 checks and the FAIL path was demonstrated by restoring the anchors.
+
+---
+
+## ADR-115 — `PrivateTmp` removed: a GUI app's session IPC lives in `/tmp`
+
+**Status:** Accepted (2026-09-02). Fixes **D30**, the defect the owner actually
+reported. Supersedes the hardening half of ADR-051.
+
+**Context.** The owner: *"Even if friday says launching [app], nothing opens."*
+ADR-114 (`KillMode=process`) was shipped first as the cause and **it was not** —
+the owner retested and the browser did not open before or after a restart. That
+fix is correct and stays; it addressed a different, real defect (D29).
+
+The cause is one directive: **`PrivateTmp=yes`**.
+
+Chromium/Brave keeps its singleton **socket** in `/tmp` and only a **symlink**
+to it in the profile:
+
+```
+~/.config/BraveSoftware/Brave-Browser/SingletonLock   -> bittusah-305526
+~/.config/BraveSoftware/Brave-Browser/SingletonSocket -> /tmp/org.chromium.Chromium.xMufGM/SingletonSocket
+```
+
+The **lock is under `$HOME`**, which the daemon shares, so a Brave launched by
+Friday correctly sees that another instance already holds the profile. It then
+tries to hand off through the **socket**, which is under `/tmp` — and
+`PrivateTmp=yes` gave the service a private, *empty* `/tmp`. The handoff cannot
+connect, so Brave exits **0** in ~50 ms having done nothing. ADR-043's
+amendment then (correctly, for its own reasons) reports a launch as OK
+regardless of exit code, so Friday says "Launching Brave." and no window
+appears.
+
+**Measured:**
+
+```
+$ ls -d /tmp/org.chromium.Chromium.*                 # the real /tmp
+/tmp/org.chromium.Chromium.HciEea
+/tmp/org.chromium.Chromium.xMufGM
+
+$ systemd-run --user -p PrivateTmp=yes ... 'ls -d /tmp/org.chromium.Chromium.* | wc -l'
+chromium dirs visible: 0
+/tmp contents: 0 entries
+
+$ systemd-run --user ... (no PrivateTmp)
+chromium dirs visible: 2
+```
+
+And every `open_app{browser}` row in `action_audit` carries the signature — an
+exit far inside the 400 ms launch grace, recorded `ok`, with no window:
+**49, 73, 91, 109, 119 ms**.
+
+**It also hid `/tmp/.X11-unix`,** so the `DISPLAY=:0` that ADR-043 added in
+2026-08-25 could never have reached XWayland from this daemon at all. Only the
+Wayland-native path ever worked.
+
+**Decision.** Do not set `PrivateTmp` on `friday.service` — **and add `/tmp`
+to `ReadWritePaths=`.** Both halves are required and the first alone is a trap.
+
+`ProtectSystem=strict` mounts the whole hierarchy read-only apart from what
+`ReadWritePaths=` names, and `PrivateTmp` had been supplying the daemon's only
+**writable** `/tmp`. Removing it made `/tmp` **visible but read-only**:
+
+```
+$ systemd-run --user -p ProtectSystem=strict ... 'touch /tmp/probe'
+touch: cannot touch '/tmp/friday-probe': Read-only file system
+sockets visible
+tempdir resolves to: /home/bittusah        # tempfile's FALLBACK chain
+
+$ ... + -p ReadWritePaths=/tmp
+/tmp WRITABLE
+sockets visible
+tempdir resolves to: /tmp
+```
+
+Visible-but-read-only is not enough: **connecting to a unix socket requires
+write access to it**, and Chromium creates its own
+`/tmp/org.chromium.Chromium.*` directory when it is the first instance. The
+read-only state also pushed Python's `tempfile.gettempdir()` down its fallback
+chain past `/tmp` and `/var/tmp` to the **working directory**, so every daemon
+start dropped two `tmp*/libespeak-ng.so` directories into the repo — measured
+4 → 6 across one restart, and 0 per restart after the fix.
+
+**Security assessment, because this removes a hardening directive.** The
+isolation bought nothing here. The daemon runs as **the user**, and the apps it
+launches are **the user's own apps in the user's own session** — a private
+`/tmp` does not separate two trust domains, it separates the user from
+themselves. Friday's real controls are unaffected and none of them touch
+`/tmp`: the closed enum (T2), code-built argv (FR-32), the ban list, the
+grammar, the confirm tiers, and the panic switch. `ProtectSystem=strict`,
+`NoNewPrivileges=yes` and `ReadWritePaths=` are all kept. Recorded in
+`threat-model.md`.
+
+**Rejected: keep `PrivateTmp` and point `TMPDIR` elsewhere.** The socket the
+daemon must reach was created by the user's **already-running** Brave in the
+real `/tmp`. Nothing the daemon sets for itself can conjure it into a private
+namespace. This is not a "where do I put my temp files" problem; it is a
+"which /tmp am I looking at" problem.
+
+**Consequences.**
+
+- Apps launched by Friday can reach session IPC in `/tmp` — Chromium's
+  singleton, `/tmp/.X11-unix`, and whatever else an app expects to find there.
+- `tests/test_service_unit.py` asserts `PrivateTmp` is not enabled and
+  `KillMode=process`, so a later "harden the service" pass fails the suite
+  instead of silently re-breaking every browser launch. FAIL path demonstrated.
+- **Not yet confirmed by the owner.** Verified at the mechanism level —
+  `/proc/<daemon pid>/root/tmp/org.chromium.Chromium.*` now resolves to 2 where
+  a `PrivateTmp` unit sees 0 — but the daemon has not been asked to open the
+  browser by voice since the change.
+
+### ADR-115a — Why the first bisect cleared `PrivateTmp`, and what that costs
+
+`PrivateTmp` was tested and **passed** earlier the same evening. The subject was
+`foot`, which has no `/tmp` socket, so the probe never exercised the broken
+path — the ninth time in this project a green check sat on top of a live defect,
+and the second time in one session (the other being an A/B whose control was
+sampled after the unit had already exited).
+
+The rule that would have caught it: **bisect with the subject that actually
+fails.** The owner said "the browser"; the browser is what the probe should have
+launched. A cheaper substitute is not a control, it is a different experiment.
