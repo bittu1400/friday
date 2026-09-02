@@ -14,10 +14,11 @@ Rules:
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, post-audit
 **Phase 1 ("Stop Lying") COMPLETE** (ADR-108, plus F9 finished properly in ADR-110),
-and post-audit **Phase 2 ("Make it Measurable") — 6 of its 7 items** (ADR-109).
-**The 7th is one proven hands-free capture and it has NOT happened.** See the
-2026-09-02 (evening) block: the rig is staged and takes three minutes at a
-microphone.
+and post-audit **Phase 2 ("Make it Measurable") — ALL 7 items** (ADR-109).
+**The 7th landed 2026-09-02 (night): D3 is PROVEN LIVE and OQ-39 is CLOSED.**
+Five hands-free captures, every one ended by Silero at 2.3-3.7 s, not one
+reaching the 15 s cap. See the 2026-09-02 (night) block for the pasted journal.
+D18 is therefore NOT implicated in end-of-speech and stays parked (OQ-52).
 
 `uv run pytest` **568 passed, exit 0** — and that command actually completes now
 (ADR-111; it died with SIGSEGV/SIGILL on ~9 runs in 10 until 2026-09-02 evening,
@@ -57,7 +58,8 @@ confirm-gated capability was unreachable by voice for the whole of Phase 2
 voice.** The next session's first job is a microphone session that runs the
 `C?` affirm rows, not more code; the `>>> START HERE <<<` block below opens
 with exactly that. All seven questions (OQ-39…OQ-45) were answered on
-2026-08-29; only OQ-39 (a measurement) is still open. The fix-status table at the bottom of
+2026-08-29, and OQ-39 — the last of them, a measurement — was closed at the
+microphone on 2026-09-02. The fix-status table at the bottom of
 `Alpha-ox-analysis.md` still maps the 2026-08-26 audit, which remains fully
 fixed — none of these 9 came from it. **No disclosure defect
 remains open:** H8 landed as Step 7 — `no_disk` records are dropped from stderr
@@ -104,6 +106,120 @@ trust-breaking**, plus a hard latency wall nobody had measured. Read
 block. **No code changed in that session.** The gate checklist above is a record
 of what was BUILT; it is not a statement that it is all honest.
 
+
+---
+
+## SESSION 2026-09-02 (night, at the microphone) — THE MICROPHONE. **D3 IS FIXED LIVE. OQ-39 CLOSED.** Phase 2 is 7 of 7.
+
+**The one thing owed since Phase 2 has been done.** The owner ran the staged rig
+at the microphone: service left running, PTT untouched, "hey jarvis" then a
+command, five times. This is the measurement, not a claim about it.
+
+### The evidence, pasted
+
+```
+20:46:33 [friday.audio.wake] wake fired score=0.795 threshold=0.50
+20:46:33 [friday.daemon] capture start source=wake
+20:46:36 [faster_whisper] Processing audio with duration 00:02.988
+20:46:36 [faster_whisper] VAD filter removed 00:00.432 of audio
+20:46:38 [friday.daemon] v2 stage_timings stt_ms=679 sv_ms=0 plan_ms=626 action=list_reminders
+20:46:38 [friday.daemon] v2 TTFA 1670 ms
+20:46:46 [friday.audio.wake] wake fired score=0.548 threshold=0.50
+20:46:46 [friday.daemon] capture start source=wake
+20:46:50 [faster_whisper] Processing audio with duration 00:03.684
+20:46:50 [faster_whisper] VAD filter removed 00:01.200 of audio
+20:46:51 [friday.daemon] v3 stage_timings stt_ms=658 sv_ms=0 plan_ms=539 action=list_reminders
+20:46:51 [friday.daemon] v3 TTFA 1555 ms
+20:47:20 [friday.audio.wake] wake fired score=0.859 threshold=0.50
+20:47:20 [friday.daemon] capture start source=wake
+20:47:24 [faster_whisper] Processing audio with duration 00:03.093
+20:47:24 [faster_whisper] VAD filter removed 00:00.624 of audio
+20:47:25 [friday.daemon] v4 stage_timings stt_ms=694 sv_ms=0 plan_ms=621 action=list_reminders
+20:47:25 [friday.daemon] v4 TTFA 1671 ms
+20:47:45 [friday.audio.wake] wake fired score=0.984 threshold=0.50
+20:47:45 [friday.daemon] capture start source=wake
+20:47:47 [faster_whisper] Processing audio with duration 00:02.337
+20:47:47 [faster_whisper] VAD filter removed 00:00.080 of audio
+20:47:49 [friday.daemon] v5 stage_timings stt_ms=660 sv_ms=0 plan_ms=1299 action=none
+20:47:50 [friday.daemon] v5 TTFA 2255 ms
+20:48:08 [friday.audio.wake] wake fired score=0.663 threshold=0.50
+20:48:08 [friday.daemon] capture start source=wake
+20:48:10 [faster_whisper] Processing audio with duration 00:02.363
+20:48:10 [faster_whisper] VAD filter removed 00:00.144 of audio
+20:48:12 [friday.daemon] v6 stage_timings stt_ms=669 sv_ms=0 plan_ms=748 action=list_reminders
+20:48:12 [friday.daemon] v6 TTFA 1764 ms
+```
+
+Preconditions confirmed before the run, from the system and not from a file:
+daemon `MainPID` started `Wed Sep  2 20:17:21 2026` against a newest source
+mtime of `20:16:55` (so the running process IS this commit's code — the trap
+that hid two whole phases on 2026-09-02 evening); `systemctl --user show friday`
+reports `Type=notify`, `WatchdogUSec=10s`, `NRestarts=0`; all three units active.
+
+### What it says
+
+**D3 is fixed live.** Every capture was ended by Silero. **Not one reached the
+15 s cap**, which is the whole of D3. Read the durations off `faster_whisper`'s
+own `Processing audio with duration` line — that is the capture itself, not a
+gap between log lines, so it needs no arithmetic:
+
+| turn | capture | whisper's VAD stripped | TTFA | action |
+| :-- | :-- | :-- | :-- | :-- |
+| v2 | 2.988 s | 0.432 s | 1670 ms | `list_reminders` |
+| v3 | **3.684 s** | **1.200 s** | 1555 ms | `list_reminders` |
+| v4 | 3.093 s | 0.624 s | 1671 ms | `list_reminders` |
+| v5 | 2.337 s | 0.080 s | 2255 ms | `action=none` |
+| v6 | 2.363 s | 0.144 s | 1764 ms | `list_reminders` |
+
+**v3 is the one that proves the mechanism rather than the outcome.** 3.684 s
+captured, of which whisper's own VAD filter stripped **1.200 s** — about 0.4 s
+of lead-in plus the full `VAD_END_SILENCE_S` of 0.8 s trailing. That is
+`SpeechGate` closing on accumulated trailing silence: precisely the thing
+`webrtcvad` could not do on 5 of the 20 real DMIC clips, because it called room
+noise speech and the silence counter never accumulated.
+
+**D18 is NOT implicated and stays parked (OQ-52).** It was the named suspect had
+this come back at ~15 s. It did not. D18 remains open for barge-in quality
+(ADR-064) — a different failure with a different mechanism.
+
+**`capture abandoned` never fired** in five captures, and ADR-066's bail-out was
+not needed: wake scores were 0.548-0.984 against a 0.50 threshold.
+
+**TTFA, n=5, hands-free: 1555 / 1670 / 1671 / 1764 / 2255 ms.** Four of five are
+under ADR-080's 2200 ms target. This is a different population from the n=38
+PTT measurement behind OQ-56 (p50 2289 ms) and is too small to re-baseline
+anything; it is recorded because it was measured, not as a claim.
+
+### What it does NOT say
+
+- **n=5, one room, one speaker, one command phrase.** It proves captures end;
+  it does not characterise the detector.
+- **v5 returned `action=none`** on a dense 2.337 s capture (only 0.080 s
+  stripped, so it was not truncated). That is an STT or planner miss, not a VAD
+  event, and it is not diagnosed here — nothing was logged about what was heard,
+  because `FRIDAY_DEBUG` is off under systemd by design (H8).
+- **OQ-57 and D17 were not touched.** The G12 clips were not recorded and
+  `just bench-stt` was not re-run. Both were listed as cheap-while-you-are-there
+  and both remain owed.
+
+### Raised by this session: OQ-64 — the post-wake pause budget
+
+The owner reported: *"it could hold up to 2 second pause at max, anymore and
+then no response."* Verified in code rather than by feel.
+`VAD_NO_SPEECH_TIMEOUT_S = 3.0` (`friday/config.py:158`, ADR-066), and
+`friday/audio/wake.py:299-316` increments `_silent_frames` on **every** capture
+frame while `_heard_speech` latches on the first voiced frame — so the budget is
+**3.0 s from `capture start` to the first voiced frame**, after which the capture
+is abandoned and nothing is spoken back. That is the reported symptom exactly.
+It feels shorter than 3.0 s because openWakeWord fires some way after the phrase
+ends and the capture clock starts there.
+
+Distinct from the mid-sentence pause, which is `VAD_END_SILENCE_S = 0.8` and
+**truncates** rather than abandons — a wrong answer instead of a silent one.
+
+Not changed. Raising it trades thinking time against deafness after a false wake
+(FR-5, one turn in flight), which is ADR-066's original tradeoff, so it is the
+owner's call: **OQ-64**, four options, default "leave it".
 
 ---
 
@@ -3835,7 +3951,119 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-02 evening**, after the verification pass) <<<
+## >>> START HERE: NEXT SESSION (written **2026-09-02 night**, after the microphone session) <<<
+
+**D3 is fixed live. OQ-39 is closed. Post-audit Phase 2 is 7 of 7.** The item
+Phase 2 shipped without has now been measured at the microphone — five
+hands-free captures, every one ended by Silero at 2.3-3.7 s, none reaching the
+15 s cap. The pasted journal is in the 2026-09-02 (night, at the microphone)
+block. **There is nothing left owed at a microphone before Phase 3.**
+
+### The state, in five lines
+
+- **Post-audit Phase 1 ("stop lying") COMPLETE** — ADR-108, with F9 finished
+  properly in **ADR-110** because Phase 1's version of it was still blind.
+- **Post-audit Phase 2 ("make it measurable") COMPLETE, 7 of 7** — ADR-109 plus
+  the live capture above.
+- **Phase 3's safety net is verified in place**: `just grammar` regenerates the
+  committed GBNF byte-identical, and `PARAM_SCHEMA` has 25 actions.
+- **D18 is not implicated in end-of-speech** and stays parked (OQ-52). It is
+  still open for barge-in quality (ADR-064), which is a different failure.
+- **New question owed to the owner: OQ-64**, the post-wake pause budget. No code
+  changed for it.
+
+### Gate commands — `uv` is NOT on PATH in this environment
+
+Use the venv interpreter directly. These are the numbers as of this commit:
+
+```bash
+.venv/bin/python -m pytest -q            # 568 passed, rc=0
+.venv/bin/python -m friday.eval_harness  # 60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest      # 9/9 PASS, rc=0
+.venv/bin/python -m pytest -q tests/test_injection.py   # 20/20 blocked
+.venv/bin/python -m pytest -q tests/test_egress.py      # 8 passed
+.venv/bin/python scripts/bootstrap.py --check           # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
+```
+
+### Owed to the owner before code: OQ-64
+
+*"It could hold up to 2 second pause at max, anymore and then no response."*
+That is `VAD_NO_SPEECH_TIMEOUT_S = 3.0` (`friday/config.py:158`, ADR-066):
+`friday/audio/wake.py:299-316` counts **every** capture frame and latches
+`_heard_speech` on the first voiced one, so the budget is 3.0 s from
+`capture start` to the first voiced frame, and blowing it abandons the capture
+with nothing spoken back. Raising it trades thinking time against deafness after
+a false wake (FR-5). Four options are written up in **OQ-64**; the default is to
+leave it. **Do not change the constant without the answer.**
+
+Do not confuse it with `VAD_END_SILENCE_S = 0.8`, the mid-sentence pause, which
+truncates instead of abandoning.
+
+### Still owed, cheap, and NOT done at the microphone session
+
+- **OQ-57** — record the G12 vocabulary clips into `~/.cache/whisper-bench/clips`
+  with `record.sh`, to test whether the widened `STT_HOTWORDS` actually helps.
+- **D17** — re-run `just bench-stt` in `balanced` more than once. STT p95 spans
+  713-804 ms against an 800 ms gate and one run cannot settle it.
+
+### Then: Phase 3 — the Capability record
+
+Phase 3 decides whether "everything on this laptop" is reachable. Its acceptance
+criteria are **`design-2026-09-02.md` §11.1** and they are not optional. Two are
+already verified true, so the baseline is known-good:
+
+```
+[verified 2026-09-02] `just grammar` output is byte-identical to the committed .gbnf
+[verified 2026-09-02] PARAM_SCHEMA has exactly 25 actions (criterion 3.8's table)
+```
+
+**The contract for the whole phase:** if the regenerated grammars move, or
+`just eval` drops below **60/60 with 0 regressions**, the refactor changed
+behaviour and is wrong.
+
+**Do not reorder 1 → 2 → 3.** Phase 4 without Phase 3 is seventeen new
+capabilities × ten edit sites — the arithmetic that produced every defect in the
+audit.
+
+### Questions owed. Do not re-ask what is answered.
+
+**Open:** **OQ-64** (the pause budget, new) · **OQ-57** (STT hotword efficacy) ·
+**OQ-59** (launch grace 400 → 150 ms?) · **OQ-60** (amend invariant #6 for STT
+on CUDA?) · **OQ-61** (the summarizer's invariant-#7 prompt-only enforcement) ·
+**OQ-63** (rule 7 egress probe) · **OQ-30**, **OQ-32**, **OQ-33** unchanged.
+
+**CLOSED 2026-09-02 night: OQ-39** — the live hands-free capture. **CLOSED
+2026-09-02 evening: OQ-62** — selftest WARN semantics.
+
+**Do not re-ask D-1…D-8** — they are answered (design §0, ADR-098…107).
+
+### Environment gotchas that have each cost a session
+
+1. **`uv` is not on PATH here.** Use `.venv/bin/python`. A `uv run …` in a
+   background command exits **0** while doing nothing, so it looks like a pass.
+2. **Editing a systemd unit is not deploying it.** The installed unit is a
+   symlink to `deploy/systemd/`, so `diff` says IDENTICAL while systemd runs the
+   old config. After ANY unit edit:
+   `systemctl --user daemon-reload && systemctl --user restart friday`, then
+   confirm with `systemctl --user show friday -p Type -p WatchdogUSec`.
+3. **A committed fix is not a running fix.** Compare `ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)`
+   against the source mtimes. Two whole phases had never executed live.
+4. **`FRIDAY_DEBUG=1` shows nothing under systemd.** Use
+   `env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice`, and
+   `systemctl --user stop friday` first — two daemons fight over the mic and the
+   PTT socket.
+5. **A single sample is not an observation.** The ORT telemetry socket takes
+   **15–45 s** to appear; three checks at 12 s all read "clean" and produced a
+   confident wrong cause (ADR-112).
+6. **A capture's real length is in the `faster_whisper` line, not the log gap.**
+   `Processing audio with duration` is the capture itself; a gap between daemon
+   lines also contains STT and planning. The 2026-09-02 hands-free numbers were
+   read off that line for exactly this reason.
+
+---
+
+## >>> (superseded 2026-09-02 night by the block above) START HERE: NEXT SESSION (written **2026-09-02 evening**, after the verification pass) <<<
 
 **Everything below was checked against the machine this session, not read off a
 document.** Where a number appears, it was produced by running the command.

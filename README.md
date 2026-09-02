@@ -54,9 +54,10 @@ persistence, voice out, voice in, search, conversation, service) and G10–G13
 (wake word + AEC + VAD + barge-in, proactive scheduler, action surface,
 speaker verification).
 
-Post-audit Phase 1 ("Stop Lying") is COMPLETE. Phase 2 ("Make it Measurable")
-shipped **6 of its 7 items** — one proven hands-free capture is still owed at a
-microphone (OQ-39).
+Post-audit Phase 1 ("Stop Lying") and Phase 2 ("Make it Measurable") are both
+COMPLETE. Phase 2's last item — one proven hands-free capture — landed
+2026-09-02: five wake captures, all ended by Silero at 2.3-3.7 s, none reaching
+the 15 s cap. D3 is fixed live and OQ-39 is closed.
 
 ```text
 uv run pytest             568 passed, rc=0 (76 test files)
@@ -78,7 +79,7 @@ files one at a time.
 passes and a live-voice pass found defects that unit tests missed when they bypassed the real path.
 
 - **Phase 1 (Stop Lying, ADR-108):** Unified panic gate over all 10 side-effecting paths (F1), persona truth (F2, F3), `local_files_only=True` for offline STT (F8, D13), dictation mutes wake (F7, D14), selftest WARN exits code 2 `[DEGRADED]` (F20), eval harness rate gating (F23).
-- **Phase 2 (Make it Measurable, ADR-109):** Real duration tracking (`duration_ms`) and unconditional stage timings (F10, FR-128), `just stats` CLI aggregator, systemd watchdog heartbeat + `Type=notify` (F11), power profile sanity check in selftest (F28), and deterministic `just bootstrap` (§10, F24). **One item did not ship: a proven hands-free capture. It is still owed (OQ-39).**
+- **Phase 2 (Make it Measurable, ADR-109):** Real duration tracking (`duration_ms`) and unconditional stage timings (F10, FR-128), `just stats` CLI aggregator, systemd watchdog heartbeat + `Type=notify` (F11), power profile sanity check in selftest (F28), and deterministic `just bootstrap` (§10, F24). **The seventh item landed 2026-09-02 at the microphone:** five hands-free captures ended by Silero at 2.3-3.7 s, none reaching the 15 s cap, confirming the ADR-095 VAD swap through the real AEC path. D3 fixed live, OQ-39 closed.
 - **Verification pass (ADR-110/111/112):** the phases above were then checked against the machine rather than against their own write-ups, and three claims did not survive. `just test-egress` still could not observe a connection, so it was rewritten as a real guard over `socket.getaddrinfo`/`socket.socket.connect` with a demonstrated FAIL path (ADR-110). `pytest -q` had been crashing at session finish on a leaked PortAudio stream (ADR-111). And the new egress check immediately found that **`import onnxruntime` transmits to Microsoft telemetry on import** — on Linux, with no inference, on every daemon start for the life of the project; fixed with `ORT_DISABLE_TELEMETRY=1` (ADR-112).
 
 **On "local-first":** it is true, and it was not fully true before 2026-09-02.

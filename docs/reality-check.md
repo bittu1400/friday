@@ -29,9 +29,12 @@ verified (no mic, tool missing) is marked `SKIP (reason)`, never silently ticked
 > suite: 476 green tests say the resolver is right, and eight times in this
 > project a green suite has sat on top of a broken real path.
 >
-> **Second: `hands-free is currently unusable`** — all three wake captures ran
-> the full 15 s cap and ADR-066's bail-out never fired (D3). The 2026-08-25
-> ticks on those A15 rows are un-ticked below. PTT works.
+> **Second: hands-free WORKS again as of 2026-09-02 (night).** The 2026-08-29
+> failure — all three wake captures running the full 15 s cap with ADR-066's
+> bail-out never firing (D3) — was `webrtcvad` calling room noise speech. Silero
+> replaced it (ADR-095) and five live captures ended at 2.988 / 3.684 / 3.093 /
+> 2.337 / 2.363 s, none reaching the cap. The A15 rows un-ticked on 2026-08-29
+> are re-ticked below. PTT still works.
 >
 > **Third, for whoever runs this next:** `FRIDAY_DEBUG=1` in the foreground is
 > NOT enough. A terminal in a systemd-started Hyprland session inherits
@@ -368,18 +371,28 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
 ### A15. Voice I/O plumbing
 - [x] PTT toggle: one tap starts capture, a second tap stops + transcribes (ADR-044)
-      — verified LIVE 2026-08-29 across 100+ turns; it is the only working trigger
+      — verified LIVE 2026-08-29 across 100+ turns. It was the only working
+      trigger until 2026-09-02; hands-free works now too.
 - [x] Wake word "hey jarvis" from idle begins capture — still true 2026-08-29
       (`wake fired score=0.557 / 0.929 / 0.740`, all above the 0.50 threshold)
-- [ ] **UN-TICKED 2026-08-29 (D3).** VAD ends a wake-initiated capture on
-      trailing silence. It did on 2026-08-25 (2.033 / 3.379 / 1.738 / 1.972 s);
-      on 2026-08-29 **all three wake captures ran the full 15 s cap.**
-- [ ] **UN-TICKED 2026-08-29 (D3).** A capture nobody speaks into is abandoned
-      after ~3 s (ADR-066). One capture contained **zero** speech by Silero's
-      reckoning (`VAD filter removed 00:14.995 of 14.995`) and still ran to the
-      cap; `capture abandoned:` never appeared and no `no VAD` warning was
-      logged. Suspected: `webrtcvad` at aggressiveness 2 calling this room
-      voiced continuously. **MEASURE before fixing — OQ-39.**
+- [x] **RE-TICKED 2026-09-02 (D3 fixed live).** VAD ends a wake-initiated
+      capture on trailing silence. It did on 2026-08-25 (2.033 / 3.379 / 1.738 /
+      1.972 s); on 2026-08-29 **all three wake captures ran the full 15 s cap**
+      (D3, `webrtcvad` calling room noise speech); after the Silero swap
+      (ADR-095) five live captures on 2026-09-02 ended at **2.988 / 3.684 /
+      3.093 / 2.337 / 2.363 s** and none reached the cap. Read off
+      `faster_whisper`'s `Processing audio with duration`, which is the capture
+      itself — a gap between daemon log lines also contains STT and planning.
+- [ ] A capture nobody speaks into is abandoned after ~3 s (ADR-066).
+      **STILL UNPROVEN, but no longer failing.** It was un-ticked on 2026-08-29
+      when one capture contained **zero** speech by Silero's reckoning
+      (`VAD filter removed 00:14.995 of 14.995`) and still ran to the cap — the
+      cause was `webrtcvad` calling this room voiced continuously, fixed by
+      ADR-095. In the 2026-09-02 live session all five wakes were real, so
+      `capture abandoned:` was never exercised and this row stays unticked for
+      want of a false wake, not for want of a fix. The same session raised
+      **OQ-64**: the 3 s budget is measured from `capture start` to the first
+      voiced frame, and the owner finds it short.
 - [ ] Barge-in by KEY PRESS over Friday's speech cuts it and re-captures (FR-7)
 - [x] Barge-in by VOICE is **OFF by default and must NOT fire** (ADR-064). The
       AEC yields only −5 to −10 dB on this hardware, so speech heard during
@@ -607,14 +620,16 @@ microphone session**, and **D27–D28 from the 2026-09-02 verification pass**.
   with efficacy still owed (**OQ-57**).
 - **D27** (onnxruntime telemetry, **ADR-112**) and **D28** (`pytest` crashing on a
   leaked PortAudio stream, **ADR-111**) are new and both fixed.
-- **D3 remains the one thing owed at a microphone** — fixed in code (Silero,
-  ADR-095), never confirmed through the AEC path. **OQ-39.**
+- **D3 is FIXED AND PROVEN LIVE** (2026-09-02 night) — the Silero swap
+  (ADR-095) confirmed through the real AEC path: five hands-free captures ended
+  at 2.3-3.7 s, none reaching the 15 s cap. **OQ-39 CLOSED.** Nothing is now
+  owed at a microphone.
 
 | # | Sev | What | Where |
 | :-- | :-- | :-- | :-- |
 | D1 | CRITICAL | spoken "yes" recorded as decline — **FIXED IN CODE 2026-08-30, unproven by voice** | was `friday/turn.py:47-53`, now `turn.py:53-92` |
 | D2 | HIGH | audit rows overwritten every daemon restart — **FIXED IN CODE 2026-08-30, unproven across a live restart** | was `store/audit.py:56` + `daemon.py:136,288`, now `audit.py:59` + `daemon.py:290` |
-| D3 | HIGH | hands-free capture never ends (no VAD end, no ADR-066 bail) | `friday/audio/wake.py:294-315` |
+| D3 | HIGH | hands-free capture never ends (no VAD end, no ADR-066 bail) — **FIXED (ADR-095) AND PROVEN LIVE 2026-09-02, 5/5 captures ended 2.3-3.7 s** | `friday/audio/wake.py:294-315` |
 | D4 | MED | `open my todo` refused — STT spells it `to-do` | `friday/tools/registry.py:231` |
 | D5 | MED | garbled duration silently becomes a timer | `friday/llm/schema.py:72` |
 | D6 | MED | Friday spoke the literal `String.Empty` | `friday/proactive/briefing.py:57-62` |
@@ -641,12 +656,17 @@ Silero ends **20/20** at 0.15 % of one core. That is measured offline
 and the swap decision is OQ-51. **The rows below still fail today** — nothing
 has been changed in the VAD path.
 
-**D3 makes A15's hands-free rows fail outright.** All three wake-initiated
-captures ran the full 15 s cap; one contained no speech at all and the ADR-066
-3 s bail-out did not fire. The rows ticked on 2026-08-25 ("wake begins
-capture", "VAD ends a wake capture") are hereby **UN-ticked** — wake still
-*fires*, but the capture it opens no longer ends. Parked behind OQ-39: measure
-the `webrtcvad` voiced-fraction before changing a line.
+**D3 made A15's hands-free rows fail outright, and no longer does.** On
+2026-08-29 all three wake-initiated captures ran the full 15 s cap; one
+contained no speech at all and the ADR-066 3 s bail-out did not fire, so the
+rows ticked on 2026-08-25 ("wake begins capture", "VAD ends a wake capture")
+were UN-ticked. The measurement OQ-39 demanded has now been made twice: offline
+over the 20 real DMIC clips (`just bench-vad`, `webrtcvad` ends 15/20 while
+Silero ends 20/20 — ADR-095) and **live through the AEC path on 2026-09-02**,
+where five captures ended at 2.988 / 3.684 / 3.093 / 2.337 / 2.363 s and none
+reached the cap. Those rows are **re-ticked**. D18 was the named suspect had the
+live run still hit the cap; it did not, so D18 is not implicated in
+end-of-speech and stays parked (OQ-52).
 
 ### TTFA — measured, with the LLM confirmed on GPU
 

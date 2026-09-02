@@ -12,9 +12,10 @@ enum is generated from the XDG desktop entries and merged over the five
 curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
 and shell `Exec` entries are never offered.
 
-**>>> 2026-09-02 (evening): PHASE 1 IS DONE, PHASE 2 IS 6-OF-7, AND ONE THING
-IS OWED AT A MICROPHONE. Read `progress.md`'s `>>> START HERE <<<` block first —
-it is written for exactly this and carries the runnable commands.**
+**>>> 2026-09-02 (night): PHASE 1 IS DONE, PHASE 2 IS 7-OF-7, AND NOTHING IS
+OWED AT A MICROPHONE ANY MORE. D3 was proven live and OQ-39 is closed. The next
+work is Phase 3. Read `progress.md`'s `>>> START HERE <<<` block first — it
+carries the runnable commands and the one question owed to the owner (OQ-64).**
 
 The 2026-09-02 audit (`audit-2026-09-02.md`, 29 findings F1–F29) and its plan
 (`design-2026-09-02.md`, 8 owner decisions, 12 phases) are still the map. What
@@ -24,11 +25,12 @@ machine rather than against itself**:
 - **Post-audit Phase 1 "stop lying" — COMPLETE** (ADR-108). F1, F2, F3, F6, F7,
   F8, F20, F21, F23, F27 all fixed and exercised. **F9 was reported fixed and
   was not**, and is now genuinely fixed in **ADR-110**.
-- **Post-audit Phase 2 "make it measurable" — 6 of 7** (ADR-109). Stage timing,
-  `duration_ms`, `just stats`, the systemd watchdog, the power-profile check,
-  and `just bootstrap --check` all shipped. **The 7th — one proven hands-free
-  capture — did not happen and was dropped from the count rather than deferred.
-  It is still owed. OQ-39.**
+- **Post-audit Phase 2 "make it measurable" — COMPLETE, 7 of 7** (ADR-109).
+  Stage timing, `duration_ms`, `just stats`, the systemd watchdog, the
+  power-profile check, and `just bootstrap --check` shipped with ADR-109. **The
+  7th — one proven hands-free capture — landed 2026-09-02 (night): five wake
+  captures, all ended by Silero at 2.3-3.7 s, none reaching the 15 s cap.
+  D3 is fixed live and OQ-39 is closed.**
 - **Three new decisions: ADR-110, ADR-111, ADR-112.** Each fixed something that
   every green suite in this repo had been sitting on top of.
 
@@ -77,8 +79,10 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-112. Questions still owed: OQ-39, OQ-57, OQ-59, OQ-60,
-OQ-61. OQ-62 is CLOSED** (selftest WARN → exit 2 `[DEGRADED]`).
+**Decisions ADR-098…ADR-112. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
+OQ-63, and OQ-64 (new — the post-wake pause budget, owed to the owner).
+OQ-39 is CLOSED** (D3 proven live 2026-09-02 night) **and OQ-62 is CLOSED**
+(selftest WARN → exit 2 `[DEGRADED]`).
 **The power profile is already `balanced`** — verified this session; the old
 "free win, run `powerprofilesctl set balanced`" note is done, and `just selftest`
 now checks it (F28).
@@ -93,13 +97,13 @@ below and one live measurement.**
 | | state |
 | :-- | :-- |
 | **D1, D2** | **FIXED AND PROVEN LIVE** 2026-08-30 evening (every `C?` affirm row ticked; 108 audit rows across a restart with 0 duplicate `request_id`s) |
-| **D3** | **FIXED IN CODE, NOT PROVEN LIVE** — Silero replaces `webrtcvad` (ADR-095); offline it ends 20/20 where webrtcvad ended 15/20. **The one thing owed at a microphone. OQ-39.** |
+| **D3** | **FIXED AND PROVEN LIVE** 2026-09-02 (night). Silero replaces `webrtcvad` (ADR-095); offline it ends 20/20 where webrtcvad ended 15/20, and live it ended 5 of 5 hands-free captures at 2.3-3.7 s with **none** reaching the 15 s cap. OQ-39 CLOSED |
 | **D4, D5, D6, D8, D9** | OPEN, unchanged. D9 = raw enum speech (*"Media play_pause."*) |
 | **D7, D10** | superseded by the design — `local_time` (§2) and the filesystem work (§5, FR-118) |
 | **D11, D12** | CLOSED 2026-08-30 (ADR-091…094) |
 | **D13, D14, D15, D16** | **FIXED.** `local_files_only=True`; dictation mutes wake; a real `test-egress` (**ADR-110** — Phase 1's first attempt was still blind); 60 eval fixtures (ADR-089) |
 | **D17** | OPEN — STT p95 spans 713–804 ms against an 800 ms gate. Needs more than one run in `balanced` |
-| **D18** | OPEN, parked deliberately (OQ-52). The AEC far reference is 16 kHz on a 48 kHz SOF-DSP device. **If D3's live capture still hits the cap, this is the suspect — not the detector.** |
+| **D18** | OPEN, parked deliberately (OQ-52). The AEC far reference is 16 kHz on a 48 kHz SOF-DSP device. **D3's live capture did NOT hit the cap, so D18 is not implicated in end-of-speech.** It stays open for barge-in quality (ADR-064) |
 | **D19, D20, D21** | FIXED by the Gemma swap (ADR-090) |
 | **D22, D23, D24, D25** | FIXED and proven 2026-08-30 evening |
 | **D26** | fixed; **efficacy unproven — OQ-57** |
@@ -144,8 +148,9 @@ sliding-window model as if attention were dense.
 
 `friday/` is a real text+voice assistant
 that launches apps, remembers preferences, hears you (toggle PTT **and**
-`hey_jarvis` wake word, ADR-044/055 — **but see D3: as of 2026-08-29 a wake
-capture never ends, so PTT is the only usable trigger**; TTFA measured live
+`hey_jarvis` wake word, ADR-044/055 — **hands-free works: D3 was fixed by the
+Silero swap (ADR-095) and proven live 2026-09-02, 5 of 5 captures ended at
+2.3-3.7 s**; TTFA measured live
 2026-08-29, n=77, p50 2172 ms / p95 4900 ms / max 8674 ms, with **0 of 77**
 turns meeting the 1400 ms target — OQ-45), searches the web
 (G7: SearXNG loopback, sanitizer, `final.gbnf` grounding, injection 20/20,
@@ -219,17 +224,25 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: exactly one thing is owed at a microphone, and it takes three
-minutes. Everything else is Phase 3.** Read `progress.md`'s
-`>>> START HERE <<<` block first — it carries the runnable commands, the gate
-numbers, and a table telling you what the measurement means.
+**NEXT SESSION: nothing is owed at a microphone. The next work is Phase 3.**
+Read `progress.md`'s `>>> START HERE <<<` block first — it carries the runnable
+commands, the gate numbers, and the one question owed to the owner.
 
-**The one thing: D3 / OQ-39, one live hands-free capture.** Say "hey jarvis",
-speak, stop, and read the gap between `capture start source=wake` and the next
-journal line. **~2–4 s = Silero ended it and D3 is fixed live. ~15 s = the cap
-fired, and the suspect is D18, not the detector.** The rig was staged on
-2026-09-02 and the window closed with zero lines because nothing was spoken —
-that is not evidence in either direction.
+**D3 / OQ-39 is CLOSED, measured 2026-09-02 (night).** Five hands-free captures
+through the real AEC path, ended by Silero at 2.988 / 3.684 / 3.093 / 2.337 /
+2.363 s — **not one reached the 15 s cap**, which is the whole of D3. The
+durations are read off `faster_whisper`'s own `Processing audio with duration`
+line, which is the capture itself and needs no arithmetic. The third capture
+proves the mechanism rather than the outcome: whisper's VAD stripped 1.200 s of
+it, i.e. ~0.4 s lead-in plus the full 0.8 s `VAD_END_SILENCE_S` of trailing
+silence, accumulating exactly as `webrtcvad` could not.
+
+**One question came out of it: OQ-64.** The owner found the post-wake pause
+budget short — *"up to 2 second pause at max, anymore and then no response."*
+That is `VAD_NO_SPEECH_TIMEOUT_S = 3.0` (ADR-066), measured from `capture start`
+to the first voiced frame; blowing it abandons the capture silently. Raising it
+trades thinking time against deafness after a false wake, so it is the owner's
+call and **the constant was not changed**.
 
 The microphone session of 2026-08-30 evening already proved D1 and D2 and ticked
 every `C?` affirm row; that work is done and is recorded below.
@@ -240,15 +253,13 @@ every `C?` affirm row; that work is done and is recorded below.
    `nmcli radio wifi` — plus 108 audit rows across a daemon restart with **0
    duplicate `request_id`s**, which is D2's own proof. The session also found
    **D22-D26** and closed **D11/D12** (ADR-091…094).
-2. ~~**Step 3 — D3, hands-free.**~~ **FIXED IN CODE 2026-08-31, NOT PROVEN.**
-   OQ-51 was answered by the user (swap now, confirm after) and `create()` now
-   returns `SileroVad`; the real `SpeechGate` ends **20/20** real DMIC clips
-   where `webrtcvad` ended 15/20 (ADR-095, FR-108). **The corpus does not go
-   through the AEC path**, and the AEC mangles its input (D18), so the next
-   session's FIRST job is one live hands-free capture with the voiced fraction
-   logged at `wake.py:_on_frame`. If it still runs the 15 s cap, the suspect is
-   **D18**, not the detector — the user parked D18 deliberately (OQ-52) to keep
-   this diff to one change.
+2. ~~**Step 3 — D3, hands-free.**~~ **DONE.** Fixed in code 2026-08-31
+   (OQ-51 answered by the user: swap now, confirm after; `create()` returns
+   `SileroVad`, ADR-095/FR-108) and **proven live 2026-09-02**: 5 of 5
+   hands-free captures ended at 2.3-3.7 s through the real AEC path, none
+   reaching the 15 s cap. The offline corpus never went through the AEC, which
+   is why the live run was owed; it came back clean, so **D18 is not implicated
+   in end-of-speech** and stays parked (OQ-52).
 
 **All 19 questions were asked and answered on 2026-08-29 — do not re-ask**, and
 the four observational ones (did the apps appear, did `file_open` open the
@@ -542,7 +553,7 @@ leading yes with a trailing clause was a non-answer and ADR-075c cancelled it.
 Fixed by head-matching with a negative-word veto (ADR-093), then proven on the
 retry. **D1 fixed how an answer is punctuated; D25 fixed how it is shaped.**
 
-Still failing: hands-free (D3 — now the top of the fix list), `open my todo`
+Still failing: `open my todo`
 (D4), garbled durations (D5), and D9's raw enum speech (*"Media play_pause."*,
 *"Window fullscreen."*, both heard again live).
 

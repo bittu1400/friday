@@ -22,71 +22,6 @@ _All seven are knowable now. Working agreement §2: ask them in ONE batch before
 a line of the fix list is written. Evidence for every one of them is in
 `progress.md`, "SESSION 2026-08-29 (night, later)"._
 
-### OQ-39 — What is `webrtcvad` actually reporting on this microphone?
-**Decider:** MEASURE · **Blocks:** D3 (hands-free is unusable) · **Status:** **OPEN, but narrowed to a live confirmation.**
-
-**2026-08-31:** the swap landed first by the user's decision (OQ-51, ADR-095), so what is owed here is no longer a probe that decides anything — it is one live hands-free capture with the voiced fraction logged at `wake.py:_on_frame`, confirming that Silero ends captures through the **AEC path** as it does offline. If it does not, the suspect is D18 (the reference path), not the detector.
-
-**2026-09-02 (evening): attempted, NOT answered.** This is the item Phase 2
-shipped without and did not count (design §11). The daemon was restarted onto
-current code, `vad.create()` was confirmed to return `SileroVad`, the wake
-listener was confirmed active in the journal, and a 180-second journal window
-was opened to catch `capture start source=wake` and time what followed. **The
-window closed with zero lines** — nothing was said, so nothing was captured.
-That is not evidence in either direction. The rig is correct and takes three
-minutes; it needs a human at the microphone. Re-run it exactly as staged:
-watch for `capture start source=wake` and measure the gap to the next line —
-**~2-4 s means Silero ended the capture and D3 is fixed live; ~15 s means the
-cap fired and the next suspect is D18, not the detector.**
-
-
-All three wake captures ran the full 15 s cap. One contained zero speech by
-Silero's reckoning yet ADR-066's 3 s bail-out never fired, which can only
-happen if `_heard_speech` went true — i.e. `webrtcvad` called the room voiced.
-The same code ended captures at 2.0/3.4/1.7/1.9 s on 2026-08-25.
-
-**What answers it:** a probe that prints the voiced-fraction of live mic frames
-at `VAD_AGGRESSIVENESS` 0-3, through the same AEC path as
-`friday/audio/wake.py:_on_frame`, in this room. Nothing is decided until that
-number exists — the 2026-08-25 barge-in cutoff was blamed on two wrong causes
-before measurement found the real one.
-
-**MEASURED OFFLINE 2026-08-30 — the mechanism is now known, the live half is
-not.** `scripts/vad_bench.py` ran all four aggressiveness levels through the
-**real** `SpeechGate` on the 20 real DMIC clips, each with 2 s of that clip's
-own quietest room noise appended:
-
-```
-  webrtcvad mode=0   voiced p50 0.500   start 20/20   end 14/20
-  webrtcvad mode=1   voiced p50 0.489   start 20/20   end 14/20
-  webrtcvad mode=2   voiced p50 0.444   start 20/20   end 15/20   <- INCUMBENT
-  webrtcvad mode=3   voiced p50 0.407   start 20/20   end 16/20
-  silero (all three) voiced p50 0.35-0.37  start 20/20  end 20/20
-
-  webrtcvad mode=2 never ends on 5 of 20:
-    clip_01 voiced=0.891   clip_02 voiced=1.000   clip_06 voiced=0.971
-    clip_07 voiced=0.996   clip_08 voiced=0.829
-```
-
-**The hypothesis in the paragraph above is confirmed: `webrtcvad` calls the
-room voiced.** On the failing clips it classifies 83-100 % of frames as speech
-**including the appended room noise**, so trailing silence never accumulates,
-`SpeechGate` never emits `end`, and the capture runs to the 15 s cap. Raising
-aggressiveness to 3 helps by exactly one clip and is not a fix. Silero's voiced
-fraction never exceeds 0.482 on any clip and it ends 20/20.
-
-**STILL OPEN, and it is the half that matters for D3:** these are clips
-recorded through the real microphone but **NOT through the AEC path**. The
-question as written asks for live frames through `wake.py:_on_frame`, and the
-AEC is now known to be doing something violent to its input (OQ-32 / D18), so
-the live voiced fraction may be worse than these numbers, not better.
-
-**What is left:** one live capture with the voiced fraction logged at
-`_on_frame`, comparing `webrtcvad` against Silero on the same frames. The
-replacement decision itself is **OQ-51**.
-
-**If nobody decides:** hands-free stays unusable and PTT is the only trigger.
-
 ### OQ-40 — What counts as a spoken "yes", and what should a non-answer do?
 **Decider:** USER · **Blocks:** D1 (CRITICAL) · **Status:** **ANSWERED 2026-08-29 → ADR-075 · IMPLEMENTED 2026-08-30 (`9e9a447`), NOT YET PROVEN BY VOICE**
 
@@ -610,7 +545,7 @@ not a number. None of them blocks the D3–D16 fix list; D17 and D18 are new
 defects raised by the same drill and are recorded in `progress.md`._
 
 ### OQ-51 — Do we replace `webrtcvad` with Silero VAD?
-**Status:** **ANSWERED 2026-08-31 by the USER → ADR-095 · IMPLEMENTED, green offline over the real corpus, NOT YET CONFIRMED LIVE (OQ-39).**
+**Status:** **ANSWERED 2026-08-31 by the USER → ADR-095 · IMPLEMENTED, green offline over the real corpus, and **CONFIRMED LIVE 2026-09-02** — five hands-free captures ended by Silero at 2.3-3.7 s, none reaching the 15 s cap (OQ-39, now closed).**
 
 **Answer: yes, swap now and confirm at the microphone afterwards.** The user was shown the alternative — run the live AEC-path probe first and decide from that — and chose the swap, on the grounds that the offline evidence already identifies the mechanism, so the live run becomes a confirmation of a fix rather than another probe of a known-broken detector. `create()` now returns `SileroVad` with `webrtcvad` as a loudly-logged fallback. One thing turned out differently from the text below: the frame size did **not** change to 32 ms, because `WAKE_FRAME_MS` also frames openwakeword. `SileroVad` buffers to 512 internally and holds the last verdict instead. See ADR-095.
 
@@ -652,7 +587,7 @@ confirmation rather than an exploration.
 defect.
 
 ### OQ-52 — Do we replace WebRTC APM with DTLN-aec, or fix the reference path first?
-**Status:** OPEN — **explicitly deferred 2026-08-31 by the USER.** Asked whether D18 (the 16 kHz software reference on a 48 kHz SOF-DSP device) was in scope alongside the VAD swap, the answer was to park it and do VAD only: D3 is a VAD defect and the AEC merely feeds it frames, so keeping the diff to one detector keeps the causality readable. If OQ-39's live confirmation fails, this is the next suspect.
+**Status:** OPEN — **explicitly deferred 2026-08-31 by the USER.** Asked whether D18 (the 16 kHz software reference on a 48 kHz SOF-DSP device) was in scope alongside the VAD swap, the answer was to park it and do VAD only: D3 is a VAD defect and the AEC merely feeds it frames, so keeping the diff to one detector keeps the causality readable. OQ-39's live confirmation **passed** on 2026-09-02, so D18 is not preventing end-of-speech detection and this stays parked; it remains open for barge-in quality (ADR-064), which is a different failure.
 
 
 **What is robust across ~20 live captures:** DTLN-aec 512 suppresses **8–20 dB
@@ -907,6 +842,53 @@ Two things are owed, and they are independent:
 transmission has stopped, and the remaining question is about a payload that no
 longer leaves. Re-open (b) only if a dependency is added that cannot be opted
 out of.
+
+### OQ-64 — How long may the user pause after "hey jarvis" before speaking?
+
+**Decider:** USER · **Blocks:** nothing — hands-free works; this is comfort ·
+**Status:** OPEN, raised 2026-09-02 (night) by the owner during the OQ-39
+capture session.
+
+**The observation, in the owner's words:** *"it could hold up to 2 second pause
+at max, anymore and then no response."*
+
+**It is real and it is one constant.** `VAD_NO_SPEECH_TIMEOUT_S = 3.0`
+(`friday/config.py:158`, ADR-066). `friday/audio/wake.py:299-316` increments
+`_silent_frames` on **every** frame of a capture and latches `_heard_speech` on
+the first voiced frame, so the budget is *3.0 s from `capture start` to your
+first voiced frame* — after which the capture is abandoned and **nothing is
+spoken back**, which is exactly the reported symptom. `VAD_MIN_SPEECH_S` does
+not eat into it. The felt budget is shorter than 3.0 s because openWakeWord
+fires some way after the wake phrase ends and the capture starts there, not
+where the user stops talking.
+
+**Do not confuse it with the other pause.** A pause *mid-sentence* is
+`VAD_END_SILENCE_S = 0.8` and truncates the capture instead of abandoning it —
+a wrong answer, not a silent one. Both were exercised in the OQ-39 session; the
+third capture stripped 1.200 s of silence, which is 0.8 s of that timer plus
+lead-in.
+
+**The tradeoff, which is why this is the user's call and not a default.**
+ADR-066 chose 3.0 s to bound the cost of a *false* wake: FR-5 allows one turn
+in flight, so an abandoned capture is time Friday is deaf. Raising the timeout
+buys thinking time on real commands and pays for it in deafness after every
+false wake. The wake scores in the OQ-39 session were 0.548-0.984 against a
+0.50 threshold, so false wakes are not hypothetical here.
+
+**Options:**
+
+- **(a) Leave it at 3.0 s.** Costs nothing; the owner adapts to the rhythm.
+- **(b) Raise it to 5.0 s.** ~2 s more thinking time; a false wake now costs
+  5 s of deafness instead of 3.
+- **(c) Make it an env override** (`FRIDAY_VAD_NO_SPEECH_TIMEOUT_S`) like
+  `FRIDAY_VAD_THRESHOLD` already is, and tune it live without a redeploy.
+- **(d) Raise it AND cut the cost of being wrong** — abandon on the timeout as
+  today, but let a wake fire again during the wait instead of holding the turn.
+  The largest change and the only one that needs an ADR.
+
+**Default if nobody decides:** (a). Hands-free is working as of 2026-09-02 and
+a constant that has never been measured against a false-wake rate should not be
+moved on a single session's feel.
 
 ---
 
@@ -1277,6 +1259,94 @@ grounding turn is grammar-locked exactly like search (ADR-008).
 _(Move entries here with the answer and the date. Do not delete them —
 the reasoning behind a closed question is the thing you will want in six
 months.)_
+
+- **OQ-39 — What is `webrtcvad` actually reporting on this microphone?**
+  **ANSWERED 2026-09-02 (night) at the microphone. D3 IS FIXED LIVE.** Five
+  consecutive hands-free captures through the real AEC path, service running,
+  no PTT touched. Every one was ended by Silero; **not one reached the 15 s
+  cap**, which is the entire content of D3. `faster_whisper` prints each
+  capture's true length, so the durations are read off the capture itself and
+  not inferred from log gaps: **2.988 / 3.684 / 3.093 / 2.337 / 2.363 s**.
+  Wake scores 0.548-0.984 against a 0.50 threshold; `capture abandoned` never
+  fired; TTFA 1555 / 1670 / 1671 / 1764 / 2255 ms.
+
+  The third capture is the one that proves the mechanism rather than the
+  outcome: 3.684 s captured of which whisper's own VAD filter stripped
+  **1.200 s** — roughly 0.4 s of lead-in plus the full `VAD_END_SILENCE_S`
+  0.8 s of trailing silence. That is `SpeechGate` closing on trailing silence,
+  which is exactly what `webrtcvad` could not do here on 5 of 20 clips.
+
+  **D18 is NOT implicated and stays parked (OQ-52).** It was the named suspect
+  if this measurement had come back at ~15 s; it did not, so the 16 kHz
+  software reference is not preventing end-of-speech detection. It remains an
+  open question for barge-in quality (ADR-064), which is a different failure.
+
+  Evidence pasted in `progress.md`, "SESSION 2026-09-02 (night, at the
+  microphone)". **The original write-up follows.**
+
+  **Decider:** MEASURE · **Blocks:** D3 (hands-free is unusable) · **Status:** **OPEN, but narrowed to a live confirmation.**
+
+  **2026-08-31:** the swap landed first by the user's decision (OQ-51, ADR-095), so what is owed here is no longer a probe that decides anything — it is one live hands-free capture with the voiced fraction logged at `wake.py:_on_frame`, confirming that Silero ends captures through the **AEC path** as it does offline. If it does not, the suspect is D18 (the reference path), not the detector.
+
+  **2026-09-02 (evening): attempted, NOT answered.** This is the item Phase 2
+  shipped without and did not count (design §11). The daemon was restarted onto
+  current code, `vad.create()` was confirmed to return `SileroVad`, the wake
+  listener was confirmed active in the journal, and a 180-second journal window
+  was opened to catch `capture start source=wake` and time what followed. **The
+  window closed with zero lines** — nothing was said, so nothing was captured.
+  That is not evidence in either direction. The rig is correct and takes three
+  minutes; it needs a human at the microphone. Re-run it exactly as staged:
+  watch for `capture start source=wake` and measure the gap to the next line —
+  **~2-4 s means Silero ended the capture and D3 is fixed live; ~15 s means the
+  cap fired and the next suspect is D18, not the detector.**
+
+
+  All three wake captures ran the full 15 s cap. One contained zero speech by
+  Silero's reckoning yet ADR-066's 3 s bail-out never fired, which can only
+  happen if `_heard_speech` went true — i.e. `webrtcvad` called the room voiced.
+  The same code ended captures at 2.0/3.4/1.7/1.9 s on 2026-08-25.
+
+  **What answers it:** a probe that prints the voiced-fraction of live mic frames
+  at `VAD_AGGRESSIVENESS` 0-3, through the same AEC path as
+  `friday/audio/wake.py:_on_frame`, in this room. Nothing is decided until that
+  number exists — the 2026-08-25 barge-in cutoff was blamed on two wrong causes
+  before measurement found the real one.
+
+  **MEASURED OFFLINE 2026-08-30 — the mechanism is now known, the live half is
+  not.** `scripts/vad_bench.py` ran all four aggressiveness levels through the
+  **real** `SpeechGate` on the 20 real DMIC clips, each with 2 s of that clip's
+  own quietest room noise appended:
+
+  ```
+    webrtcvad mode=0   voiced p50 0.500   start 20/20   end 14/20
+    webrtcvad mode=1   voiced p50 0.489   start 20/20   end 14/20
+    webrtcvad mode=2   voiced p50 0.444   start 20/20   end 15/20   <- INCUMBENT
+    webrtcvad mode=3   voiced p50 0.407   start 20/20   end 16/20
+    silero (all three) voiced p50 0.35-0.37  start 20/20  end 20/20
+
+    webrtcvad mode=2 never ends on 5 of 20:
+      clip_01 voiced=0.891   clip_02 voiced=1.000   clip_06 voiced=0.971
+      clip_07 voiced=0.996   clip_08 voiced=0.829
+  ```
+
+  **The hypothesis in the paragraph above is confirmed: `webrtcvad` calls the
+  room voiced.** On the failing clips it classifies 83-100 % of frames as speech
+  **including the appended room noise**, so trailing silence never accumulates,
+  `SpeechGate` never emits `end`, and the capture runs to the 15 s cap. Raising
+  aggressiveness to 3 helps by exactly one clip and is not a fix. Silero's voiced
+  fraction never exceeds 0.482 on any clip and it ends 20/20.
+
+  **STILL OPEN, and it is the half that matters for D3:** these are clips
+  recorded through the real microphone but **NOT through the AEC path**. The
+  question as written asks for live frames through `wake.py:_on_frame`, and the
+  AEC is now known to be doing something violent to its input (OQ-32 / D18), so
+  the live voiced fraction may be worse than these numbers, not better.
+
+  **What is left:** one live capture with the voiced fraction logged at
+  `_on_frame`, comparing `webrtcvad` against Silero on the same frames. The
+  replacement decision itself is **OQ-51**.
+
+  **If nobody decides:** hands-free stays unusable and PTT is the only trigger.
 
 - **OQ-38 — How should the Hyprland tools talk to Hyprland 0.56's Lua
   dispatcher?** ANSWERED 2026-08-29, the same day it was raised (**ADR-074**),
