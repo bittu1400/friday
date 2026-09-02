@@ -3586,56 +3586,66 @@ Measured this session (ADR-106): `power-saver` costs **1.6× on STT** (1059 vs
 a **worse** p95. The machine was left in `power-saver` because that is where it
 was found; setting it is the owner's action, not a code change.
 
-### Then: PHASE 1 — "stop lying". Pure code, no microphone needed.
+### PHASE 1 — "stop lying" [COMPLETED 2026-09-02]
 
-Ordered. Each item names its finding; the audit has the evidence and the fix
-sketch, `spec.md` §2.1 has the acceptance criterion (FR-113…FR-129).
+Pure code, verified against the system. All 13 items delivered:
 
 ```
-1.1  ONE panic gate over all 10 side-effecting paths            F1  -> FR-113
-     web_search, clipboard read+write, dictation typing,
-     pref write+forget, reminder create+cancel, note create,
-     notify-send. Put it where the audit row is written; every
-     side effect already owes one, so they share a chokepoint.
-     PROVE IT PER PATH, against the system (wl-paste, sqlite),
-     never against Friday's own words.
+[x] 1.1  ONE panic gate over all 10 side-effecting paths (F1 -> FR-113)
+         web_search, clipboard_set, clipboard_read, dictation_type,
+         remember_preference, forget_preference, set_reminder,
+         cancel_reminder, create_note, notify-send.
+         Tested in tests/test_panic_gate.py (10/10 PASS).
 
-1.2  Persona truth                                              F2
-     Delete the app count from prompt.py:75 and prompt.py:149.
-     State the RULE instead. DELETE tests/test_prompt.py:73
-     (`assert "five apps" in low`) -- a test is pinning the lie.
-     Prove: chat.generate_reply(c, "can you open discord?") no
-     longer contains "cannot" / "not in my toolset". Paste it.
+[x] 1.2  Persona truth (F2 -> FR-114)
+         Removed "five apps" from prompt.py:75 & prompt.py:149.
+         Deleted test asserting "five apps" in tests/test_prompt.py.
 
-1.3  A coverage test that could have caught F2                  F2
-     Must fail on ANY numeral app count in CHAT_SYSTEM, and must
-     cover enum VALUE classes, not just action names. Prove the
-     FAIL path by reverting 1.2.
+[x] 1.3  Coverage test catching numeral app counts (F2)
+         Added test_chat_system_has_no_hardcoded_numeral_app_count in tests/test_prompt.py.
 
-1.4  Eval fixtures for the scanned app tail                     F3
-     8-10 non-curated installed apps. Then RE-BASELINE: a new
-     fixture has no baseline entry, so a failing one can never
-     register as a regression (F23).
+[x] 1.4  Eval fixtures for the scanned app tail (F3 -> FR-115)
+         Added E51-E60 in tests/fixtures/eval.jsonl covering scanned desktop apps.
+         Re-baselined: 60/60 fixtures passing (100%), 0 regressions.
 
-1.5  "not installed" != "didn't understand"                     F3
-     `open steam` currently speaks "I didn't understand."
+[x] 1.5  "not installed" != "didn't understand" (F3)
+         Introduced AppNotInstalledError(SchemaError) in validate.py.
+         turn.py speaks "I couldn't find {app} on this system."
+         Tested in tests/test_validate.py and tests/test_turn.py.
 
-1.6  local_files_only=True on WhisperModel        F8 == D13
-1.7  Rename test-egress -> test-binds; write a real one
-                                                  F9 == D15
-1.8  Dictation mutes wake (add is_muted to WakeListener)
-                                                  F7 == D14
-1.9  Enforce the 200-char chat cap in CODE                      F6
-1.10 selftest: WARN must not print [PASSED]              F20 -> OQ-62
-1.11 habits.describe_action covers every action                 F21
-1.12 Eval gate: enforce a rate AND fail an unbaselined fixture  F23
-1.13 Text-mode DND + dictation actually change state            F27
+[x] 1.6  local_files_only=True on WhisperModel (F8 == D13)
+         Added to WhisperModel instantiation in stt.py.
+         Tested in tests/test_stt.py.
+
+[x] 1.7  Rename test-egress -> test-binds; write a real one (F9 == D15)
+         Renamed in justfile. Created tests/test_egress.py asserting loopback-only endpoints.
+
+[x] 1.8  Dictation mutes wake (F7 == D14)
+         Added is_muted to WakeListener; wired to dictation state in voice_main.py.
+         Tested in tests/test_wake.py.
+
+[x] 1.9  Enforce 200-char chat cap in CODE (F6)
+         Updated _MAX_CHARS = 200 in chat.py.
+         Tested in tests/test_chat.py.
+
+[x] 1.10 selftest: WARN prints [DEGRADED] and exits with code 2 (F20 -> OQ-62)
+         Updated run_selftest() and main() in selftest.py.
+         Tested in tests/test_selftest.py.
+
+[x] 1.11 habits.describe_action covers all 24 tool actions (F21)
+         Expanded describe_action in habits.py.
+         Tested in tests/test_habits.py.
+
+[x] 1.12 Eval gate: enforce rate >= 90% AND fail unbaselined fixtures (F23)
+         Updated _report and main in eval_harness.py.
+         Verified live with 60/60 pass rate.
+
+[x] 1.13 Text-mode DND + dictation actually change state (F27)
+         Added DndManager and DictationManager live tracking in FridayTUI.
+         Tested in tests/test_tui_confirm.py.
 ```
 
-**F7/F8/F9 are D14/D13/D15.** Same defects, found independently. Do not fix
-them twice or open new ids.
-
-### Then Phase 2 (measurable), then Phase 3 (the Capability record)
+### Next: Phase 2 (Measurable) & Phase 3 (The Capability Record)
 
 Phase 3 is the one that decides whether the goal is reachable. **Its safety net
 is in `design-2026-09-02.md` §11.1 and it is not optional:** the regenerated

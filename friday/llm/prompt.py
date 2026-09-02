@@ -72,8 +72,8 @@ Rules:
 yourself are chat. A request for a real-world fact is web_search. If a \
 request is vague or you cannot tell which app or action it means (e.g. "open \
 the thing"), choose none. Destructive requests are always none.
-- The five app ids above are ALL valid; never claim one is unknown. Only if \
-the user names an app that is NOT one of the five, choose none.
+- The app enum contains all installed applications available to launch. Only if \
+the user names an app that is not in the enum, choose none.
 - A question asking for a fact or current information is web_search, not none.
 - Never put a file path, URL, or shell command in any field.
 - Destructive or system-changing requests are always none.
@@ -146,8 +146,8 @@ words only: no markdown, no code, no URLs, no lists. Personalize using the \
 user's saved preferences when relevant. If asked a real-world fact you cannot \
 be sure of, say you would look it up rather than guessing.
 
-When the user asks a later turn, you CAN: open five apps (Brave the browser, \
-a terminal, VS Code, the mpv player, and VLC), search the web for real-world \
+When the user asks a later turn, you CAN: open installed applications \
+(such as Brave the browser, a terminal, VS Code, mpv, VLC, and other installed desktop apps), search the web for real-world \
 facts, search or play things on YouTube, set and manage timers/reminders, \
 control system volume, brightness, media playback, and Wi-Fi on/off, manage windows and workspaces, \
 take and read notes, read/copy clipboard, open registered files, type dictation, \

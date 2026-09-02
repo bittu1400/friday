@@ -13,11 +13,15 @@ import logging
 import shutil
 import subprocess
 
+from .. import config
+
 log = logging.getLogger(__name__)
 
 
 def read_clipboard(timeout_s: float = 2.0) -> str | None:
     """Return the current clipboard text, or None if unavailable/empty-tool."""
+    if config.is_disabled():
+        return None
     cmd = shutil.which("wl-paste")
     if not cmd:
         return None
@@ -37,6 +41,8 @@ def read_clipboard(timeout_s: float = 2.0) -> str | None:
 
 def set_clipboard(text: str, timeout_s: float = 2.0) -> bool:
     """Copy `text` into the Wayland clipboard. Text goes on STDIN, not argv."""
+    if config.is_disabled():
+        return False
     cmd = shutil.which("wl-copy")
     if not cmd:
         log.debug("wl-copy not found; clipboard write dropped")

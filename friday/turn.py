@@ -26,11 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import config
-from .errors import E_LLM_DOWN, E_LLM_TIMEOUT, E_SCHEMA, Outcome
+from .errors import E_LLM_DOWN, E_LLM_TIMEOUT, E_SCHEMA, E_TOOL_NOTFOUND, Outcome
 from .llm import chat, grounding, schema
 from .llm.client import LlamaClient, LlamaTimeout, LlamaUnreachable
 from .llm.prompt import assemble_system
-from .llm.validate import SchemaError, validate
+from .llm.validate import AppNotInstalledError, SchemaError, validate
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore, resolve
 from .tools import executor
@@ -234,6 +234,9 @@ async def _plan_and_act(
             resolved = await _plan(utterance, client, prefs, history=history)
             if resolved.name not in ("none", "chat"):
                 plan, from_history = resolved, True
+    except AppNotInstalledError as exc:
+        log.info("%s: app %r not installed, failing closed to none", E_TOOL_NOTFOUND, exc.app_name)
+        return TurnResult("none", {}, f"I couldn't find {exc.app_name} on this system.", False)
     except SchemaError:
         # Log the code, speak the template (spec §4). E_SCHEMA existed in the
         # taxonomy and was written nowhere, so a run of malformed plans left no
@@ -408,12 +411,16 @@ async def _do_web_search(
     # is already model-generated text over a first-party utterance.
     q_audited = {"query": query[:80]}
 
-    async def _row(outcome: str) -> None:
+    async def _row(outcome: str, policy_decision: str = "allowed") -> None:
         if audit is not None:
             await audit.arecord(
                 request_id=request_id, tool_id="web_search", params=q_audited,
-                policy_decision="allowed", outcome=outcome, duration_ms=0,
+                policy_decision=policy_decision, outcome=outcome, duration_ms=0,
             )
+
+    if config.is_disabled():
+        await _row("disabled", policy_decision="disabled")
+        return TurnResult("web_search", {"query": query}, templates.render(Outcome.DISABLED, ""), False)
 
     if not connected:  # ADR-046: local mode refuses audibly
         await _row("disabled")
@@ -464,6 +471,17 @@ async def confirm_preference(
     request_id: str,
 ) -> str:
     """Execute the confirmed write, THEN return the spoken line (ADR-009)."""
+    if config.is_disabled():
+        if audit is not None:
+            await audit.arecord(
+                request_id=request_id,
+                tool_id="remember_preference",
+                params={"key": pending.key},
+                policy_decision="disabled",
+                outcome="disabled",
+                duration_ms=0,
+            )
+        return templates.render(Outcome.DISABLED, "")
     if prefs is None:
         return templates.MEMORY_UNAVAILABLE
     await asyncio.to_thread(prefs.put, pending)
@@ -488,15 +506,9 @@ async def resolve_pending(
     request_id: str,
     dry_run: bool = False,
 ) -> str | None:
-    """Resolve a confirm-first handshake for EITHER pending type, from EITHER UI.
+    """Resolve a held confirm against the user's answer (G12, ADR-057/069).
 
-    Returns the line to speak, or **None** when the answer was neither a yes
-    nor a no: the pending has been dropped and audited, and the caller must run
-    the same text as a fresh command (ADR-075c). No second model turn is
-    introduced — it is the text already in hand, re-routed.
-
-    Both the voice daemon and the TUI route here so the two can never drift
-    apart again. C1 of the 2026-08-26 audit was exactly that drift: the TUI
+    Shared by the voice daemon and the TUI. Before this helper existed the TUI
     still assumed `pending` was always a `PendingPreference` and called
     `confirm_preference` unconditionally, so every G12 `PendingAction` confirm
     ("Are you sure you want to overwrite your clipboard?") raised
@@ -536,6 +548,13 @@ async def resolve_pending(
     if pending.tool_id == "clipboard_set":
         # Not a subprocess-registry tool: text goes to wl-copy on STDIN (see
         # tools/clipboard.py). Speak the real outcome — never a blanket "done".
+        if config.is_disabled():
+            await _audit_confirmed(
+                audit, request_id, "clipboard_set", audit_params(pending),
+                "disabled",
+                policy_decision="disabled",
+            )
+            return templates.render(Outcome.DISABLED, "")
         from .tools.clipboard import set_clipboard
 
         ok = await asyncio.to_thread(set_clipboard, pending.params.get("text", ""))
@@ -551,6 +570,13 @@ async def resolve_pending(
     if pending.tool_id == "clipboard_read":
         # ADR-068a: read only now, on an explicit yes — a declined confirm must
         # not so much as fetch the selection, let alone voice it.
+        if config.is_disabled():
+            await _audit_confirmed(
+                audit, request_id, "clipboard_read", audit_params(pending),
+                "disabled",
+                policy_decision="disabled",
+            )
+            return templates.render(Outcome.DISABLED, "")
         from .tools.clipboard import read_clipboard
 
         raw = await asyncio.to_thread(read_clipboard)
@@ -650,6 +676,17 @@ async def _do_forget(
     audit: AuditLog | None,
     request_id: str,
 ) -> TurnResult:
+    if config.is_disabled():
+        if audit is not None:
+            await audit.arecord(
+                request_id=request_id,
+                tool_id="forget_preference",
+                params=params,
+                policy_decision="disabled",
+                outcome="disabled",
+                duration_ms=0,
+            )
+        return TurnResult("forget_preference", params, templates.render(Outcome.DISABLED, ""), False)
     if prefs is None:
         return TurnResult("forget_preference", params, templates.MEMORY_UNAVAILABLE, False)
     try:
@@ -710,6 +747,17 @@ async def _do_set_reminder(
     audit: AuditLog | None,
     request_id: str,
 ) -> TurnResult:
+    if config.is_disabled():
+        if audit is not None:
+            await audit.arecord(
+                request_id=request_id,
+                tool_id="set_reminder",
+                params=params,
+                policy_decision="disabled",
+                outcome="disabled",
+                duration_ms=0,
+            )
+        return TurnResult("set_reminder", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else (audit._db if audit else None)
     if db is None:
         return TurnResult("set_reminder", params, "Memory unavailable.", False)
@@ -776,6 +824,10 @@ async def _do_cancel_reminder(
     audit: AuditLog | None = None,
     request_id: str = "",
 ) -> TurnResult:
+    if config.is_disabled():
+        if audit is not None:
+            await _audit_confirmed(audit, request_id, "cancel_reminder", {}, "disabled", policy_decision="disabled")
+        return TurnResult("cancel_reminder", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else None
     if db is None:
         return TurnResult("cancel_reminder", params, "Memory unavailable.", False)
@@ -810,6 +862,17 @@ async def _do_create_note(
     audit: AuditLog | None,
     request_id: str,
 ) -> TurnResult:
+    if config.is_disabled():
+        if audit is not None:
+            await audit.arecord(
+                request_id=request_id,
+                tool_id="create_note",
+                params=params,
+                policy_decision="disabled",
+                outcome="disabled",
+                duration_ms=0,
+            )
+        return TurnResult("create_note", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else (audit._db if audit else None)
     if db is None:
         return TurnResult("create_note", params, "Memory unavailable.", False)

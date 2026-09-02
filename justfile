@@ -53,14 +53,16 @@ test-no-fstring-sql:
       && echo "OK: store/ is strictly parameterized SQL" \
       || (echo "FAIL: interpolated SQL literal found in store/" && exit 1)
 
-# G7 egress proof (FR-60, invariant #8): SearXNG is the ONLY outbound path.
-# Confirms no service binds beyond loopback. The block-all-non-loopback half
-# is a manual step (needs privileges) documented in progress.md.
-test-egress:
+# Confirms no service binds beyond loopback (FR-60, invariant #8).
+test-binds:
     @echo "listening sockets (must be 127.0.0.1 only):"
     @ss -ltnp | grep -E '8080|8888' || true
     @echo "asserting no 0.0.0.0 bind on 8080/8888:"
     @! ss -ltnp | grep -E '0\.0\.0\.0:(8080|8888)'
+
+# G7 egress proof (FR-60, invariant #8): SearXNG is the ONLY outbound path.
+test-egress:
+    uv run pytest tests/test_egress.py -v
 
 # Manage stored preferences (FR-56): list | export | forget [--hard] | reset --yes.
 # `just prefs list`; `just prefs forget editor`; `just prefs reset --yes`.

@@ -125,3 +125,19 @@ def test_render_habits_digest():
     assert rendered.endswith("\n</user_habits>")
     assert "- After opening Brave, you often open VS Code." in rendered
     assert "- Late at night, you often search YouTube for 'lo-fi'." in rendered
+
+
+def test_describe_action_covers_all_schema_actions():
+    """F21: describe_action must return a non-empty string for every schema action."""
+    from friday.llm.schema import PARAM_SCHEMA
+
+    for tool_id in PARAM_SCHEMA:
+        if tool_id in ("chat", "none"):
+            continue
+        desc = describe_action(tool_id, "{}", gerund=False)
+        assert desc is not None, f"describe_action returned None for tool_id={tool_id}"
+        assert len(desc) > 0
+
+        desc_gerund = describe_action(tool_id, "{}", gerund=True)
+        assert desc_gerund is not None, f"describe_action(gerund=True) returned None for tool_id={tool_id}"
+        assert len(desc_gerund) > 0

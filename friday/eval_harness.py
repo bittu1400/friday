@@ -117,28 +117,40 @@ def _report(results: list[Result]) -> int:
     passed = sum(r.passed for r in gated)
     total = len(gated)
     known = [r for r in results if r.known_failing]
+    pass_pct = (100 * passed // total) if total else 0
 
     base = json.loads(BASELINE.read_text()) if BASELINE.exists() else None
     regressions: list[str] = []
+    unbaselined_fails: list[str] = []
     if base:
         prev = base.get("results", {})
-        regressions = [
-            r.fid for r in results if prev.get(r.fid) and not r.passed
-        ]
+        for r in results:
+            if not r.passed:
+                if prev.get(r.fid, False):
+                    regressions.append(r.fid)
+                elif r.fid not in prev and not r.known_failing:
+                    unbaselined_fails.append(r.fid)
+    else:
+        unbaselined_fails = [r.fid for r in gated if not r.passed]
 
     print(f"fixture-set revision: {_revision()}")
-    print(f"passed {passed}/{total}  ({100 * passed // total if total else 0}%)")
+    print(f"passed {passed}/{total}  ({pass_pct}%)")
     print(f"known-failing: {len(known)}")
     print(
         f"regressions vs baseline: {len(regressions)}"
         + (f" {regressions}" if regressions else "")
         + ("" if base else "  (no baseline recorded yet)")
     )
+    if unbaselined_fails:
+        print(f"unbaselined failures: {len(unbaselined_fails)} {unbaselined_fails}")
     for r in results:
         if not r.passed:
             flag = "known-failing" if r.known_failing else "FAIL"
             print(f"  [{flag}] {r.fid}: got {r.predicted}")
-    return len(regressions)
+
+    if regressions or unbaselined_fails or (total > 0 and pass_pct < 90):
+        return 1
+    return 0
 
 
 def _write_baseline(results: list[Result]) -> None:
@@ -168,10 +180,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         results = run(client)
-        regressions = _report(results)
+        code = _report(results)
         if args.update_baseline:
             _write_baseline(results)
-        return 1 if regressions else 0
+        return code
     except (LlamaUnreachable, LlamaTimeout) as exc:
         print(f"llama-server error: {exc}")
         return 2

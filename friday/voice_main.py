@@ -132,6 +132,7 @@ def _build(args, loop_holder: dict[str, asyncio.AbstractEventLoop]) -> tuple[Dae
             refractory_s=config.WAKE_REFRACTORY_S,
             is_idle=lambda: state_holder["d"].state.is_idle,
             is_speaking=lambda: state_holder["d"].state.state is State.SPEAKING,
+            is_muted=lambda: state_holder["d"]._dictation.is_dictating,
         )
 
     d = Daemon(

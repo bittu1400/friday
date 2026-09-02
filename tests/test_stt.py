@@ -48,3 +48,15 @@ def test_transcriber_applies_policy_over_backend():
     assert stt.Transcriber(Fake("hello there")).run(pcm).actionable is True
     assert stt.Transcriber(Fake("")).run(pcm).actionable is False
     assert stt.Transcriber(Fake(" ".join(["x"] * 900))).run(pcm).over_limit is True
+
+
+def test_faster_whisper_backend_uses_local_files_only(monkeypatch):
+    """F8 / D13: WhisperModel must be created with local_files_only=True."""
+    from unittest.mock import MagicMock
+    mock_cls = MagicMock()
+    monkeypatch.setattr("faster_whisper.WhisperModel", mock_cls)
+    backend = stt.FasterWhisperBackend.create("tiny.en", compute_type="int8", threads=4)
+    assert backend is not None
+    assert mock_cls.call_count == 1
+    assert mock_cls.call_args.kwargs.get("local_files_only") is True
+

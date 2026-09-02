@@ -22,7 +22,7 @@ CHAT_FALLBACK = "My words failed me for a second."
 _CHAT_TEMPERATURE = 0.7
 _CHAT_MAX_TOKENS = 160          # ~4 short sentences
 _CHAT_STOP = ["\nYou:", "\nUser:"]   # don't let it hallucinate the next turn
-_MAX_CHARS = 600                # hard cap after sanitization
+_MAX_CHARS = 200                # hard cap after sanitization (F6: under 200 chars for spoken reply)
 
 _URL = re.compile(r"https?://\S+")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")

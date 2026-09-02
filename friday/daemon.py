@@ -343,6 +343,14 @@ class Daemon:
                 # timeout now scales with the sentence, so on the loop it would
                 # make Friday deaf for seconds. This is the last of H6's class
                 # of blocking call sites (D12).
+                if config.is_disabled():
+                    await self._audit_intercept(
+                        rid, "dictation_type", {"chars": str(len(text))},
+                        outcome="disabled",
+                        policy_decision="disabled",
+                    )
+                    self.state.reset()
+                    return
                 typed = await asyncio.to_thread(self._dictation.handle_transcript, text)
                 await self._audit_intercept(
                     rid, "dictation_type", {"chars": str(len(text))},
@@ -566,6 +574,7 @@ class Daemon:
         params: dict[str, str],
         *,
         outcome: str = "ok",
+        policy_decision: str = "allowed",
     ) -> None:
         """Write the audit row for a turn that never reaches the planner.
 
@@ -589,7 +598,7 @@ class Daemon:
             request_id=rid,
             tool_id=tool_id,
             params=params,
-            policy_decision="allowed",
+            policy_decision=policy_decision,
             outcome=outcome,
             duration_ms=0,
         )

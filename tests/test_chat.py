@@ -42,6 +42,7 @@ def test_history_and_utterance_reach_the_prompt():
 
 
 def test_length_is_capped():
+    assert chat._MAX_CHARS == 200
     huge = "word " * 500
     out = chat.generate_reply(_Stub(huge), "q")
     assert len(out) <= chat._MAX_CHARS

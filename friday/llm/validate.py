@@ -32,6 +32,14 @@ class SchemaError(Exception):
     """Raised on any validation failure. The caller fails closed to none."""
 
 
+class AppNotInstalledError(SchemaError):
+    """Raised when open_app specifies an app not in the installed app enum."""
+
+    def __init__(self, message: str, app_name: str) -> None:
+        super().__init__(message)
+        self.app_name = app_name
+
+
 @dataclass(frozen=True)
 class Plan:
     name: str
@@ -120,6 +128,11 @@ def _validate_params(name: str, params_in: dict[str, Any]) -> dict[str, str]:
             # AS-7 "/bin/sh", AS-8 "browser; rm -rf ~", AS-9 confusables:
             # none of these are members of the closed set, so all reject.
             if value not in rule["values"]:
+                if name == "open_app" and key == "app":
+                    raise AppNotInstalledError(
+                        f"param {name}.{key}={value!r} not in enum {rule['values']}",
+                        app_name=value,
+                    )
                 raise SchemaError(
                     f"param {name}.{key}={value!r} not in enum {rule['values']}"
                 )

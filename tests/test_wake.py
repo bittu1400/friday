@@ -286,3 +286,30 @@ def test_capture_with_speech_is_not_abandoned(monkeypatch):
     for _ in range(int(config.VAD_NO_SPEECH_TIMEOUT_S * 1000 / wl.frame_ms) + 50):
         wl._on_frame(_frame())
     assert ended == [], "continuous speech must not trigger the no-speech bail-out"
+
+
+def test_wake_not_fired_when_muted():
+    """F7 / D14: When is_muted returns True (e.g. during dictation), wake word does not trigger."""
+    fired = []
+    calls = WakeCallbacks(
+        on_wake=lambda: fired.append("wake"),
+        on_speech_end=lambda: None,
+        on_barge=lambda: None,
+    )
+    wl = WakeListener(
+        detector=FakeDetector(0.9),
+        vad=FakeVad(False),
+        aec=NullAec(),
+        callbacks=calls,
+        far_ref=FarEndRef(),
+        threshold=0.5,
+        frame_len=320,
+        refractory_s=1.5,
+        is_idle=lambda: True,
+        is_speaking=lambda: False,
+        is_muted=lambda: True,
+        schedule=lambda cb: cb(),
+    )
+    wl._on_frame(_frame())
+    assert fired == [], "wake must not trigger when is_muted() is True"
+

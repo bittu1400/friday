@@ -23,7 +23,10 @@ import logging
 import shutil
 import subprocess
 
+from .. import config
+
 log = logging.getLogger(__name__)
+
 
 # Pinned, not inherited. Measured on this machine: 20/20 = 40.1 ms/char,
 # 12/12 = 24.3, 8/8 = 16.3. 8 ms is ~2.5x faster than stock and still five
@@ -45,6 +48,9 @@ def _timeout_for(text: str) -> float:
 
 def type_text(text: str) -> bool:
     """Type text verbatim into the focused Wayland window."""
+    if config.is_disabled():
+        log.debug("panic switch engaged; typing dropped")
+        return False
     if not text:
         return True
 

@@ -566,13 +566,14 @@ def run_all_checks() -> list[CheckResult]:
 
 
 def run_selftest() -> int:
-    """CLI runner: executes all checks, prints report, returns exit code (0=ok, 1=failure)."""
+    """CLI runner: executes all checks, prints report, returns exit code (0=ok, 1=fail, 2=warn)."""
     print("=" * 65)
     print("  Friday System Self-Test (G9 Service & Health Verification)")
     print("=" * 65)
 
     results = run_all_checks()
     has_fail = False
+    has_warn = False
 
     for res in results:
         badge = f"[{res.status.value}]"
@@ -580,6 +581,7 @@ def run_selftest() -> int:
             prefix = f"\033[32m{badge:<6}\033[0m"
         elif res.status is Status.WARN:
             prefix = f"\033[33m{badge:<6}\033[0m"
+            has_warn = True
         else:
             prefix = f"\033[31m{badge:<6}\033[0m"
             has_fail = True
@@ -592,6 +594,9 @@ def run_selftest() -> int:
     if has_fail:
         print("\033[31m[FAILED]\033[0m One or more self-test checks failed.")
         return 1
+    if has_warn:
+        print("\033[33m[DEGRADED]\033[0m One or more self-test checks produced warnings.")
+        return 2
     print("\033[32m[PASSED]\033[0m All required system checks passed successfully.")
     return 0
 
@@ -613,7 +618,11 @@ def main(argv: list[str] | None = None) -> int:
             for r in results
         ]
         print(json.dumps(out, indent=2))
-        return 1 if any(r.status is Status.FAIL for r in results) else 0
+        if any(r.status is Status.FAIL for r in results):
+            return 1
+        if any(r.status is Status.WARN for r in results):
+            return 2
+        return 0
 
     return run_selftest()
 

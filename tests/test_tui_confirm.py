@@ -148,3 +148,27 @@ def test_tui_preference_confirm_still_writes(monkeypatch):
 
     assert written == ["name"]
     assert "I'll remember that" in out
+
+
+def test_tui_dnd_and_dictation_state_transitions(monkeypatch):
+    """F27: TUI must update _dnd and _dictation live state when those actions are planned."""
+    app = FridayTUI(_Client(), dry_run=False)
+    assert not app._dnd.is_dnd
+    assert not app._dictation.is_dictating
+
+    _pending_turn(monkeypatch, TurnResult("set_dnd", {}, "Quiet mode enabled.", True))
+    _drive(app, "be quiet")
+    assert app._dnd.is_dnd
+
+    _pending_turn(monkeypatch, TurnResult("resume_dnd", {}, "Quiet mode disabled.", True))
+    _drive(app, "resume")
+    assert not app._dnd.is_dnd
+
+    _pending_turn(monkeypatch, TurnResult("dictation_mode", {"action": "start"}, "Dictation started.", True))
+    _drive(app, "start dictation")
+    assert app._dictation.is_dictating
+
+    _pending_turn(monkeypatch, TurnResult("dictation_mode", {"action": "stop"}, "Dictation stopped.", True))
+    _drive(app, "stop dictation")
+    assert not app._dictation.is_dictating
+

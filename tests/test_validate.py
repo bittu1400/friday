@@ -51,3 +51,11 @@ def test_chat_rejects_unknown_params():
     import pytest
     with pytest.raises(SchemaError):
         validate('{"action":{"name":"chat","params":{"x":"y"}}}')
+
+
+def test_open_app_unknown_app_raises_app_not_installed():
+    from friday.llm.validate import AppNotInstalledError, validate
+    with pytest.raises(AppNotInstalledError) as exc_info:
+        validate('{"action":{"name":"open_app","params":{"app":"definitely_not_installed_app_xyz"}}}')
+    assert exc_info.value.app_name == "definitely_not_installed_app_xyz"
+

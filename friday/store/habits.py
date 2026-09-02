@@ -80,6 +80,74 @@ def describe_action(tool_id: str, args_redacted_json: str, *, gerund: bool = Fal
             return f"searching the web for '{q}'" if gerund else f"search the web for '{q}'"
         return "searching the web" if gerund else "search the web"
 
+    elif tool_id == "remember_preference":
+        k = args.get("key", "")
+        return f"remembering preference '{k}'" if (gerund and k) else (f"remember preference '{k}'" if k else ("remembering a preference" if gerund else "remember a preference"))
+
+    elif tool_id == "forget_preference":
+        k = args.get("key", "")
+        return f"forgetting preference '{k}'" if (gerund and k) else (f"forget preference '{k}'" if k else ("forgetting a preference" if gerund else "forget a preference"))
+
+    elif tool_id == "set_reminder":
+        return "setting a timer" if gerund else "set a timer"
+
+    elif tool_id == "list_reminders":
+        return "checking timers" if gerund else "check timers"
+
+    elif tool_id == "cancel_reminder":
+        return "cancelling a timer" if gerund else "cancel a timer"
+
+    elif tool_id == "set_dnd":
+        return "enabling quiet mode" if gerund else "enable quiet mode"
+
+    elif tool_id == "resume_dnd":
+        return "disabling quiet mode" if gerund else "disable quiet mode"
+
+    elif tool_id == "system_volume":
+        d = args.get("direction", "")
+        return f"adjusting volume ({d})" if (gerund and d) else (f"adjust volume ({d})" if d else ("adjusting volume" if gerund else "adjust volume"))
+
+    elif tool_id == "system_brightness":
+        d = args.get("direction", "")
+        return f"adjusting brightness ({d})" if (gerund and d) else (f"adjust brightness ({d})" if d else ("adjusting brightness" if gerund else "adjust brightness"))
+
+    elif tool_id == "system_media":
+        return "controlling media playback" if gerund else "control media playback"
+
+    elif tool_id == "system_wifi":
+        s = args.get("state", "")
+        return f"turning Wi-Fi {s}" if (gerund and s) else (f"turn Wi-Fi {s}" if s else ("toggling Wi-Fi" if gerund else "toggle Wi-Fi"))
+
+    elif tool_id == "hypr_workspace":
+        w = args.get("workspace", "")
+        return f"switching to workspace {w}" if (gerund and w) else (f"switch to workspace {w}" if w else ("switching workspaces" if gerund else "switch workspaces"))
+
+    elif tool_id == "hypr_window":
+        a = args.get("action", "")
+        return f"managing window ({a})" if (gerund and a) else (f"manage window ({a})" if a else ("managing windows" if gerund else "manage windows"))
+
+    elif tool_id == "file_open":
+        a = args.get("alias", "")
+        return f"opening file '{a}'" if (gerund and a) else (f"open file '{a}'" if a else ("opening a file" if gerund else "open a file"))
+
+    elif tool_id == "create_note":
+        return "saving a note" if gerund else "save a note"
+
+    elif tool_id == "read_notes":
+        return "reading notes" if gerund else "read notes"
+
+    elif tool_id == "clipboard_read":
+        return "reading the clipboard" if gerund else "read the clipboard"
+
+    elif tool_id == "clipboard_set":
+        return "copying to clipboard" if gerund else "copy to clipboard"
+
+    elif tool_id == "dictation_mode":
+        return "toggling dictation mode" if gerund else "toggle dictation mode"
+
+    elif tool_id == "dictation_type":
+        return "typing dictation" if gerund else "type dictation"
+
     return None
 
 

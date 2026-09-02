@@ -94,7 +94,11 @@ class FasterWhisperBackend:
             return None
         try:
             m = WhisperModel(
-                model_name, device="cpu", compute_type=compute_type, cpu_threads=threads
+                model_name,
+                device="cpu",
+                compute_type=compute_type,
+                cpu_threads=threads,
+                local_files_only=True,
             )
         except Exception:
             return None

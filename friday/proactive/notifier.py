@@ -10,11 +10,16 @@ import logging
 import shutil
 import subprocess
 
+from .. import config
+
 log = logging.getLogger(__name__)
 
 
 def notify(title: str, message: str, urgency: str = "normal") -> bool:
     """Send a desktop notification using notify-send."""
+    if config.is_disabled():
+        log.debug("panic switch engaged; notification dropped")
+        return False
     cmd = shutil.which("notify-send")
     if not cmd:
         log.debug("notify-send not found; notification dropped")

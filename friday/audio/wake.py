@@ -181,6 +181,7 @@ class WakeListener:
         refractory_s: float = 1.5,
         is_idle: Callable[[], bool],
         is_speaking: Callable[[], bool],
+        is_muted: Callable[[], bool] = lambda: False,
         schedule: Callable[[Callable[[], None]], None] = _run_now,
     ) -> None:
         self.detector = detector
@@ -193,6 +194,7 @@ class WakeListener:
         self.refractory_s = refractory_s
         self.is_idle = is_idle
         self.is_speaking = is_speaking
+        self.is_muted = is_muted
         self.schedule = schedule
 
         self._last_wake_time: float = 0.0
@@ -321,7 +323,7 @@ class WakeListener:
                 self._capture_gate.reset()
             return
 
-        if self.is_idle() and score >= self.threshold:
+        if self.is_idle() and not self.is_muted() and score >= self.threshold:
             now = time.monotonic()
             if now - self._last_wake_time >= self.refractory_s:
                 self._last_wake_time = now

@@ -48,3 +48,14 @@
 {"id":"E48","utt":"be quiet for a while","expect":{"name":"set_dnd"}}
 {"id":"E49","utt":"copy that to the clipboard","expect":{"name":"none"},"note":"D21: anaphoric, no referent in the eval prompt. Refusing is correct. MEASURED 2026-08-30: the incumbent dispatches clipboard_set text='that' (and 'this to the clipboard', 'the address'), overwriting the user's clipboard with the literal pronoun while speaking success. Gemma 4 refuses. Do not 'fix' this fixture to expect a dispatch."}
 {"id":"E50","utt":"okay you can resume now","expect":{"name":"resume_dnd"},"note":"the only action FR-97's check found still uncovered after the D16 sweep"}
+{"id":"E51","utt":"open btop","expect":{"name":"open_app","params":{"app":"btop"}}}
+{"id":"E52","utt":"launch calibre","expect":{"name":"open_app","params":{"app":"calibre"}}}
+{"id":"E53","utt":"open bluetooth settings","expect":{"name":"open_app","params":{"app":"blueman_manager"}}}
+{"id":"E54","utt":"open anytype","expect":{"name":"open_app","params":{"app":"anytype"}}}
+{"id":"E55","utt":"launch ark","expect":{"name":"open_app","params":{"app":"ark"}}}
+{"id":"E56","utt":"launch thunar","expect":{"name":"open_app","params":{"app":"thunar"}}}
+{"id":"E57","utt":"open baobab","expect":{"name":"open_app","params":{"app":"baobab"}}}
+{"id":"E58","utt":"open obsidian","expect":{"name":"open_app","params":{"app":"obsidian"}}}
+{"id":"E59","utt":"open spotify","expect":{"name":"open_app","params":{"app":"spotify"}}}
+{"id":"E60","utt":"open discord","expect":{"name":"open_app","params":{"app":"discord"}}}
+

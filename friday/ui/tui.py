@@ -26,8 +26,10 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Input, RichLog
 
 from .. import config
+from ..audio.dictation import DictationManager
 from ..dialogue import Dialogue
 from ..llm.client import LlamaClient
+from ..proactive.dnd import DndManager
 from ..store.audit import AuditLog
 from ..store.prefs import PendingPreference, PrefStore
 from ..tools.search import SearchClient
@@ -74,13 +76,17 @@ class FridayTUI(App):
         self._pending: PendingPreference | PendingAction | None = None
         self._session_id = uuid.uuid4().hex
         self._dialogue = Dialogue()  # in-session context, RAM-only (invariant #7)
+        self._dnd = DndManager()
+        self._dictation = DictationManager()
         self._voice = "muted" if speaker is None else getattr(speaker, "voice", "on")
         self._set_mode_subtitle()
 
     def _set_mode_subtitle(self) -> None:
         base = "DRY-RUN (no launch)" if self._dry_run else "LIVE"
         mode = "connected" if self._connected else "local"
-        self.sub_title = f"{base} · voice: {self._voice} · {mode}"
+        dnd_str = " · [quiet]" if self._dnd.is_dnd else ""
+        dict_str = " · [dictation]" if self._dictation.is_dictating else ""
+        self.sub_title = f"{base} · voice: {self._voice} · {mode}{dnd_str}{dict_str}"
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -176,6 +182,21 @@ class FridayTUI(App):
             log.write(f"[dim]{src}[/]")
         if result.spoken:  # RAM-only in-session context (invariant #7)
             self._dialogue.add(text, result.spoken)
+        if result.plan_name == "set_dnd":
+            self._dnd.set_dnd()
+            self._set_mode_subtitle()
+        elif result.plan_name == "resume_dnd":
+            self._dnd.clear_dnd()
+            self._set_mode_subtitle()
+        elif result.plan_name == "dictation_mode":
+            act = result.params.get("action")
+            if act == "start":
+                self._dictation.start()
+            elif act == "stop":
+                self._dictation.stop()
+            else:
+                self._dictation.toggle()
+            self._set_mode_subtitle()
         if result.pending is not None:
             self._pending = result.pending  # await a yes/no next
         self._reenable()

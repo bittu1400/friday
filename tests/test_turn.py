@@ -57,3 +57,9 @@ def test_open_app_dispatches_via_template() -> None:
     r = _turn('{"action":{"name":"open_app","params":{"app":"browser"}}}')
     assert r.plan_name == "open_app" and r.dispatched
     assert r.spoken.startswith("Launching Brave")  # ADR-073: a launch states what it did
+
+
+def test_uninstalled_app_speaks_not_found() -> None:
+    r = _turn('{"action":{"name":"open_app","params":{"app":"steam"}}}')
+    assert r.plan_name == "none" and not r.dispatched
+    assert r.spoken == "I couldn't find steam on this system."

@@ -157,6 +157,7 @@ def test_run_selftest_overall(capsys):
     with patch("friday.selftest.check_llama_server", return_value=CheckResult("llama", Status.PASS, "ok")), \
          patch("friday.selftest.check_searxng", return_value=CheckResult("searxng", Status.PASS, "ok")), \
          patch("friday.selftest.check_gpu_arch", return_value=CheckResult("gpu", Status.PASS, "ok")), \
+         patch("friday.selftest.check_llm_on_gpu", return_value=CheckResult("gpu_llm", Status.PASS, "ok")), \
          patch("friday.selftest.check_database", return_value=CheckResult("db", Status.PASS, "ok")), \
          patch("friday.selftest.check_audio_devices", return_value=CheckResult("audio", Status.PASS, "ok")), \
          patch("friday.selftest.check_panic_switch", return_value=CheckResult("panic", Status.PASS, "ok")), \
@@ -165,3 +166,19 @@ def test_run_selftest_overall(capsys):
         assert code == 0
         captured = capsys.readouterr()
         assert "[PASSED]" in captured.out
+
+
+def test_run_selftest_warn_returns_exit_code_2(capsys):
+    with patch("friday.selftest.check_llama_server", return_value=CheckResult("llama", Status.PASS, "ok")), \
+         patch("friday.selftest.check_searxng", return_value=CheckResult("searxng", Status.PASS, "ok")), \
+         patch("friday.selftest.check_gpu_arch", return_value=CheckResult("gpu", Status.PASS, "ok")), \
+         patch("friday.selftest.check_llm_on_gpu", return_value=CheckResult("gpu_llm", Status.PASS, "ok")), \
+         patch("friday.selftest.check_database", return_value=CheckResult("db", Status.PASS, "ok")), \
+         patch("friday.selftest.check_audio_devices", return_value=CheckResult("audio", Status.WARN, "no mic")), \
+         patch("friday.selftest.check_panic_switch", return_value=CheckResult("panic", Status.PASS, "ok")), \
+         patch("friday.selftest.check_socket_binds", return_value=CheckResult("sockets", Status.PASS, "ok")):
+        code = run_selftest()
+        assert code == 2
+        captured = capsys.readouterr()
+        assert "[DEGRADED]" in captured.out
+

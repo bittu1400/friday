@@ -70,7 +70,7 @@ def test_chat_system_states_real_capabilities():
     from friday.llm.prompt import CHAT_SYSTEM
     low = CHAT_SYSTEM.lower()
     assert "web" in low and "youtube" in low        # the search tools it has
-    assert "five apps" in low                        # the real app count
+    assert "apps" in low                             # general installed apps
     assert "accurately" in low or "invent" in low    # honesty instruction
 
 
@@ -201,3 +201,16 @@ def test_chat_system_advertises_every_action_in_the_schema():
     assert not undeclared, f"add a CHAT_SYSTEM keyword for: {sorted(undeclared)}"
     missing = [a for a, k in keyword.items() if k not in low]
     assert not missing, f"CHAT_SYSTEM never mentions: {missing}"
+
+
+def test_chat_system_has_no_hardcoded_numeral_app_count():
+    """F2: chat persona must never pin a fixed numeral app count like 'five apps'."""
+    import re
+    from friday.llm.prompt import CHAT_SYSTEM, SYSTEM_POLICY
+
+    assert not re.search(r"\b(five|\d+)\s+apps\b", CHAT_SYSTEM, re.IGNORECASE), (
+        "CHAT_SYSTEM contains a hardcoded numeral app count"
+    )
+    assert not re.search(r"\b(five|\d+)\s+app\s+ids\b", SYSTEM_POLICY, re.IGNORECASE), (
+        "SYSTEM_POLICY contains a hardcoded numeral app count"
+    )
