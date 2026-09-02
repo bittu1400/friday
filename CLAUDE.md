@@ -6,7 +6,11 @@ Read this before touching anything. It is short on purpose.
 
 Friday: a local-first voice and text assistant for one Arch Linux +
 Hyprland machine. It can launch a small fixed set of applications,
-remember preferences, and search the web through a local proxy.
+remember preferences, and search the web through a local proxy. Since
+2026-09-02 "a small fixed set" is **every installed application** — the app
+enum is generated from the XDG desktop entries and merged over the five
+curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
+and shell `Exec` entries are never offered.
 
 **Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
 review passes AND the live-voice pass. The 2026-08-26 audit is FULLY FIXED (all
@@ -789,6 +793,9 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "`FRIDAY_DEBUG=1` in the foreground shows transcripts" | Only if `JOURNAL_STREAM` is unset. A terminal inside a systemd-started Hyprland session inherits it, H8's guard fires, and you run blind — one whole live run was wasted this way. Use `env -u JOURNAL_STREAM`. |
 | "The log shows the action, so the action happened" | The live-pass log reads like every confirm worked. `nmcli radio wifi`, `wl-paste` and `action_audit` all said `declined`. Ask the system, every single time. |
 | "The last session's block says that was already fixed" | It says `just enroll` was corrected in the docstrings; it corrected one file and missed `daemon.py`, in the one warning that fires when speaker verification is failing OPEN. A find-and-replace reported as done. Diff the claim against the tree — `just --list`, `grep`, run it — before believing it. |
+| "The GUI env is settled, ADR-043 and ADR-074 already fixed it" | A third variable was missing: `LANG`. A console app inherits the "C" locale, btop exits 1, `foot` exits with its child, and the detached launch reports ok with no window — measured 2026-09-02. Three vars, three separate live discoveries (`DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`, `LANG`). When a launch reports ok and nothing opens, suspect the env before the code. |
+| "Widen the app list with a fuzzy matcher, it's friendlier" | It converts an adversarial fixture into a launch: a substring match resolves `"browser; rm -rf ~"` to `browser`, and AS-8 must reject. The enum stayed CLOSED and was generated instead — and it was free, because the GBNF grammar never enumerated param values (ADR-097). |
+| "Escalation is already banned, `sudo` is in the list" | `.desktop` files escalate through **`pkexec`**, which was not. Found by a scanner test, fixed in `ban.py` so the executor gets it too. A denylist written against one attack shape does not cover the next one that arrives through a different file format. |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
 | "The arithmetic says it won't fit in VRAM" | Load it and read `nvidia-smi`. A 12B and a 14B were both ruled out on paper; both fit, and the 14B fits with MORE headroom than the 12B. The weights+KV model was wrong by 380-390 MiB every time, in unpredictable directions (ADR-084). Decode `tok/s ~= 272 / weights_GB` DOES hold; memory does not. |
 | "`kv_unified = true`, so the extra slots are free" | Not on a sliding-window model. Gemma's SWA cache is sized `n_seq_max x n_swa + n_ubatch`, so it grows with the slot count — `--parallel` auto gave 4 slots and `4x1024+512 = 4608` cells against `1536` at `-np 1`, i.e. **3x the SWA KV**: 765 MiB of an 833 MiB total, while FR-5 guarantees 3 of those slots can never be used. `-np 1` is **+514 MiB for nothing**. On Qwen (full GQA) the same flag changes nothing at all. Two files reasoned from the flag *name* and both got it backwards. |

@@ -22,9 +22,19 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Final
 
+from ..tools.apps import APPS
+
 # Semantic app keys are canonical (ADR-032 / ADR-033). Fixtures speak the
 # way a user speaks: "open my browser" -> app="browser".
-APP_ENUM: Final[tuple[str, ...]] = ("browser", "terminal", "editor", "video", "vlc")
+#
+# The enum is DERIVED from the app table, not typed here (ADR-097): the five
+# curated semantic ids plus every installed desktop entry that passed the
+# scan. It is still a CLOSED enum, exact-matched by `validate.py` after NFKC —
+# that is what rejects a path, a command injection and a Cyrillic confusable
+# (AS-7/AS-8/AS-9), and none of it changed. Only the population did. The
+# grammar does not enumerate param values, so the extra ids cost zero tokens;
+# `prompt.py` lists the common ones and states the rule for the rest.
+APP_ENUM: Final[tuple[str, ...]] = tuple(APPS)
 
 # Phase 2 control vocabularies (G12). Each is exactly the set its registry
 # builder in friday/tools/registry.py knows how to translate into argv — a

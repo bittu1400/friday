@@ -43,6 +43,9 @@ def test_env_is_minimal_and_explicit() -> None:
         "DISPLAY",
         "HYPRLAND_INSTANCE_SIGNATURE",  # ADR-074: hyprctl cannot find the
                                         # compositor without it
+        "LANG",  # ADR-097: without it btop exits 1 in the "C" locale and the
+                 # terminal exits with it — a launch that reported ok and
+                 # opened nothing
     }
     for spec in REGISTRY.values():
         assert {"PATH", "HOME"} <= set(spec.env)
@@ -80,4 +83,7 @@ def test_env_omits_session_vars_when_absent(monkeypatch) -> None:
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
     from friday.tools.registry import _build_app_env
 
-    assert set(_build_app_env()) == {"PATH", "HOME"}
+    # LANG is unconditional, unlike the session vars: it has a code-owned
+    # fallback ("C.UTF-8") because a console app in the "C" locale exits 1 and
+    # the terminal exits with it (ADR-097).
+    assert set(_build_app_env()) == {"PATH", "HOME", "LANG"}

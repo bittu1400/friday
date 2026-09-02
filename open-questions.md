@@ -366,6 +366,46 @@ is the state ADR-080 existed to end.
 
 ---
 
+### OQ-58 — Should desktop `Keywords` become app ids, for the long tail the model cannot guess?
+
+**Decider:** USER · **Blocks:** nothing; ADR-097 already ships and works ·
+**Status:** OPEN (raised 2026-09-02 by ADR-097)
+
+`open_app` now reaches 101 installed applications, and the planner was probed
+against the real Gemma to find where that stops working. It resolves a command
+name or a display name reliably:
+
+```
+open discord               -> open_app {'app': 'discord'}
+open spotify               -> open_app {'app': 'spotify'}
+open obsidian              -> open_app {'app': 'obsidian'}
+open thunderbird           -> open_app {'app': 'thunderbird'}
+launch bluetooth settings  -> open_app {'app': 'bluetooth_manager'}  pending
+open the firewall settings -> open_app {'app': 'gufw'}               pending
+open blender               -> none        (not installed: fails closed)
+```
+
+**Where it stops:** an app whose spoken description matches neither its command
+name nor its display name. Measured miss: **"open the printer settings" ->
+none**, because the entry is `Name=Manage Printing` running
+`system-config-printer`, and no id resembles "printer settings". It fails
+CLOSED, which is correct — it is a discoverability gap, not a safety one.
+
+**The candidate fix and why it was not taken.** 62 of the entries carry a
+`Keywords=` line, and gufw's contains `firewall`. Registering keywords as ids
+would cover this class. But the keywords are generic — gufw's are
+`gufw;security;firewall;network` — so "open network" would map to whichever
+entry claimed it first, and the user would get a launch they did not describe.
+Cheap to add, easy to regret, and it is exactly the "guess rather than fail
+closed" shape ADR-009 and the G12 enum work exist to prevent. **Left for the
+user to decide.**
+
+**Note before dismissing it as small:** the fix that DID land was a prompt
+sentence. Telling the planner to prefer the COMMAND name took "open the
+firewall settings" from `none` to `gufw` and "open firewall configuration"
+from `none` to `firewall_configuration`, at zero code cost — measured, not
+assumed. A second prompt sentence may be worth more than a keyword index.
+
 ### OQ-57 — Do the widened hotwords actually fix the G12 vocabulary?
 **Status:** OPEN — **scheduled 2026-08-31 by the USER for the next microphone session.** The G12 clips are to be recorded into `~/.cache/whisper-bench/clips` with `record.sh` ("turn off my wifi", "make this fullscreen", "go to workspace three", "copy that to the clipboard", "start dictation"), reference transcripts added, and `just bench-stt` re-run. That permanently widens the STT gate the way FR-97 widened the planner gate.
 

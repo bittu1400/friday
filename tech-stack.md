@@ -159,7 +159,16 @@ editing code plus an eval fixture, never by config.
    vlc         vlc        media, second player, named only
 ```
 
-Five entries. Plus `youtube_search` — still **the single** audited exception
+Five **curated** entries, and since 2026-09-02 they are the semantic core of a
+set that is otherwise **generated from the machine's XDG desktop entries** —
+101 applications here (ADR-097). The five above always win a collision: the
+eval fixtures, the prompt and the habits miner speak them. The set is still a
+CLOSED enum, exact-matched after NFKC; only its population moved from
+hand-typed to machine-read. Entries whose `Exec` escalates privilege (`pkexec`
+and friends, now in `ban.BANNED_BINARIES`) or invokes a shell are never
+offered; a `Settings`-category entry is offered but confirm-gated.
+
+Plus `youtube_search` — still **the single** audited exception
 where a model-supplied string (the query) reaches an argv element, under the
 five constraints in ADR-027.
 

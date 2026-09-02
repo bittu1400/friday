@@ -3875,3 +3875,83 @@ decode plus synthesis of text the user waits on serially, and TTFA includes
 synthesizing the **whole** reply before the first sound. ADR-094's 2-sentence
 cap already took chat p50 from 7177 to 4715 ms without touching the model;
 streaming is what is left.
+
+## ADR-097 — `open_app` reaches every installed application, generated from XDG desktop entries
+
+**Date:** 2026-09-02
+**Status:** Accepted
+**Context:** ADR-032 shipped five hand-written apps. The user asked for
+"all applications that is not dangerous". This machine has **150 `.desktop`
+files, 101 of which pass a safety scan** — so the gap was 5 vs 101.
+
+Three sites were frozen at Phase 1, not one: `apps.py`, `schema.py`'s
+`APP_ENUM`, and **`prompt.py`, which said "exactly one of these five ids"**.
+That is the fourth Phase-1 artifact found in four days, after the eval
+fixtures (D16), `CHAT_SYSTEM`'s toolset (D24) and `STT_HOTWORDS` (D26). The
+pattern in CLAUDE.md holds: anything enumerating what Friday can do that
+predates G12 is suspect.
+
+**Decision.** `friday/tools/desktop.py` scans the XDG application directories
+at import and `apps.py` merges the result into the five curated ids, which
+always win a collision. Three user-chosen rules:
+
+1. **Root-escalating Exec is skipped.** `Exec=pkexec gparted` pops a polkit
+   password prompt, so a misheard command becomes "type your root password".
+   Enforced by adding `pkexec`, `gksu`, `gksudo`, `doas`, `run0` to
+   `ban.BANNED_BINARIES` — the gate the executor already uses — rather than
+   by a private list in the scanner, so a binary banned for the launcher is
+   banned for every dispatch. **`sudo` and `su` were there since G12; the
+   graphical escalator was not, and `.desktop` files escalate through
+   `pkexec`.** Found by the scanner's own failing test.
+2. **Shell Exec is skipped.** `Exec=sh -c "..."` cannot become an argv list
+   without dropping the shell or running a shell string (invariant #3). It
+   would be rejected at execution anyway; skipping at scan time means Friday
+   refuses instead of saying "Opened X" and then failing policy.
+3. **Settings panels are confirmed, not refused.** Sixteen entries on this
+   machine carry a `Settings` category (gufw, blueman, the printer and input
+   panels). They join wifi-off / window-close / clipboard behind the ADR-057
+   handshake. **Rejected: refusing them** — Bluetooth settings could then
+   never be opened by voice at all.
+
+**What did NOT change, deliberately.** `app` is still a **closed enum**,
+exact-matched by `validate.py` after NFKC. AS-7 (`/bin/sh`), AS-8
+(`browser; rm -rf ~`) and AS-9 (Cyrillic `brоwser`) reject through the same
+gate as before, and a name that is simply not installed fails closed the same
+way. Only the *population* of the set moved from hand-typed to machine-read.
+
+**Rejected: making `app` free text resolved by a fuzzy match** (the shape
+`file_open`'s alias uses). A substring matcher would resolve
+`"browser; rm -rf ~"` to `browser` — turning an adversarial fixture that must
+reject into a launch. The enum costs nothing: **the GBNF grammar never
+enumerated param values**, so 101 extra ids add **zero** prompt tokens.
+`prompt.py` lists the five canonical ids and states the rule for the rest
+("lowercase, underscores for spaces"), so the 1222-token cached prefix is
+unaffected.
+
+**Two things measured, not assumed.**
+
+- **`Terminal=true` entries need wrapping.** btop, htop, nvim and five others
+  have no window of their own; spawning them detached starts a headless
+  process while Friday says "Opened btop." They are wrapped in the curated
+  terminal (`foot -e <binary>`), argv still built here from code-owned
+  literals.
+- **The wrap then still failed, and the reason was `LANG`.** The first real
+  launch reported `ok` with **no window and no process**. `foot btop` exits 1
+  under the minimal env because the "C" locale is not UTF-8; foot exits with
+  its child. `_build_app_env` now sets `LANG` (passed through when present,
+  falling back to `C.UTF-8`) — the first addition to the minimal env since
+  ADR-074, and the third time a launch has reported success while nothing
+  opened (ADR-043's `DISPLAY`, ADR-074's `HYPRLAND_INSTANCE_SIGNATURE`, this).
+
+**Cost.** The enum is now machine-dependent: a package install changes what
+Friday can launch, with no code change and no test to catch it. That is the
+point of the feature, but it means `APP_ENUM` is no longer reproducible
+across machines, and an eval fixture may not name an app the next machine
+has. The five curated ids exist precisely so the fixture set does not depend
+on the scan.
+
+**Evidence.** `pytest` 520 passed (was 501; +19), `eval` 50/50 regressions 0,
+`selftest` 8/8, injection OK, no-fstring-sql OK. Real-path proof read back
+from the compositor: `loupe` opened a window
+(`org.gnome.Loupe | Image Viewer`, pid 66160) and `btop` opened one after the
+`LANG` fix (`foot -e btop`, pid 66805) — both closed afterwards.

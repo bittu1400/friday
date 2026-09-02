@@ -253,6 +253,10 @@ nowhere else. See ADR-027 and threat T2.
 | FR-106 | `STT_HOTWORDS` covers the control vocabulary of every action, not just the app registry | ADR-094 · "wifi" was heard as wife/weapon/way/life across four turns |
 | FR-107 | A spoken reply is capped at 2 short sentences / 200 characters, because TTFA includes synthesizing the whole reply | ADR-094 · measured: chat TTFA p50 7177 → 4715 ms |
 | FR-108 | Frame-level VAD is Silero (`silero_vad_op18_ifless.onnx`, SHA256-pinned, CPU); `webrtcvad` is the fallback and its use is logged as a degradation | ADR-095 · `tests/test_vad.py::test_silero_ends_every_real_clip` — real `SpeechGate` over the real 20-clip corpus, 20/20 end (webrtcvad: 15/20) |
+| FR-109 | `open_app` reaches every installed XDG application, not five: the enum is generated from the desktop entries at import and merged over the five curated semantic ids, which win collisions | ADR-097 · `tests/test_open_app_scope.py::test_the_enum_is_the_app_table`, `::test_curated_ids_survive_and_win_collisions` |
+| FR-110 | The scan fails CLOSED: an entry whose Exec escalates privilege (`pkexec`/`sudo`/`su`/`gksu`/`gksudo`/`doas`/`run0`) or invokes a shell is never offered, enforced through `ban.assert_not_banned` — the same gate the executor uses | ADR-097 · `tests/test_desktop_apps.py::test_root_escalating_exec_is_skipped`, `::test_shell_exec_is_skipped` |
+| FR-111 | A desktop entry in a `Settings` category is launchable but CONFIRMED — it arms a `PendingAction` and never dispatches off a phrase match | ADR-097 · `tests/test_open_app_scope.py::test_settings_panel_is_confirmed_not_dispatched` |
+| FR-112 | A `Terminal=true` entry is wrapped in the curated terminal, and the launch env carries a UTF-8 `LANG`, without which a console program exits 1 and the terminal exits with it — a launch that reports ok and opens nothing | ADR-097 · `tests/test_open_app_scope.py::test_console_app_is_wrapped_in_the_terminal`, `tests/test_registry.py::test_env_omits_session_vars_when_absent` |
 
 ---
 

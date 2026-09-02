@@ -34,6 +34,7 @@ from .llm.validate import SchemaError, validate
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore, resolve
 from .tools import executor
+from .tools.apps import APPS
 from .tools.registry import REGISTRY
 from .tools.search import SearchClient, SearchResult, SearchUnavailable, sanitize
 from .ui import templates
@@ -329,6 +330,21 @@ async def _plan_and_act(
             "system_wifi", params, "Are you sure you want to turn off Wi-Fi?",
             False, pending=PendingAction("system_wifi", params, "turn off Wi-Fi")
         )
+
+    if plan.name == "open_app":
+        # ADR-097: the app table is now the machine's installed applications,
+        # not five hand-written entries. Ordinary apps dispatch as before; a
+        # Settings panel (gufw, blueman, the printer and input panels — see
+        # desktop.py) is launchable but never off a bare phrase match. The
+        # user's call 2026-09-02: refusing them outright would mean Bluetooth
+        # settings could never be opened by voice at all.
+        app = APPS.get(params.get("app", ""))
+        if app is not None and app.confirm:
+            what = f"open {app.display}"
+            return TurnResult(
+                "open_app", params, f"Do you want me to {what}?", False,
+                pending=PendingAction("open_app", params, what),
+            )
 
     if plan.name == "hypr_window" and params.get("action") == "close":
         return TurnResult(

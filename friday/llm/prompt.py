@@ -30,10 +30,15 @@ those by choosing none. params: {}
 questions about YOU (who/what are you, what can you do), small talk, opinions, \
 jokes, or a request for a suggestion. Talk about yourself, your apps, the \
 user's saved preferences, or this machine. params: {}
-  open_app             launch a known app. params: {"app": exactly one of \
-these five ids}: "browser" (Brave), "terminal" (foot), "editor" (VS Code / \
-Code), "video" (mpv), "vlc" (VLC). A spoken brand name maps to its id and is \
-just as valid as the id; none of the five is ever "unknown".
+  open_app             launch an installed application. params: {"app": one \
+id}. Five ids are canonical and always correct: "browser" (Brave), "terminal" \
+(foot), "editor" (VS Code / Code), "video" (mpv), "vlc" (VLC) — a spoken brand \
+name maps to its id and is just as valid. ANY other installed application also \
+works: emit its COMMAND name in lowercase ("discord", "spotify", "gufw", \
+"blueman-manager" -> "blueman_manager"), or, if you do not know the command, \
+its displayed name lowercased with underscores for spaces ("bluetooth_manager", \
+"firewall_configuration"). If it is not installed the request fails closed and \
+nothing runs, so emit the id rather than refusing.
   web_search           look up any fact or current/real-world information: \
 weather, news, sports results, prices, "who/what/when/where/how" questions \
 about the world. params: {"query": text}

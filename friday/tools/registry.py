@@ -114,6 +114,12 @@ def _build_app_env() -> Mapping[str, str]:
         val = os.environ.get(key)
         if val:
             env[key] = val
+    # A UTF-8 locale. Without LANG a console program inherits the "C" locale
+    # and btop exits 1 immediately; `foot` exits with its child, so the
+    # detached launch reported ok while no window ever appeared — measured
+    # 2026-09-02 against the real executor, the ADR-043 shape again (ADR-097).
+    # Code-owned constant fallback, never param-derived.
+    env["LANG"] = os.environ.get("LANG") or "C.UTF-8"
     return MappingProxyType(env)
 
 

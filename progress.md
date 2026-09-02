@@ -91,6 +91,145 @@ a human at a keyboard.
 
 ---
 
+## SESSION 2026-09-02 — `open_app` widened from 5 apps to every installed application (ADR-097). Three decisions taken. D3 still unproven live.
+
+**The user's ask:** *"where are we? what are we doing next? And I want friday to
+be able to open all applications that is not dangerous."*
+
+**Status answered first, from the tree:** G0-G13 done, Gemma 4 12B QAT live on
+GPU, defects D1-D26 with D1/D2/D11/D12/D16/D19-D25 fixed and **D3 fixed in code
+but NOT proven live**. The next-session job in the START HERE block is
+unchanged and is still the one live hands-free capture (OQ-39).
+
+### Three decisions, asked as one batch (working agreement rule 2)
+
+1. **Order — app expansion now, or the D3 mic check first? -> APP EXPANSION
+   NOW.** It is pure code and needs no microphone; D3 stays at the top of the
+   list for whenever the user is at the machine.
+2. **How is the app set built? -> GENERATED FROM XDG DESKTOP ENTRIES at
+   import.** Rejected: hand-widening ~20 apps (a new install would need a code
+   edit).
+3. **What is dangerous? -> root-escalating Exec, shell Exec, AND settings
+   panels** — the third re-asked, because the question was written ambiguously,
+   and answered **confirm-gated, not refused**: refusing outright would mean
+   Bluetooth settings could never be opened by voice at all.
+
+**One thing improved on what was offered.** Option 2 as written would have made
+`app` free text resolved by fuzzy match. That would have broken an adversarial
+fixture: a substring matcher resolves `"browser; rm -rf ~"` to `browser`, and
+AS-8 must reject. The enum was kept CLOSED and merely generated instead —
+**the GBNF grammar never enumerated param values**, so 101 extra ids cost zero
+prompt tokens. Closed enum AND zero maintenance, which neither offered option
+had.
+
+### What the gap actually was
+
+| | |
+| :-- | :-- |
+| apps Friday could launch | 5 |
+| visible `.desktop` entries | 150 files, **101 pass the scan** |
+| sites frozen at Phase 1 | **three**: `apps.py`, `schema.py` `APP_ENUM`, and `prompt.py` ("exactly one of these five ids") |
+
+That prompt line is the **fourth** Phase-1 artifact found in four days, after
+the eval fixtures (D16), `CHAT_SYSTEM` (D24) and `STT_HOTWORDS` (D26).
+
+### Found by the scan's own failing test: `pkexec` was not banned
+
+`BANNED_BINARIES` has carried `sudo` and `su` since G12. **`.desktop` files
+escalate through `pkexec`** (`Exec=pkexec gparted`), which was not in the set.
+Fixed at `ban.py` — the gate the executor uses too — not in the scanner, so a
+binary banned for the launcher is banned for every dispatch. `gksu`, `gksudo`,
+`doas` and `run0` added with it. **Zero entries on this machine match it
+today; it is prophylactic.**
+
+### The real-path proof, and the third "reported ok, opened nothing"
+
+Tests green, so the launch was run through the REAL executor and read back from
+the compositor (defect-#4 rule):
+
+```
+loupe -> ('loupe',)              outcome: ok
+btop  -> ('foot', '-e', 'btop')  outcome: ok
+
+$ hyprctl clients -j | ...
+WINDOW: org.gnome.Loupe | Image Viewer
+$ pgrep -a "[l]oupe"
+66160 loupe
+$ pgrep -af "[b]top"
+(nothing)
+```
+
+**btop reported `ok` with no window and no process.** Not the wrapper — the
+minimal env has no `LANG`, so btop exits 1 in the "C" locale and `foot` exits
+with its child:
+
+```
+{}                  => rc 1  warn: 'C' is not a UTF-8 locale ...
+{'LANG': 'C.UTF-8'} => STILL RUNNING (window up)
+{'TERM': 'foot'}    => rc 1
+```
+
+`_build_app_env` now sets `LANG` (passed through when present, else
+`C.UTF-8`). After the fix:
+
+```
+outcome: ok | display: btop++
+$ pgrep -af "[b]top"   ->  66805 foot -e btop
+$ hyprctl clients -j   ->  [('foot', 'foot')]
+```
+
+Both windows were closed afterwards. **This is the third time a launch reported
+success while nothing opened** — ADR-043's `DISPLAY`, ADR-074's
+`HYPRLAND_INSTANCE_SIGNATURE`, and now `LANG`.
+
+### The planner was probed against the real model, not assumed
+
+```
+open discord               -> open_app {'app': 'discord'}
+open spotify               -> open_app {'app': 'spotify'}
+open obsidian              -> open_app {'app': 'obsidian'}
+open thunderbird           -> open_app {'app': 'thunderbird'}
+launch bluetooth settings  -> open_app {'app': 'bluetooth_manager'}  pending=True
+open my browser            -> open_app {'app': 'browser'}
+open blender               -> none          (not installed -> fails closed)
+open the firewall settings -> none          <-- MISS
+```
+
+`pending=True` on the Bluetooth row is **FR-111 proven end to end on the real
+planner**, not just in a unit test.
+
+The miss was fixed **by one prompt sentence, not code** — telling the planner
+to prefer the COMMAND name:
+
+```
+open the firewall settings  -> open_app {'app': 'gufw'}                   pending=True
+open firewall configuration -> open_app {'app': 'firewall_configuration'} pending=True
+open the printer settings   -> none      <-- still misses (Name="Manage Printing")
+```
+
+The remaining long-tail miss is **OQ-58** (should `Keywords` become ids?), left
+to the user: gufw's keywords are `gufw;security;firewall;network`, so indexing
+them would make "open network" launch a firewall — the guess-instead-of-fail
+shape this project keeps paying for.
+
+### Evidence
+
+```
+pytest                  520 passed  (was 501; +19 new)
+eval                    50/50, regressions 0   (re-run AFTER the prompt change)
+selftest                8/8, llm_on_gpu 7010 MiB
+test-injection          OK
+test-no-fstring-sql     OK: store/ is strictly parameterized SQL
+```
+
+**Note for the next session: `uv` was not on PATH in this environment.** Every
+command above was run as `.venv/bin/python -m ...`, which is what the `just`
+recipes wrap. If `just` fails with "uv: command not found", that is why.
+
+**Docs written in the same turn (rule 4):** ADR-097, FR-109-112, OQ-58.
+
+---
+
 ## SESSION 2026-08-31 — D3 FIXED IN CODE: Silero replaces `webrtcvad` (ADR-095). TTFA restated per action class (ADR-096). Four decisions taken.
 
 **The user's ask:** *"where are we? what are we doing next?"*, then a check of
@@ -3168,7 +3307,26 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (amended **2026-08-31**. **D3 IS FIXED IN CODE AND NOT PROVEN LIVE — that live confirmation is the whole job.** Defects D1-D26; fixed: D1, D2, D3(code), D11, D12, D16, D19-D25.) <<<
+## >>> START HERE: NEXT SESSION (amended **2026-09-02**. **D3 IS FIXED IN CODE AND NOT PROVEN LIVE — that live confirmation is still the whole job.** Defects D1-D26; fixed: D1, D2, D3(code), D11, D12, D16, D19-D25.) <<<
+
+### Added 2026-09-02 — what changed, and what did NOT
+
+`open_app` now reaches **every installed application** (101 on this machine),
+not five — generated from the XDG desktop entries at import, still a CLOSED
+enum, settings panels confirm-gated (ADR-097, FR-109-112). `pytest` 520,
+`eval` 50/50 reg 0, `selftest` 8/8. **Proven at the real executor**, read back
+from `hyprctl clients` and `pgrep`.
+
+**It changed nothing about the fix list.** D3 is still the top of it, and the
+job below is unchanged. Two things from this session that the next one needs:
+
+- **`uv` was not on PATH.** Run gates as `.venv/bin/python -m pytest` /
+  `-m friday.eval_harness` / `-m friday.selftest` if `just` fails.
+- **`LANG` was missing from the launch env** and a console app launch reported
+  `ok` while opening nothing — the third instance of that failure. Fixed. If a
+  launch ever reports ok again, check the env before the code.
+- **OQ-58 is open and is the user's call:** should desktop `Keywords` become
+  app ids? "open the printer settings" still misses.
 
 ### Added 2026-08-31 — read this before anything below
 

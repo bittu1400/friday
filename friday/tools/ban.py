@@ -17,6 +17,13 @@ BANNED_BINARIES: frozenset[str] = frozenset(
         "rm", "rmdir", "pacman", "yay", "paru", "dd", "mkfs", "fdisk", "parted",
         "sh", "bash", "zsh", "dash", "fish", "killall", "pkill", "sudo", "su",
         "shutdown", "reboot", "poweroff", "systemctl", "chmod", "chown",
+        # Privilege escalators. `sudo`/`su` were here from G12; the graphical
+        # ones were not, and `.desktop` files escalate through pkexec, not
+        # sudo (`Exec=pkexec gparted`). Found 2026-09-02 by the desktop scan's
+        # own test, which is why it is fixed HERE and not in the scanner: this
+        # is the gate the executor uses too, so a binary banned for the
+        # launcher must be banned for every dispatch (ADR-097).
+        "pkexec", "gksu", "gksudo", "doas", "run0",
     }
 )
 
