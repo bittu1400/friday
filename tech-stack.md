@@ -56,6 +56,7 @@ assumed.
 | Wake word | **openWakeWord** `hey_jarvis_v0.1.onnx` (CPU, streaming — it must be fed EVERY frame or it returns a stale score, OQ-29) | ADR-055, ADR-061 |
 | VAD | **Silero** (`silero_vad_op18_ifless.onnx`, ONNX/CPU, SHA256-pinned, `just fetch-vad`) + a `SpeechGate` debounce state machine. Buffers the mic path's 20 ms frames to the graph's 512 samples and holds the last verdict, so no caller's frame size changed. `webrtcvad` is the fallback and logs the degradation. Arms end-of-speech only on FSM acceptance, never on wake detection | **ADR-095**, ADR-062, ADR-071 |
 | Speaker verification | **3D-Speaker CAM++** via `sherpa-onnx` (CPU, 512-dim voiceprint, 10-utterance enrolment). OFF by default and it fails **OPEN** with no voiceprint enrolled | ADR-059, ADR-063 |
+| onnxruntime | 1.29.0 (pulled by `kokoro-onnx`; `sherpa-onnx` ships its own copy). **Transmits to `*.events.data.microsoft.com` on IMPORT unless `ORT_DISABLE_TELEMETRY=1` is set first** — `friday/__init__.py` sets it, the systemd unit sets it. `disable_telemetry_events()` does not work. Providers are pinned to `CPUExecutionProvider` at both of Friday's own `InferenceSession` call sites | **ADR-112**, ADR-018 |
 | torch wheel | **None — the venv is torch-free.** STT is CTranslate2, TTS is onnxruntime; neither needs torch (ADR-039 rejected the PyTorch Kokoro path) | ADR-018, ADR-039 |
 
 ### Pinned Python dependencies (the whole runtime set)

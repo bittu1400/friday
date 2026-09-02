@@ -64,7 +64,10 @@ test-binds:
     @echo "asserting no 0.0.0.0 bind on 8080/8888:"
     @! ss -ltnp | grep -E '0\.0\.0\.0:(8080|8888)'
 
-# G7 egress proof (FR-60, invariant #8): SearXNG is the ONLY outbound path.
+# REAL egress check since ADR-110: guards socket.getaddrinfo / socket.socket.connect,
+# runs the STT load path, and inspects the LIVE daemon's sockets. Its FAIL path is
+# proven (drop local_files_only=True and it names huggingface.co). The two earlier
+# versions could not observe a connection at all -- see `test-binds` for v1.
 test-egress:
     uv run pytest tests/test_egress.py -v
 
@@ -122,9 +125,11 @@ voice *ARGS:
 ptt CMD:
     uv run python -m friday.ptt_cli {{CMD}}
 
-# Full system self-test (G9), 8 checks: llama-server, searxng, GPU arch,
+# Full system self-test (G9), 9 checks: llama-server, searxng, GPU arch,
 # LLM actually on GPU, DB perms/schema (incl. WAL sidecars), audio devices,
-# panic switch, loopback-only socket binds.
+# panic switch, loopback-only socket binds, power profile (F28, ADR-109).
+# Exit: 0 all PASS / 1 any FAIL / 2 any WARN, printed as [DEGRADED] (ADR-108).
+# WARN used to print [PASSED] -- that was F20.
 selftest *ARGS:
     uv run python -m friday.selftest {{ARGS}}
 

@@ -19,7 +19,7 @@ and post-audit **Phase 2 ("Make it Measurable") — 6 of its 7 items** (ADR-109)
 2026-09-02 (evening) block: the rig is staged and takes three minutes at a
 microphone.
 
-`uv run pytest` **567 passed, exit 0** — and that command actually completes now
+`uv run pytest` **568 passed, exit 0** — and that command actually completes now
 (ADR-111; it died with SIGSEGV/SIGILL on ~9 runs in 10 until 2026-09-02 evening,
 so the previous "563 passed" was true but only reachable file-by-file).
 `just eval` **60/60 (regressions 0)**, `just test-injection` **20/20 blocked**,
@@ -3835,7 +3835,141 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-02** after the full codebase audit) <<<
+## >>> START HERE: NEXT SESSION (written **2026-09-02 evening**, after the verification pass) <<<
+
+**Everything below was checked against the machine this session, not read off a
+document.** Where a number appears, it was produced by running the command.
+
+### The state, in five lines
+
+- **Post-audit Phase 1 ("stop lying") is COMPLETE** — ADR-108, plus F9 finished
+  properly in **ADR-110** because Phase 1's version of it was still blind.
+- **Post-audit Phase 2 ("make it measurable") shipped 6 of its 7 items** —
+  ADR-109. The 7th is **one proven hands-free capture** and it has not happened.
+- **Phase 3's safety net is verified in place**: `just grammar` regenerates the
+  committed GBNF byte-identical, and `PARAM_SCHEMA` has 25 actions.
+- Three new decisions this session: **ADR-110** (a real egress check),
+  **ADR-111** (the pytest crash), **ADR-112** (onnxruntime telemetry).
+- **`uv run pytest` works again.** It had been dying with SIGSEGV/SIGILL on ~9
+  runs in 10, printing no count and no exit code.
+
+### Gate commands — `uv` is NOT on PATH in this environment
+
+Use the venv interpreter directly. These are the numbers as of this commit:
+
+```bash
+.venv/bin/python -m pytest -q            # 568 passed, rc=0
+.venv/bin/python -m friday.eval_harness  # 60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest      # 9/9 PASS, rc=0
+.venv/bin/python -m pytest -q tests/test_injection.py   # 20/20 blocked
+.venv/bin/python -m pytest -q tests/test_egress.py      # 8 passed
+.venv/bin/python scripts/bootstrap.py --check           # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
+```
+
+### THE ONE THING OWED AT A MICROPHONE — three minutes, and it is the top item
+
+**D3 / OQ-39: one live hands-free capture.** This is the item Phase 2 shipped
+without. The rig was staged this session and the journal window closed with
+**zero lines** because nothing was spoken — that is not evidence in either
+direction.
+
+Everything is already confirmed ready: the daemon runs current code,
+`vad.create()` returns `SileroVad`, and the journal shows
+`WakeListener background audio stream active`. Run it exactly like this:
+
+```bash
+# leave the service running -- do NOT `just voice` as well, they fight over the mic
+timeout 180 journalctl --user -u friday -f -o short-iso --since now > /tmp/handsfree.log
+# then, hands off the PTT key: say "hey jarvis", pause, say "list my reminders", stop talking.
+# repeat 2-3 times.
+grep -nE "capture start source=|capture abandoned|stage_timings|TTFA" /tmp/handsfree.log
+```
+
+**Read the gap between `capture start source=wake` and the next line:**
+
+| gap | meaning |
+| :-- | :-- |
+| **~2–4 s** | Silero ended the capture through the AEC path. **D3 is fixed live.** Close OQ-39. |
+| **~15 s** | the cap fired. The detector is not the suspect — **D18** is (the 16 kHz software AEC reference on a 48 kHz SOF-DSP device). Do not touch the VAD. |
+| `capture abandoned: no speech within 3.0s` | ADR-066's bail-out fired; the wake was false. Retry closer to the mic. |
+
+Same session, cheap while you are there: record the G12 clips into
+`~/.cache/whisper-bench/clips` with `record.sh` (**OQ-57**), and re-run
+`just bench-stt` in `balanced` to confirm **D17** with more than one run.
+
+### Then: Phase 3 — the Capability record
+
+Phase 3 is the one that decides whether "everything on this laptop" is
+reachable. Its acceptance criteria are **`design-2026-09-02.md` §11.1** and they
+are not optional. Two of them were verified as already-true this session, so you
+start from a known-good baseline:
+
+```
+[verified 2026-09-02] `just grammar` output is byte-identical to the committed .gbnf
+[verified 2026-09-02] PARAM_SCHEMA has exactly 25 actions (criterion 3.8's table)
+```
+
+**The contract for the whole phase:** if the regenerated grammars move, or
+`just eval` drops below **60/60 with 0 regressions**, the refactor changed
+behaviour and is wrong. (§11.1 was written when the gate was 50 fixtures and 520
+tests; the live numbers are **60** and **568** and the doc now says so.)
+
+**Do not reorder 1 → 2 → 3.** Phase 4 without Phase 3 is seventeen new
+capabilities × ten edit sites — the arithmetic that produced every defect in the
+audit.
+
+### Questions owed. Do not re-ask what is answered.
+
+**Open:** **OQ-39** (the capture above) · **OQ-57** (STT hotword efficacy for the
+G12 vocabulary) · **OQ-59** (launch grace 400 → 150 ms?) · **OQ-60** (amend
+invariant #6 for STT on CUDA?) · **OQ-61** (the summarizer's invariant-#7
+prompt-only enforcement) · **OQ-30**, **OQ-32**, **OQ-33** unchanged.
+
+**CLOSED this session: OQ-62** — selftest WARN semantics. The recommended
+option shipped: FAIL → 1, WARN → 2 with `[DEGRADED]`, clean → 0.
+
+**Do not re-ask D-1…D-8** — they are answered (design §0, ADR-098…107).
+
+### Environment gotchas that have each cost a session
+
+1. **`uv` is not on PATH here.** Use `.venv/bin/python`. A `uv run …` in a
+   background command exits **0** while doing nothing, so it looks like a pass.
+2. **Editing a systemd unit is not deploying it.** The installed unit is a
+   symlink to `deploy/systemd/`, so `diff` says IDENTICAL while systemd runs the
+   old config. After ANY unit edit:
+   `systemctl --user daemon-reload && systemctl --user restart friday`, then
+   confirm with `systemctl --user show friday -p Type -p WatchdogUSec`.
+3. **A committed fix is not a running fix.** Compare `ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)`
+   against the source mtimes. Two whole phases had never executed live.
+4. **`FRIDAY_DEBUG=1` shows nothing under systemd.** Use
+   `env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice`, and
+   `systemctl --user stop friday` first — two daemons fight over the mic and the
+   PTT socket.
+5. **A single sample is not an observation.** The ORT telemetry socket takes
+   **15–45 s** to appear; three checks at 12 s all read "clean" and produced a
+   confident wrong cause (ADR-112).
+
+### What changed in the tree this session
+
+```
+ADR-110  tests/test_egress.py     rewritten -- guards socket.getaddrinfo /
+                                  socket.socket.connect. FAIL path proven by
+                                  dropping local_files_only=True.
+ADR-111  friday/daemon.py         audio teardown moved INTO Daemon.close(),
+                                  ahead of distillation; run()'s trailing
+                                  self._recorder.close() deleted.
+ADR-112  friday/__init__.py       os.environ.setdefault("ORT_DISABLE_TELEMETRY","1")
+         deploy/systemd/          Environment=ORT_DISABLE_TELEMETRY=1
+         friday.service           (+ Type=notify/WatchdogSec=10s now DEPLOYED)
+```
+
+Nothing else in `friday/` was touched. `git status` is clean; both commits are
+pushed to `main`.
+
+---
+
+## >>> (superseded 2026-09-02 evening by the block above) START HERE: NEXT SESSION (written **2026-09-02** after the full codebase audit) <<<
 
 **Read these two files before anything else. They are the plan:**
 
@@ -3899,8 +4033,12 @@ Pure code, verified against the system. All 13 items delivered:
          Added to WhisperModel instantiation in stt.py.
          Tested in tests/test_stt.py.
 
-[x] 1.7  Rename test-egress -> test-binds; write a real one (F9 == D15)
+[~] 1.7  Rename test-egress -> test-binds; write a real one (F9 == D15)
          Renamed in justfile. Created tests/test_egress.py asserting loopback-only endpoints.
+         >>> CORRECTED 2026-09-02 evening: the rename was right, the replacement
+         >>> was NOT a real egress check -- three urlparse() assertions on config
+         >>> constants observe no connection and would not have caught D13.
+         >>> Actually fixed in ADR-110. Do not cite this line as done.
 
 [x] 1.8  Dictation mutes wake (F7 == D14)
          Added is_muted to WakeListener; wired to dictation state in voice_main.py.
@@ -3914,7 +4052,9 @@ Pure code, verified against the system. All 13 items delivered:
          Updated run_selftest() and main() in selftest.py.
          Tested in tests/test_selftest.py.
 
-[x] 1.11 habits.describe_action covers all 24 tool actions (F21)
+[x] 1.11 habits.describe_action covers all 25 tool actions (F21)
+         (the line originally said 24; PARAM_SCHEMA has 25 -- the test
+         iterates PARAM_SCHEMA, so the code was always right)
          Expanded describe_action in habits.py.
          Tested in tests/test_habits.py.
 

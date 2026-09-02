@@ -74,7 +74,8 @@ not exist yet.
                                          +---------------------------+
 
             +-----------------+
-            |  SearXNG        |   <-- ONLY egress point in the system
+            |  SearXNG        |   <-- the only INTENDED egress point.
+            |                 |       Twice it was not the only one: see below.
             |  127.0.0.1:8888 |
             +--------+--------+
                      |
@@ -91,7 +92,16 @@ not exist yet.
                          daemon's RSS is ~1.6 GB with whisper + kokoro +
                          openWakeWord + the AEC all resident (the ~3.5 GB
                          figure was the Phase 1 budget, before those loaded)
-   Network        -----> SearXNG on loopback only. Nothing else opens a socket.
+   Network        -----> SearXNG on loopback only.  True as of 2026-09-02, and
+                         it has been FALSE twice, silently, for months at a time:
+                           D13  faster-whisper resolved huggingface.co at every
+                                daemon start   -> local_files_only=True
+                           D27  `import onnxruntime` transmits to
+                                *.events.data.microsoft.com, on import, on Linux
+                                -> ORT_DISABLE_TELEMETRY=1 (ADR-112)
+                         Neither was visible to any test until ADR-110 gave
+                         `just test-egress` the ability to observe a connection.
+                         Do not restate this line as proven without running it.
 ```
 
 Rationale in `adr.md` ADR-018. Violating this reintroduces the

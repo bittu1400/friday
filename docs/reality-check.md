@@ -425,15 +425,28 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
 ## C. Invariants & security to spot-check
 
-- [ ] **#8 loopback only:** `just test-egress` — only 127.0.0.1 on 8080/8888, no 0.0.0.0
-      **D15: this recipe cannot prove it.** `ss -ltnp` lists *listening* sockets;
-      egress is *outbound*. The check duplicates `selftest`'s `socket_binds` and
-      has never been able to observe an egress event. Ask the system instead:
-      `ss -tnp` and assert no non-loopback ESTAB socket belongs to a friday or
-      llama-server pid. Doing exactly that on 2026-08-30 found **D13**.
-- [ ] **egress, actually checked:** `llama-server` has **0** remote sockets
-      (verified 2026-08-30). But `friday.voice_main` opens one ~9 KB HTTPS
-      connection to Hugging Face at every start, from the STT model load (D13).
+- [ ] **#8 loopback binds:** `just test-binds` — only 127.0.0.1 on 8080/8888, no
+      0.0.0.0. This is the *listening*-socket check under its honest name; it was
+      called `test-egress` until Phase 1 and could never observe an egress event
+      (**D15**).
+- [ ] **#8 egress, for real:** `just test-egress` (**ADR-110**) — guards
+      `socket.getaddrinfo` / `socket.socket.connect`, runs the real STT load
+      path, and inspects the **live daemon's** sockets. **8 tests, and its FAIL
+      path is proven**: removing `local_files_only=True` makes it name
+      `huggingface.co`. Anything in these docs written before ADR-110 that cites
+      an "egress proof" is citing a check that could not see one.
+- [ ] **egress, by hand, when you want certainty:** sample rather than glance —
+      `for i in $(seq 30); do ss -tnp | grep "pid=$(systemctl --user show friday -p MainPID --value),"; sleep 2; done`
+      and assert every peer is loopback. **A single sample is not an
+      observation**: the ORT telemetry socket took 15–45 s to appear and three
+      checks at 12 s all read clean (**D27**).
+- [ ] **D13 CLOSED** — `local_files_only=True` on `WhisperModel`; verified by
+      loading the model offline under the guard with zero non-loopback targets.
+- [ ] **D27 CLOSED** — `import onnxruntime` transmitted to
+      `*.events.data.microsoft.com` on every daemon start, for the life of the
+      project. `ORT_DISABLE_TELEMETRY=1` in `friday/__init__.py` and the unit
+      (**ADR-112**). Verified: no non-loopback connection from friday over 60 s.
+- [ ] `llama-server` has **0** remote sockets (verified 2026-08-30, unchanged).
 - [ ] **#6 CUDA:** only `llama-server` uses the GPU. STT, TTS, wake, AEC, VAD,
       speaker verify are CPU. (`friday.selftest` + no CUDA in the daemon process.)
       Wake fails **closed** if openWakeWord ever lands on CUDA.
@@ -573,14 +586,29 @@ still present after the debug `v{n}` counter reset to `v1`.
 - **ADR-065** observed working: bare `scratchpad` armed a confirm instead of
   dispatching, because the action only appears with history.
 
-### FAILED live — the defect table, D1–D18, all in `progress.md` with root causes
+### FAILED live — the defect table, now D1–D28, all in `progress.md` with root causes
 
 The live-voice pass found **nine** (D1–D9); D10–D12 came from answering the
 user's observational questions, D13–D15 from the offline challenge, D16 from
-the model evaluation, and **D17–D18 from the 2026-08-30 hardware/software
-drill**. **D1 and D2 were fixed in code on 2026-08-30 and
-neither has been proven on the real path** — that proof is the first job of the
-next microphone session.
+the model evaluation, **D17–D18 from the 2026-08-30 hardware/software drill**,
+**D19–D21 from widening the eval gate**, **D22–D26 from the 2026-08-30 evening
+microphone session**, and **D27–D28 from the 2026-09-02 verification pass**.
+
+**Superseded by later sessions — read this before the table below, which is a
+2026-08-30 snapshot:**
+
+- **D1 and D2 are FIXED AND PROVEN LIVE** (2026-08-30 evening). Every `C?` affirm
+  row is ticked, including `system_wifi{off}` and `hypr_window{close}`; 108 audit
+  rows across a restart with 0 duplicate `request_id`s.
+- **D11, D12 CLOSED** (ADR-091…094). **D13, D14, D15, D16 FIXED** — the last of
+  those twice, because Phase 1's `test-egress` replacement still could not see an
+  egress event (**ADR-110**).
+- **D19–D21** fixed by the Gemma swap; **D22–D25** fixed and proven; **D26** fixed
+  with efficacy still owed (**OQ-57**).
+- **D27** (onnxruntime telemetry, **ADR-112**) and **D28** (`pytest` crashing on a
+  leaked PortAudio stream, **ADR-111**) are new and both fixed.
+- **D3 remains the one thing owed at a microphone** — fixed in code (Silero,
+  ADR-095), never confirmed through the AEC path. **OQ-39.**
 
 | # | Sev | What | Where |
 | :-- | :-- | :-- | :-- |
@@ -596,12 +624,14 @@ next microphone session.
 | D10 | MED | `file_open` reports success on a file that does not exist | `~/notes.md`, `~/todo.md` were never created |
 | D11 | MED | `wtype` argv has no `--` guard; text starting with `-` parses as a flag | `friday/tools/typer.py:25` |
 | D12 | MED | dictation types on the event loop (`subprocess.run(timeout=3)`) — audit H6's class, escaped | `friday/daemon.py:337` |
-| D13 | MED | STT phones home to Hugging Face on every daemon start (~9 KB metadata; no audio/text leaves) | `friday/audio/stt.py:96` — no `local_files_only=True` |
-| D14 | MED | ADR-058's wake-word pause during dictation was never implemented (`is_dictating` has one consumer) | `friday/audio/dictation.py:4` vs `friday/daemon.py:335` |
-| D15 | MED | `just test-egress` inspects **listening** sockets, so it cannot detect egress — every 'egress proof' in the docs traces to it | `justfile:54-58` |
-| D16 | MED | `just eval`'s 28 fixtures cannot see a planner emitting `action=none` on a plain command — two models scored 28/28 while refusing one | `friday/eval_harness.py` fixture set |
+| ~~D13~~ | MED | **FIXED** — STT phoned home to Hugging Face on every daemon start. `local_files_only=True` (Phase 1, ADR-108); regression-tested in `tests/test_egress.py` | `friday/audio/stt.py` |
+| ~~D14~~ | MED | **FIXED** — `is_muted` on `WakeListener`, wired to dictation state in `voice_main.py` (Phase 1, ADR-108) | `friday/voice_main.py`, `tests/test_wake.py` |
+| ~~D15~~ | MED | **FIXED TWICE.** v1 inspected listening sockets; Phase 1's v2 asserted `urlparse()` on config constants and still could not observe a connection. v3 guards `socket.getaddrinfo`/`socket.socket.connect`, with a proven FAIL path (**ADR-110**) | `tests/test_egress.py`, `justfile` (`test-binds` is v1, honestly named) |
+| ~~D16~~ | MED | **FIXED** — 28 → 50 fixtures (ADR-089), then 60 when Phase 1 added the scanned-app tail E51–E60. The gate now enforces ≥90% AND zero regressions AND no failing unbaselined fixture (F23) | `tests/fixtures/eval.jsonl`, `friday/eval_harness.py` |
 | D17 | MED | FR-11's 800 ms gate is no longer cleared — STT p95 spans 713–804 ms over eight runs. `miss 4/20` still reproduces exactly, so only latency moved | `just bench-stt` |
-| D18 | MED | the AEC far reference is 16 kHz mono on a 48 kHz SOF-DSP device — resampled out, DSP-processed, resampled back. **No canceller here has been fed the signal that reached the room**; probably outranks swapping the canceller | `just bench-aec --sweep` |
+| D18 | MED | the AEC far reference is 16 kHz mono on a 48 kHz SOF-DSP device — resampled out, DSP-processed, resampled back. **No canceller here has been fed the signal that reached the room**; probably outranks swapping the canceller. **Parked deliberately (OQ-52) — but it is the prime suspect if D3's live capture still hits the 15 s cap** | `just bench-aec --sweep` |
+| ~~D27~~ | **HIGH** | **FIXED 2026-09-02** — `import onnxruntime` opened HTTPS connections to `*.events.data.microsoft.com` (Microsoft telemetry), on **import**, on Linux, with no inference. Five components route through ORT, so **every daemon start did it for the life of the project**. `disable_telemetry_events()` does not work; `ORT_DISABLE_TELEMETRY=1` set before the library loads does. Found by `tests/test_egress.py` within minutes of it existing | `friday/__init__.py`, `deploy/systemd/friday.service` (**ADR-112**, FR-133) |
+| ~~D28~~ | MED | **FIXED 2026-09-02** — `pytest -q` died with SIGSEGV/SIGILL at session finish on ~9 runs in 10, printing no count and no exit code. `Daemon.close()` did not close the recorder (`run()`'s `finally` did, on the next line), so any other caller leaked a live PortAudio stream whose CFFI callback fired after interpreter teardown | `friday/daemon.py` (**ADR-111**, FR-132) |
 
 **D3's cause is now known (2026-08-30):** `webrtcvad` emits end-of-speech on
 only **15 of 20** real DMIC clips, because on the failures it calls 83–100 % of

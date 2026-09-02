@@ -35,6 +35,11 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
 
 ```
    friday/
+     __init__.py            sets ORT_DISABLE_TELEMETRY=1 BEFORE onnxruntime can be
+                            imported. Not decoration: `import onnxruntime` opens
+                            sockets to *.events.data.microsoft.com, five components
+                            route through ORT, and the Python API for this does
+                            not work (D27, ADR-112, FR-133)
      __main__.py            text-mode entrypoint (TUI), --selftest CLI flag
      voice_main.py          voice-in entrypoint: builds daemon, wake listener + startup wait
      daemon.py              the voice loop: PTT/Wake -> capture -> STT -> turn ->
@@ -336,6 +341,24 @@ Backpressure:
    tool concurrency      1
 ```
 
+### 5.1 Teardown — who owns the audio devices
+
+`Daemon.close()` owns the audio lifecycle: it stops the wake listener and closes
+the recorder **first**, before the session distillation (which calls the LLM and
+can take seconds). `run()`'s `finally` calls `close()` and does **not** close the
+recorder separately any more.
+
+This was split across two functions until 2026-09-02, and the split was the bug:
+`run()`'s `finally` closed the recorder on the line after `await self.close()`,
+so **every caller of `close()` that was not `run()` leaked a live PortAudio
+stream.** A unit test that built a real `Recorder` did exactly that, and the
+stream then outlived the interpreter — PortAudio's thread invoked a CFFI
+callback after Python state was torn down, and `pytest` died at session finish
+with SIGSEGV/SIGILL and no summary line (D28, **ADR-111**, FR-132).
+
+Both calls are idempotent. **A future teardown step for a new device belongs in
+`close()`, not in `run()`.**
+
 ---
 
 ## 6. Failure and recovery
@@ -417,6 +440,24 @@ sandbox does not break `hyprctl` before enabling `ProtectSystem`.
 
 Startup ordering matters: the orchestrator must tolerate `llama-server`
 not being ready yet (retry the health ping, do not crash-loop).
+
+**Editing a unit file is not deploying it.** The installed units are symlinks
+into `deploy/systemd/`, so `diff` reports IDENTICAL while systemd continues to
+run the configuration it loaded at boot. `Type=notify` + `WatchdogSec=10s` sat
+committed and documented for a whole session while `systemctl show` reported
+`Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes` — the watchdog had never
+once fired. After ANY change under `deploy/systemd/`:
+
+```bash
+systemctl --user daemon-reload && systemctl --user restart friday
+systemctl --user show friday -p Type -p WatchdogUSec -p NRestarts   # must not be 0/simple
+```
+
+`notify_ready()` is sent at the end of `Daemon.run()`, after the model loads and
+the startup briefing — measured at ~5 s against a 90 s `TimeoutStartSec`. The
+heartbeat is an asyncio task, so a wedged event loop stops it and systemd
+restarts the service; `NRestarts=0` over many watchdog periods is what proves it
+is actually beating.
 
 ---
 

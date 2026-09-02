@@ -12,75 +12,119 @@ enum is generated from the XDG desktop entries and merged over the five
 curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
 and shell `Exec` entries are never offered.
 
-**>>> 2026-09-02: A FULL CODEBASE AUDIT HAS RUN. READ IT BEFORE ANYTHING ELSE.
-`audit-2026-09-02.md` (29 findings, F1-F29) and `design-2026-09-02.md` (8 owner
-decisions, 12 phases, 47 days). No code was changed in that session. Every gate
-below is still built and green — that was never the question. The audit asked
-whether Friday TELLS THE TRUTH and whether this shape can reach "everything on
-this laptop", and found FIVE trust-breaking defects plus a latency wall nobody
-had measured:**
+**>>> 2026-09-02 (evening): PHASE 1 IS DONE, PHASE 2 IS 6-OF-7, AND ONE THING
+IS OWED AT A MICROPHONE. Read `progress.md`'s `>>> START HERE <<<` block first —
+it is written for exactly this and carries the runnable commands.**
 
-- **F1 — the panic switch does not stop 10 side-effecting paths.** Friday says
-  "I'm switched off." to an `open_app` and, in the same breath, types into your
-  editor and queries the network. FR-36 is annotated as violated in `spec.md`.
-- **F2 — chat denies capabilities that work.** `CHAT_SYSTEM` still says "open
-  five apps" one commit after ADR-097 made it 162. Measured live. And
-  `tests/test_prompt.py:73` asserts `"five apps" in low`, so **a test pins the
-  lie in place**.
-- **F3 — all ten `open_app` eval fixtures use the five curated ids.** Zero for
-  the 157 ADR-097 added. The gate that approved the widening cannot see it.
-- **F20 — `just selftest` prints `[PASSED]` with no mic, no LLM, and the panic
-  switch engaged.** WARN is not counted as failure. "8/8" counts checks that
-  RAN.
-- **F27 — in text mode, quiet mode and dictation speak success and do nothing.**
-  The TUI has no `DndManager` and no `DictationManager`. C1's shape again.
+The 2026-09-02 audit (`audit-2026-09-02.md`, 29 findings F1–F29) and its plan
+(`design-2026-09-02.md`, 8 owner decisions, 12 phases) are still the map. What
+has changed is that the plan has been executed and then **verified against the
+machine rather than against itself**:
+
+- **Post-audit Phase 1 "stop lying" — COMPLETE** (ADR-108). F1, F2, F3, F6, F7,
+  F8, F20, F21, F23, F27 all fixed and exercised. **F9 was reported fixed and
+  was not**, and is now genuinely fixed in **ADR-110**.
+- **Post-audit Phase 2 "make it measurable" — 6 of 7** (ADR-109). Stage timing,
+  `duration_ms`, `just stats`, the systemd watchdog, the power-profile check,
+  and `just bootstrap --check` all shipped. **The 7th — one proven hands-free
+  capture — did not happen and was dropped from the count rather than deferred.
+  It is still owed. OQ-39.**
+- **Three new decisions: ADR-110, ADR-111, ADR-112.** Each fixed something that
+  every green suite in this repo had been sitting on top of.
+
+**The three claims that turned out to be false, and how they were caught —
+every one by asking the SYSTEM, not by reading a file:**
+
+- **F9's "fix" still could not see egress.** Phase 1 correctly split the
+  listening-socket check off as `just test-binds`, then replaced `test-egress`
+  with three `urlparse()` assertions on config constants. That reads three
+  strings and observes no connection; it would not have caught D13 either.
+  **ADR-110** replaces it with a guard over `socket.getaddrinfo` /
+  `socket.socket.connect`, and the FAIL path is demonstrated, not asserted.
+- **The systemd watchdog had never fired.** The unit carried `Type=notify` +
+  `WatchdogSec=10s`; systemd reported `Type=simple`, `WatchdogUSec=0`,
+  `NeedDaemonReload=yes`. **And the running daemon predated every Phase 1/2
+  source file by three hours** — neither phase had ever executed live. Both
+  fixed and verified (`WatchdogUSec=10s`, `NRestarts=0` across 10+ periods).
+- **`uv run pytest -q` was crashing** with SIGSEGV/SIGILL on ~9 runs in 10,
+  after the dots and before the summary, so it produced no count and no exit
+  code. `coredumpctl` named it in one command: a PortAudio thread invoking a
+  CFFI callback after interpreter teardown, because `Daemon.close()` did not
+  close the recorder — `run()`'s `finally` did, on the next line (**ADR-111**).
+
+**AND THE NEW EGRESS CHECK FOUND REAL EGRESS WITHIN MINUTES OF EXISTING.** The
+live daemon held HTTPS connections to `*.events.data.microsoft.com`:
+**`import onnxruntime` phones home to Microsoft telemetry — on import, on
+Linux, with no inference.** Five components route through ORT (Silero VAD,
+openWakeWord, Kokoro TTS, CAM++, sherpa-onnx), so every daemon start did it, for
+the life of the project. `onnxruntime.disable_telemetry_events()` does **not**
+stop it; only `ORT_DISABLE_TELEMETRY=1`, set before the library loads, does.
+Set in `friday/__init__.py` and in the unit; verified clean over 60 s
+(**ADR-112**). **Rule 7 vets a dependency's footprint — it has never asked what
+one TALKS TO.**
+
+**Still true and unchanged from the audit:**
+
 - **F26 — STT cost is FLAT in audio length** (1.0 s of audio: 556 ms; 5.0 s:
   688 ms, in `balanced`). Whisper pads to a 30-second window. **Streaming or
   chunked STT gains nothing**, and that killed a latency target that had already
   been committed to.
+- **F5** (wrapper prefixes `env`/`flatpak`/`distrobox-enter` pass the ban list)
+  and **F4** (one explicit subprocess env) are **Phase 3** work, deliberately.
+- **F22, F16, F17, F18, F19, F24, F25** are deferred with reasons in
+  design §11.
 
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
-Do not fix them twice.
+All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-107. Questions still owed: OQ-59…OQ-62.**
-**Free win, 30 seconds, no code:** `powerprofilesctl set balanced` — measured
-1.6x on STT and 1.75x on TTS versus `power-saver` (ADR-106). `performance` was
-measured too and buys nothing.**
+**Decisions ADR-098…ADR-112. Questions still owed: OQ-39, OQ-57, OQ-59, OQ-60,
+OQ-61. OQ-62 is CLOSED** (selftest WARN → exit 2 `[DEGRADED]`).
+**The power profile is already `balanced`** — verified this session; the old
+"free win, run `powerprofilesctl set balanced`" note is done, and `just selftest`
+now checks it (F28).
 
-**Status: G0–G13 done — Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE, then five
-review passes AND the live-voice pass. The 2026-08-26 audit is FULLY FIXED (all
-12 steps executed 2026-08-29, plus ADR-073/074 from Step 9's real-path run).
-The LIVE-VOICE PASS ran on 2026-08-29 (night) and found 16 MORE defects
-(D1–D16) — none from the audit, none visible to any test. On 2026-08-30 the
-FIRST TWO were fixed in code: D2 (the audit log overwriting itself) and D1 (the
-CRITICAL). Defects D3–D16 remain, and the fix list order is unchanged.
-On 2026-08-30 (afternoon) a full ADR-041 drill over every stage added
-**ADR-085…088, OQ-51…55, D17 and D18** — and **root-caused D3**. See
-`docs/hardware-placement.md`.**
+**Status: all 14 gates G0–G13 built (Phase 1 = G0–G9, Phase 2 = G10–G13), then
+five review passes, the live-voice pass, a full codebase audit, and the
+post-audit Phases 1 and 2. What remains is not gates — it is the defect list
+below and one live measurement.**
 
-**What is fixed, and what that does NOT mean.** `is_affirmation` now normalises
-STT punctuation, a widened `_AFFIRM` covers natural spoken forms, and a new
-`_DECLINE` set separates an explicit "no" from a non-answer — which now cancels
-the pending and is re-routed as an ordinary command instead of being swallowed
-(`friday/turn.py:53-92`, `resolve_pending` returns `str | None`, ADR-075/FR-85).
-The audit log takes a UUID `request_id` and a plain `INSERT`
-(`friday/store/audit.py:59`, `friday/daemon.py:290`, ADR-076/FR-86).
-**Neither has been proven by voice.** 480 tests pass and eight times in this
-project a green suite has sat on top of a broken real path — so the FIRST thing
-the next session does at a microphone is re-run the `C?` affirm rows in
-`docs/reality-check.md`. They have never once been observed working.
+**THE DEFECT LEDGER, D1–D28. This is the current state; do not re-derive it.**
 
-Still open and unchanged: **hands-free is unusable** (D3 — all three wake
-captures ran the full 15 s cap, ADR-066's bail-out never fired; PTT is the only
-working trigger), plus D4–D16. Every decision the fix list needs is already
-made: ADR-075…ADR-083, FR-85…FR-93, NFR-1 re-baselined. **D3 was fixed in code
-on 2026-08-31 — Silero replaces `webrtcvad` (ADR-095) — and is NOT PROVEN
-LIVE.** OQ-39 is now exactly one thing: one live hands-free capture confirming
-that Silero ends captures through the **AEC path** as it does offline.
+| | state |
+| :-- | :-- |
+| **D1, D2** | **FIXED AND PROVEN LIVE** 2026-08-30 evening (every `C?` affirm row ticked; 108 audit rows across a restart with 0 duplicate `request_id`s) |
+| **D3** | **FIXED IN CODE, NOT PROVEN LIVE** — Silero replaces `webrtcvad` (ADR-095); offline it ends 20/20 where webrtcvad ended 15/20. **The one thing owed at a microphone. OQ-39.** |
+| **D4, D5, D6, D8, D9** | OPEN, unchanged. D9 = raw enum speech (*"Media play_pause."*) |
+| **D7, D10** | superseded by the design — `local_time` (§2) and the filesystem work (§5, FR-118) |
+| **D11, D12** | CLOSED 2026-08-30 (ADR-091…094) |
+| **D13, D14, D15, D16** | **FIXED.** `local_files_only=True`; dictation mutes wake; a real `test-egress` (**ADR-110** — Phase 1's first attempt was still blind); 60 eval fixtures (ADR-089) |
+| **D17** | OPEN — STT p95 spans 713–804 ms against an 800 ms gate. Needs more than one run in `balanced` |
+| **D18** | OPEN, parked deliberately (OQ-52). The AEC far reference is 16 kHz on a 48 kHz SOF-DSP device. **If D3's live capture still hits the cap, this is the suspect — not the detector.** |
+| **D19, D20, D21** | FIXED by the Gemma swap (ADR-090) |
+| **D22, D23, D24, D25** | FIXED and proven 2026-08-30 evening |
+| **D26** | fixed; **efficacy unproven — OQ-57** |
+| **D27** | **NEW, FIXED 2026-09-02** — `import onnxruntime` phones home to `*.events.data.microsoft.com`. `ORT_DISABLE_TELEMETRY=1` (**ADR-112**) |
+| **D28** | **NEW, FIXED 2026-09-02** — `pytest -q` crashed at session finish; `Daemon.close()` leaked a PortAudio stream (**ADR-111**) |
 
-**A model question is also live, and no code depends on it.** Gemma 4 12B QAT
-is a retained candidate (OQ-47) and `just eval` cannot currently see the
-regression a swap would admit (D16). The verified brief — model identity and
+**What is fixed, and what that does NOT mean.** `is_affirmation` normalises STT
+punctuation, head-matches with a negative-word veto, and a `_DECLINE` set
+separates an explicit "no" from a non-answer, which cancels the pending and
+re-routes as an ordinary command (`friday/turn.py`, `resolve_pending` returns
+`str | None`, ADR-075/093, FR-85/104). The audit log takes a UUID `request_id`
+and a plain `INSERT` (`friday/store/audit.py`, ADR-076/FR-86). **Both are now
+proven by voice** — that was the 2026-08-30 evening session's whole point. The
+71 pre-fix `v{n}` rows in the live DB remain unreliable across runs.
+
+**A green suite still proves nothing about a real path — that count is now
+nine.** The most recent three: a `test-egress` that could not observe a
+connection while passing, a watchdog that had never fired while its unit was
+committed and documented, and two whole phases of fixes that had never executed
+because the daemon predated them by three hours. **Ask the system.**
+
+**The model question is CLOSED and the swap happened.** Gemma 4 12B QAT is
+live (ADR-090; OQ-47 and OQ-50 closed, D16 fixed first as its hard
+precondition). Qwen2.5-7B stays on disk as the rollback, but reverting
+reintroduces D19/D20/D21. The verified brief — model identity and
 SHA256 pins, the hardware envelope, the architecture, the measured headroom
 table, where a turn's milliseconds actually go, and what is settled vs open —
 is **`gemma-brief.md`**. Read that before touching the model; do not re-derive
@@ -116,12 +160,15 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-`uv run pytest` **501 passed**, `just eval` **50/50 reg 0** (the fixture set was
-28 until D16 was fixed on 2026-08-30 — ADR-089), `just test-injection`
-**20/20 blocked**, `just selftest` **8/8**, `just test-no-fstring-sql` **OK**.
-(Verified 2026-08-30 with the LLM confirmed on GPU — see `llm_on_gpu`. It was
-450 passed on 2026-08-29; +26 from fix-list Steps 1–2, then +4 from the TTS
-engine fallback, ADR-085.)
+**Gate numbers, all re-run 2026-09-02 evening with the LLM confirmed on GPU:**
+`uv run pytest` **568 passed, rc=0**, `just eval` **60/60 (100%), regressions 0**,
+`just test-injection` **20/20 blocked**, `just selftest` **9/9, rc=0**,
+`just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
+`just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
+(The fixture set was 28 until D16 was fixed on 2026-08-30 — ADR-089 — then 50,
+then 60 when Phase 1 added the scanned-app tail, E51–E60. `pytest` was 501 on
+2026-08-30 and 563 after Phase 2; **but until ADR-111 the full-suite run
+crashed**, so any count before this commit was only reachable file-by-file.)
 **`just test-egress` became a real check on 2026-09-02 (ADR-110)** — it guards
 `socket.getaddrinfo` / `socket.socket.connect` and its FAIL path is proven.
 Before that it could not detect egress: v1 inspected *listening* sockets (D15)
@@ -172,10 +219,20 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: the microphone session HAPPENED (2026-08-30 evening). D1 and D2
-are PROVEN and every `C?` affirm row is ticked.** Read `progress.md`'s
-`>>> START HERE <<<` block first — it carries the ordered fix list and says
-exactly which steps have landed.
+**NEXT SESSION: exactly one thing is owed at a microphone, and it takes three
+minutes. Everything else is Phase 3.** Read `progress.md`'s
+`>>> START HERE <<<` block first — it carries the runnable commands, the gate
+numbers, and a table telling you what the measurement means.
+
+**The one thing: D3 / OQ-39, one live hands-free capture.** Say "hey jarvis",
+speak, stop, and read the gap between `capture start source=wake` and the next
+journal line. **~2–4 s = Silero ended it and D3 is fixed live. ~15 s = the cap
+fired, and the suspect is D18, not the detector.** The rig was staged on
+2026-09-02 and the window closed with zero lines because nothing was spoken —
+that is not evidence in either direction.
+
+The microphone session of 2026-08-30 evening already proved D1 and D2 and ticked
+every `C?` affirm row; that work is done and is recorded below.
 
 1. ~~**Prove D1 and D2 at a microphone.**~~ **DONE.** `clipboard_read`,
    `clipboard_set`, `hypr_window{close}` and `system_wifi{off}` all recorded
@@ -226,7 +283,8 @@ daemon in the foreground to actually see `heard=…`**; it logs one warning sayi
 so. Short version:
 
 ```bash
-just selftest      # MUST be 8/8. If llm_on_gpu FAILS: systemctl --user restart friday-llm
+just selftest      # MUST be 9/9 and rc=0. WARN now exits 2 [DEGRADED] (ADR-108).
+                   # If llm_on_gpu FAILS: systemctl --user restart friday-llm
 ```
 
 Then, to test voice — **one daemon only**, never `just voice` while the service
@@ -601,9 +659,12 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  107 ADRs
-                      (ADR-001..ADR-107; the count was wrong at 74 for weeks
-                      -- verify with `grep -c '^## ADR-' adr.md`).
+   adr.md             decisions + why + what they cost.  112 ADRs
+                      (ADR-001..ADR-112; the count was wrong at 74 for weeks and
+                      again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
+                      ADR-110/111/112 are the 2026-09-02 evening verification
+                      pass: a real egress check, the PortAudio teardown leak,
+                      and onnxruntime's telemetry.
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
                       keeps the reasoning behind every answered question)
@@ -775,14 +836,37 @@ is no `setup` or `bench`; environment bootstrap is `uv sync` + `just fetch-voice
 + the llama.cpp build in ADR-021).
 
 ```bash
+# NOTE: `uv` is NOT on PATH in every environment this repo is worked in. If
+# `uv: command not found`, use `.venv/bin/python -m ...` directly -- and beware
+# that a failed `uv run` inside a pipeline can still report exit 0.
 just serve              # start llama-server (or: systemctl --user start friday-llm)
+just searxng start|stop|status   # the loopback SearXNG unit (ADR-045)
+just bootstrap [--check]# verify/install python, the 6 SHA256-pinned models, the
+                        # sm_120 llama-server, Docker+SearXNG, the units, selftest.
+                        # --check is read-only and CAN fail (11 checks, ADR-109)
+just grammar            # regenerate plan.gbnf/final.gbnf from friday/llm/schema.py.
+                        # Output MUST stay byte-identical -- Phase 3's safety net
 just run                # orchestrator, text mode
 just voice              # voice-in daemon (PTT + wake); --dry-run / --no-voice / --no-wake
-just eval               # eval fixtures -> pass count (currently 28)
-just test               # full unit + adversarial + injection suite (pytest -q)
+just eval               # eval fixtures -> pass count (currently 60; gate is >=90%
+                        # AND zero regressions AND no failing unbaselined fixture)
+just eval-baseline      # re-record the current pass/fail map as the baseline.
+                        # Run it AFTER adding fixtures, or new ones can never regress
+just test               # full unit + adversarial + injection suite (pytest -q). 568
+just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
+just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
+                        # / socket.socket.connect + inspects the live daemon's
+                        # sockets. Anything written before ADR-110 that cites an
+                        # "egress proof" is citing a check that could not see one
+just test-binds         # listening sockets only -- what test-egress used to be
 just test-no-fstring-sql# assert store/ SQL is strictly parameterized
-just selftest           # health: servers, gpu arch, LLM-actually-on-GPU, db perms, audio, binds (8 checks)
+just selftest           # health: servers, gpu arch, LLM-actually-on-GPU, db perms,
+                        # audio, binds, panic switch, power profile (9 checks).
+                        # rc 0 clean / 1 any FAIL / 2 any WARN [DEGRADED] (ADR-108)
+just stats [--tools]    # measured latency by action class from action_audit (ADR-109)
+just say "hello"        # speak one line with Kokoro
+just audition           # audition the three candidate voices on one line
 just wake-bench         # G10 live wake-word / VAD benchmark. Reports peak input
                         # level and max score, so "0 hits" can be told apart
                         # from a dead microphone. --duration N, --threshold X

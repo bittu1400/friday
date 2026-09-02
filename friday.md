@@ -6,6 +6,23 @@
 **Target:** Arch Linux 7.1.8, Hyprland 0.56.2, PipeWire 1.6.8, RTX 5070
 Mobile (GB206M, sm_120), Core Ultra 9 275HX, 16 GB DDR5
 
+> **STATUS BANNER (2026-09-02): every gate in this file is COMPLETE — G0–G13,
+> all fourteen. This is a record of how the build was SEQUENCED, not a to-do
+> list, and it has not been re-executed since it was written on 2026-08-22.**
+>
+> Read it for the gate structure and the stop conditions. Do **not** run its
+> commands verbatim, and never prefer it to `progress.md`, which is the only
+> file that says what is true now. Two things in it are known stale on purpose:
+>
+> - **The model.** §"ADR-029: bartowski" downloads **Qwen2.5-7B**. The live model
+>   is **Gemma 4 12B QAT** (ADR-090). Qwen stays on disk as the rollback, but
+>   reverting reintroduces D19/D20/D21.
+> - **The eval gate.** "50 fixtures before implementation" — the gate is **60**
+>   today (28 → 50 by ADR-089, → 60 when Phase 1 added the scanned-app tail).
+>
+> The current work is post-audit: `audit-2026-09-02.md`,
+> `design-2026-09-02.md`, and `progress.md`'s `>>> START HERE <<<` block.
+
 This is the file you execute. It contains commands, acceptance tests, and
 stop conditions. It does not contain rationale — that is `adr.md` — or
 requirements — that is `spec.md`.

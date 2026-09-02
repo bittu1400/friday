@@ -235,6 +235,8 @@ No audio or text leaves; what leaks is that this machine loaded
 
 A separate sub-decision: `just test-egress` (D15) needs replacing with a check
 that can fail, or deleting so it stops being cited as proof.
+**RESOLVED 2026-09-02 (ADR-110):** replaced, and the replacement's FAIL path is
+demonstrated rather than asserted. It found D27 within minutes — see OQ-63.
 
 **(b) Bigger model?** The user asked whether an 8B or 12B would be stronger.
 Measured constraint, not estimated: decode here is memory-bandwidth-bound at
@@ -875,6 +877,36 @@ scripted on the current behaviour:
 
 **Default if nobody decides:** three states. Nothing in this repo scripts the
 exit code.
+
+---
+
+### OQ-63 — Should rule 7 gain an egress probe, and does the ORT telemetry payload need auditing?
+
+**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (raised 2026-09-02, D27/ADR-112)
+
+Two dependencies have now transmitted off this machine without anyone noticing,
+in two different libraries, for months each:
+
+- **D13** — `faster-whisper` resolved `huggingface.co` at every daemon start.
+- **D27** — `import onnxruntime` opens sockets to `*.events.data.microsoft.com`,
+  on import, on Linux. Five components route through ORT.
+
+Neither was visible to any test until ADR-110, and **CLAUDE.md rule 7 did not
+ask the question**: it vets a candidate's *footprint* (`uv pip install
+--dry-run`, does it drag in torch/CUDA, does it touch an invariant) and its
+*benchmarks*. It has never asked what a dependency **talks to**.
+
+Two things are owed, and they are independent:
+
+| | |
+| :-- | :-- |
+| **a. Amend rule 7?** | Add a step: run `python -c "import <pkg>; time.sleep(60)"` and watch `ss -tnp` — **sampling, not glancing**, because the ORT socket takes 15–45 s to appear. Cost: about ninety seconds per new dependency. Recommended. |
+| **b. Audit the payload?** | ORT documents its telemetry as build/EP/model metadata, and nothing observed contradicts that — but it was **not inspected**, and an assistant whose first invariant is that nothing leaves the machine does not get to assume. Inspecting it means MITM-ing a TLS session on the owner's own machine, which is a decision, not a chore. |
+
+**Default if nobody decides:** do (a), skip (b). The variable is set, the
+transmission has stopped, and the remaining question is about a payload that no
+longer leaves. Re-open (b) only if a dependency is added that cannot be opted
+out of.
 
 ---
 

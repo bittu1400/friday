@@ -54,22 +54,38 @@ persistence, voice out, voice in, search, conversation, service) and G10–G13
 (wake word + AEC + VAD + barge-in, proactive scheduler, action surface,
 speaker verification).
 
-Post-audit Phase 1 ("Stop Lying") and Phase 2 ("Make it Measurable") are COMPLETE:
+Post-audit Phase 1 ("Stop Lying") is COMPLETE. Phase 2 ("Make it Measurable")
+shipped **6 of its 7 items** — one proven hands-free capture is still owed at a
+microphone (OQ-39).
 
 ```text
-uv run pytest             563 passed (44 test suites)
+uv run pytest             568 passed, rc=0 (76 test files)
 just eval                 60/60, regressions 0 (100%)
 just test-injection       20/20 blocked
-just selftest             9/9 PASS (including power profile verification)
+just test-egress          8 passed (a real egress check since ADR-110)
+just selftest             9/9 PASS, rc=0 (including power profile verification)
 just bootstrap --check    11/11 verified PASS (all 6 models SHA256 pinned)
 just stats                empirical latency distributions by action class
+just grammar              regenerates the committed GBNF byte-identical
 ```
+
+Note on that first line: until ADR-111 the full-suite run **crashed** with
+SIGSEGV/SIGILL at session finish (a leaked PortAudio stream), so every test
+count published before 2026-09-02 evening was only reachable by running the
+files one at a time.
 
 **A green suite here has repeatedly not meant a working feature.** Five review
 passes and a live-voice pass found defects that unit tests missed when they bypassed the real path.
 
 - **Phase 1 (Stop Lying, ADR-108):** Unified panic gate over all 10 side-effecting paths (F1), persona truth (F2, F3), `local_files_only=True` for offline STT (F8, D13), dictation mutes wake (F7, D14), selftest WARN exits code 2 `[DEGRADED]` (F20), eval harness rate gating (F23).
-- **Phase 2 (Make it Measurable, ADR-109):** Real duration tracking (`duration_ms`) and unconditional stage timings (F10, FR-128), `just stats` CLI aggregator, systemd watchdog heartbeat + `Type=notify` (F11), power profile sanity check in selftest (F28), and deterministic `just bootstrap` (§10, F24).
+- **Phase 2 (Make it Measurable, ADR-109):** Real duration tracking (`duration_ms`) and unconditional stage timings (F10, FR-128), `just stats` CLI aggregator, systemd watchdog heartbeat + `Type=notify` (F11), power profile sanity check in selftest (F28), and deterministic `just bootstrap` (§10, F24). **One item did not ship: a proven hands-free capture. It is still owed (OQ-39).**
+- **Verification pass (ADR-110/111/112):** the phases above were then checked against the machine rather than against their own write-ups, and three claims did not survive. `just test-egress` still could not observe a connection, so it was rewritten as a real guard over `socket.getaddrinfo`/`socket.socket.connect` with a demonstrated FAIL path (ADR-110). `pytest -q` had been crashing at session finish on a leaked PortAudio stream (ADR-111). And the new egress check immediately found that **`import onnxruntime` transmits to Microsoft telemetry on import** — on Linux, with no inference, on every daemon start for the life of the project; fixed with `ORT_DISABLE_TELEMETRY=1` (ADR-112).
+
+**On "local-first":** it is true, and it was not fully true before 2026-09-02.
+Inference is local — `llama-server` holds the model in VRAM and binds loopback
+only. But two dependencies transmitted off the machine for months without any
+test noticing (D13, D27), because until ADR-110 this project had no check
+capable of observing an outbound connection. Both are closed and guarded now.
 
 If you want to know whether something actually works, `docs/reality-check.md`
 is the manifest of what Friday must do and must refuse, with each row marked
