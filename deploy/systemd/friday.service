@@ -28,6 +28,10 @@ RestartSec=3s
 # ("No such file or directory") before Python ever runs. 0700: local IPC only.
 RuntimeDirectory=friday
 RuntimeDirectoryMode=0700
+# Belt and braces with friday/__init__.py: onnxruntime phones home to
+# *.events.data.microsoft.com on import (ADR-112). Set here too so an auditor
+# reading the unit sees it, and so it holds even if the import order changes.
+Environment=ORT_DISABLE_TELEMETRY=1
 PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE DBUS_SESSION_BUS_ADDRESS PATH
 ReadWritePaths=%h/.local/state/friday %t/friday %h/.local/share/friday
 

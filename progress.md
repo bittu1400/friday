@@ -12,10 +12,26 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, post-audit **Phase 1 ("Stop Lying") COMPLETE**, and post-audit **Phase 2 ("Make it Measurable") COMPLETE (2026-09-02, ADR-109).**
-`uv run pytest` **563 passed** across 44 test suites (zero failures), `just eval` **60/60 (regressions 0)**,
-`just test-injection` **20/20 blocked**, `just selftest` **all 9 checks passed (including power profile)**,
-`just test-no-fstring-sql` **OK**, `just test-egress` **PASS**, `just bootstrap --check` **11/11 verified PASS**, `just stats` **active**.
+**Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, post-audit
+**Phase 1 ("Stop Lying") COMPLETE** (ADR-108, plus F9 finished properly in ADR-110),
+and post-audit **Phase 2 ("Make it Measurable") — 6 of its 7 items** (ADR-109).
+**The 7th is one proven hands-free capture and it has NOT happened.** See the
+2026-09-02 (evening) block: the rig is staged and takes three minutes at a
+microphone.
+
+`uv run pytest` **567 passed, exit 0** — and that command actually completes now
+(ADR-111; it died with SIGSEGV/SIGILL on ~9 runs in 10 until 2026-09-02 evening,
+so the previous "563 passed" was true but only reachable file-by-file).
+`just eval` **60/60 (regressions 0)**, `just test-injection` **20/20 blocked**,
+`just selftest` **9/9, rc=0**, `just test-no-fstring-sql` **OK**,
+`just test-egress` **PASS — and it is now a real egress check** (ADR-110; the
+version that shipped with Phase 1 asserted `urlparse()` on config constants and
+could not observe a connection). **It found real egress the day it was written:
+onnxruntime phones home to `*.events.data.microsoft.com` on import, on every
+daemon start, and had been doing so for the life of the project — ADR-112, fixed
+and verified live.** `just bootstrap --check` **11/11**, `just stats` **active**.
+
+`uv run pytest` is now **568 passed**.
 
 **Fixed 2026-08-29 (Steps 1–7):** the CRITICAL text-mode confirm break (C1) and
 **all eight HIGHs** — unaudited dispatches and searches (H1), the orphaned
@@ -88,6 +104,191 @@ trust-breaking**, plus a hard latency wall nobody had measured. Read
 block. **No code changed in that session.** The gate checklist above is a record
 of what was BUILT; it is not a statement that it is all honest.
 
+
+---
+
+## SESSION 2026-09-02 (evening) — VERIFICATION PASS. Three "COMPLETED" claims were not true; two fixed, one still owed. (ADR-110, ADR-111)
+
+**The owner's ask:** *"Phase 1 and Phase 2 has been done completely without any
+problem. 100%. The base is ready to move into Phase 3. I was told this. What do
+you think? Check and tell me. Check code not some docs claim."*
+
+Every check below was run against the machine, not read off a document.
+
+### What was true
+
+| claim | verified |
+| :-- | :-- |
+| test count | 563 passed, 0 failed (per-file at the time) |
+| `just eval` 60/60 | ran it: `passed 60/60 (100%) · regressions vs baseline: 0` |
+| `just selftest` 9/9 | ran it: 9 PASS, rc=0 |
+| `bootstrap --check` | 11/11 PASS, and the FAIL paths have tests |
+| injection | 20/20 blocked |
+| **Phase 3's own net** | `just grammar` regenerates the committed GBNF **byte-identical**. 25 actions in `PARAM_SCHEMA`, matching design §11.1 step 3.8. |
+| F1 panic gate | probed live with `FRIDAY_DISABLED=1`: `set_clipboard`/`read_clipboard`/`type_text`/`notify` all return False. 10 tests, one per audited path. |
+| F2, F3, F6, F7, F8, F10, F20, F21, F23, F27 | present in code and exercised |
+
+### What was not
+
+**1. F9 was reported fixed and was not.** Phase 1 correctly split the listening
+check off as `just test-binds`. It then replaced `test-egress` with three
+`urlparse()` assertions on `config.LLAMA_BASE_URL` / `config.SEARXNG_URL`. That
+reads three constants and observes no connection — it would not have caught D13,
+because `huggingface.co` never appears in a config constant. **Fixed properly,
+ADR-110.** The new guard wraps `socket.getaddrinfo` / `socket.socket.connect`
+and was made to fail on purpose before it was trusted:
+
+```
+$ python -c "...WhisperModel(...) WITHOUT local_files_only=True, under the guard..."
+offenders WITHOUT local_files_only: ['2600:9000:21b4:2c00:17:b174:6d00:93a1', 'huggingface.co']
+```
+
+The shipping call records `[]`. **This is the first check in this project that
+can actually see an egress event.**
+
+**2. The watchdog had never once fired.** `deploy/systemd/friday.service`
+carried `Type=notify` + `WatchdogSec=10s`, and the installed unit is a symlink
+to it, so a `diff` said IDENTICAL. systemd said otherwise:
+
+```
+$ systemctl --user show friday -p Type -p WatchdogUSec -p NeedDaemonReload
+Type=simple
+WatchdogUSec=0
+NeedDaemonReload=yes
+```
+
+No `daemon-reload` had been run. **And the running daemon was older than the
+code:** started `15:32:40`, while every Phase 1/2 source file has an mtime of
+`18:44`–`18:49`. Nothing from either phase had ever executed on the live system.
+
+Fixed: `daemon-reload` + `restart`. Startup took 5 s against a 90 s
+`TimeoutStartSec`, `READY=1` was delivered, and the heartbeat was then verified
+by leaving it alone:
+
+```
+$ systemctl --user show friday -p Type -p WatchdogUSec -p NRestarts -p ActiveState
+Type=notify
+WatchdogUSec=10s
+NRestarts=0
+ActiveState=active
+```
+
+`NRestarts=0` across 10+ heartbeat periods is the proof: had the ping not been
+firing, systemd would have killed it at 10 s. **FR-130 is verified live.**
+
+**3. Phase 2 shipped 6 of 7 items and reported "all 6 components delivered".**
+The missing one is **one proven hands-free capture** — D3, top of the fix list
+for three sessions, and the only Phase 2 item needing a human at a microphone.
+It was not deferred with a reason; it was dropped from the count.
+
+**Attempted this session, not answered.** Daemon on current code, `vad.create()`
+confirmed returning `SileroVad`, `WakeListener background audio stream active`
+in the journal, and a 180 s journal window opened to time
+`capture start source=wake`. **The window closed with zero lines** — nothing was
+said. Not evidence either way. OQ-39 carries the re-run instructions.
+
+### 4. `uv run pytest -q` was crashing, and that is now fixed (ADR-111)
+
+The documented command died with `Illegal instruction (core dumped)` /
+`Segmentation fault (core dumped)`, exit 132/139, on ~9 runs in 10 — after the
+progress dots, before the summary line, so **no count and no usable exit code**
+(`--junitxml` never got written either). 563 was real, but only reachable by
+running the files one at a time.
+
+Two process notes worth more than the bug:
+
+- **A flaky crash defeats single-trial bisection.** A first delta-debugging run
+  took one clean result as proof and discarded the whole set, reporting "no
+  crash" against 5 crashes I had just observed. Repeated trials per subset are
+  mandatory.
+- **`coredumpctl info -1` answered it in one command**, after ~40 minutes of
+  subset runs had produced a contradiction. The three different signals
+  (SIGILL/SIGSEGV/SIGABRT) were the tell: memory corruption, not logic.
+
+```
+#9  PyTuple_GET_SIZE          (_cffi_backend.cpython-312-x86_64-linux-gnu.so)
+#10 general_invoke_callback   (_cffi_backend)
+#12 ffi_closure_unix64_inner  (_cffi_backend)
+#14 libportaudio.so.2
+#17 clone                     (libc)
+```
+
+A PortAudio thread invoking a CFFI callback after Python state was torn down —
+**a `sounddevice` stream that outlived the interpreter.**
+`test_panic_gate_4_dictation_typing` (new in `44d59fb`) builds a **real**
+`Recorder`, drives a real PTT press/release — opening a real `sd.InputStream` —
+and then calls only `await d.close()`. `Daemon.close()` did not close the
+recorder; `run()`'s `finally` did, on the line after. Every caller of `close()`
+that was not `run()` leaked a live audio stream.
+
+Fixed at the shared function, not at the caller: audio teardown moved into
+`Daemon.close()`, ahead of the distillation, and the trailing
+`self._recorder.close()` deleted from `run()`. Both calls are idempotent.
+
+```
+run 1: rc=0 | 567 passed, 2 warnings in 5.94s
+run 2: rc=0 | 567 passed, 2 warnings in 6.04s
+run 3: rc=0 | 567 passed, 2 warnings in 6.02s
+run 4: rc=0 | 567 passed, 2 warnings in 6.08s
+run 5: rc=0 | 567 passed, 2 warnings in 6.15s
+```
+
+Post-fix regression check: `eval 60/60 regressions 0`, `selftest 9/9 rc=0`,
+daemon still `active`, `NRestarts=0`.
+
+### 5. The new egress test immediately found real egress (ADR-112)
+
+Within minutes of existing, `tests/test_egress.py` failed on the **live
+daemon** — which is the entire argument for having built it:
+
+```
+E   AssertionError: friday holds off-machine connections: ['52.168.117.171']
+```
+
+```
+$ ss -tnp | grep "pid=131978,"
+ESTAB 0 540  192.168.1.66:55082  52.168.117.171:443  users:(("python",pid=131978,fd=49))
+
+$ openssl s_client -connect 52.168.117.171:443 | openssl x509 -noout -subject
+subject=C=US, ST=WA, L=Redmond, O=Microsoft Corporation, CN=*.events.data.microsoft.com
+```
+
+Microsoft's telemetry ingestion pipeline. `strings` puts
+`mobile.events.data.microsoft.com` inside `libonnxruntime.so.1.29.0`, and
+**`import onnxruntime` alone reproduces it** — on import, on Linux, with no
+inference and no `friday` in the process:
+
+| process body | result |
+| :-- | :-- |
+| `import time; sleep(60)` | clean ~45 s |
+| `import numpy; sleep(60)` | clean ~45 s |
+| **`import onnxruntime; sleep(60)`** | **LEAK → `20.50.201.205:443`** |
+| ORT + `disable_telemetry_events()` | **STILL LEAKS** |
+| ORT + `ORT_DISABLE_TELEMETRY=1` | **clean ~45 s** |
+
+Five components route through onnxruntime (Silero VAD, openWakeWord, Kokoro
+TTS, CAM++, sherpa-onnx), so **every daemon start had been doing this.** The
+documented Python opt-out does not work; only the env var does, and only before
+the library loads. `friday/__init__.py` now sets it, the unit sets it too, and
+after `daemon-reload` + `restart` the live process was watched for 60 s:
+
+```
+CLEAN: no non-loopback connection from friday in ~60s
+```
+
+**This cost an hour of wrong answers first, and the reason matters.** Three
+single-sample controls at ~12 s all read "clean" and produced a confident wrong
+cause — that importing `friday` was required. The socket takes **15–45 s** to
+appear. A single sample is not an observation of an intermittent thing. Rule 7
+vets a new dependency's *footprint*; it has never asked what one **talks to**.
+
+### The lesson, which this repo has now paid for a ninth time
+
+A phase is not complete because its code is written and its tests are green.
+Three separate questions to the **system** each contradicted the write-up:
+`git status` showed all of Phase 2 untracked, `systemctl show` showed the unit
+unloaded, and `ps` showed the daemon running older code. None of that is visible
+from inside the documents. **Ask the system.**
 
 ---
 

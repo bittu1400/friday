@@ -741,6 +741,17 @@ class Daemon:
 
     async def close(self) -> None:
         """Teardown daemon and distill session memory if meaningful dialogue occurred (ADR-050)."""
+        # Give the audio devices back FIRST, and do it here rather than only in
+        # run()'s finally — every caller of close() needs it, not just run().
+        # A PortAudio stream that outlives the interpreter gets its CFFI
+        # callback invoked after Python state is torn down, and _cffi_backend
+        # aborts in PyTuple_GET_SIZE: the suite dies with SIGSEGV/SIGILL/SIGABRT
+        # at session finish, killing the summary line and the exit code. Both
+        # calls are idempotent.
+        if self._wake_listener is not None:
+            self._wake_listener.stop()
+        self._recorder.close()
+
         db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
         if len(self._dialogue) >= 2 and db is not None:
             try:
@@ -785,10 +796,9 @@ class Daemon:
                 self._sched_task.cancel()
             if self._wake_listener is not None:
                 self._wake_listener.stop()
-            await self.close()
+            await self.close()  # also stops the wake listener and the recorder
             server.close()
             await server.wait_closed()
-            self._recorder.close()
 
 
 

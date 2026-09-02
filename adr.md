@@ -4496,3 +4496,213 @@ in `balanced`.
    * Implements `scripts/bootstrap.py` checking Python version >= 3.12, verifying SHA256 checksums of all 6 local models (Kokoro, Silero, openWakeWord, CAM++, Gemma 4 12B QAT), verifying the `sm_120` llama-server binary, verifying Docker daemon reachability and the SearXNG image, verifying systemd unit templates, and running the 9-check selftest suite.
    * Provides `just bootstrap --check` for fast read-only preflight verification with strict failure paths.
 
+
+---
+
+## ADR-110 — `test-egress` observes connections, not constants (audit F9, third attempt)
+
+**Status:** Accepted (2026-09-02).
+
+**Context.** Two things have been called "the egress proof" in this repo and
+neither could observe an outbound connection:
+
+1. Until Phase 1, `just test-egress` ran `ss -ltnp` — **listening** sockets.
+   Egress is outbound. The recipe inspected the one socket category that cannot
+   contain an egress event, and duplicated `selftest`'s `socket_binds`. That
+   blindness is *why* D13 survived for the life of the project: the STT path
+   resolved `huggingface.co` at every daemon start, and `ss -tnp` found it in a
+   single command the first time anyone ran the right one (D15).
+2. Phase 1 split the listening check off as `just test-binds` — correct — and
+   replaced `test-egress` with three `urlparse()` assertions on
+   `config.LLAMA_BASE_URL` and `config.SEARXNG_URL`. That is a config assertion
+   wearing an egress test's name. It reads three constants and observes no
+   connection, and it would not have caught D13 either, because
+   `huggingface.co` never appears in a config constant. F9 was reported fixed
+   and was not.
+
+**Decision.** `tests/test_egress.py` guards the two stdlib chokepoints every
+outbound TCP connection passes through — `socket.getaddrinfo` and
+`socket.socket.connect` — records the target **before** delegating, runs the
+real code paths, and asserts every target is loopback. `AF_UNIX` is ignored:
+the PTT socket and `$NOTIFY_SOCKET` never leave the machine. A hostname that is
+not `localhost` counts as off-machine whether or not it resolves.
+
+Three layers, in order of what they can catch:
+
+| test | catches |
+| :-- | :-- |
+| `test_stt_backend_creation_reaches_no_network` | D13 itself — drop `local_files_only=True` and it fails |
+| `test_running_daemon_holds_no_non_loopback_connections` | a leak in the live process, via the `ss -tnp` query that found D13 |
+| the two config assertions | a misconfigured endpoint. Necessary, never sufficient |
+
+**The FAIL path is proven, not asserted.** `test_guard_detects_a_non_loopback_target`
+uses `192.0.2.1` (TEST-NET-1, RFC 5737 — never routed, no DNS needed). And the
+D13 path was demonstrated directly: calling `WhisperModel(...)` **without**
+`local_files_only=True` under the guard records
+
+```
+offenders WITHOUT local_files_only: ['2600:9000:21b4:2c00:17:b174:6d00:93a1', 'huggingface.co']
+```
+
+while the shipping call records `[]`. This project's rule is that a check which
+cannot fail is worthless; this one was made to fail on purpose before it was
+trusted.
+
+**Consequences.** `just test-egress` is now a real claim and may be cited as
+one. Every "egress proof" written before 2026-09-02 traces to the listening
+check and must not be. The guard is process-local: it proves what *this Python
+process* attempted, so it complements — never replaces — the live socket query.
+
+**Rejected.** A packet-level check (`nftables` egress log, `strace`) — needs
+privileges, cannot run in the suite, and D13 was a userspace DNS+TLS call the
+existing tooling could already see. A `pytest-socket`-style dependency — rule 7
+forbids adopting a package for what fifteen lines of `socket` monkeypatching
+does, and a third-party guard would itself need the FAIL-path proof.
+
+---
+
+## ADR-111 — Audio teardown belongs in `Daemon.close()`, not in `run()`'s `finally`
+
+**Status:** Accepted (2026-09-02).
+
+**Context.** `uv run pytest -q` — the command this repo quotes as its evidence —
+died with `Illegal instruction (core dumped)` or `Segmentation fault (core
+dumped)`, exit 132/139, on roughly nine runs in ten. It printed the progress
+dots and then crashed at session finish, so **no summary line and no usable
+exit code**: `--junitxml` never got written either. The 563-test count in the
+Phase 2 write-up was real but was only reachable by running the files one at a
+time; the documented command could not produce it.
+
+Three things made this expensive to chase and are worth recording:
+
+- **It is ~90%, not 100%.** A first delta-debugging run took one clean result as
+  proof and dropped the whole set. Any bisect over a flaky crash needs repeated
+  trials per subset; one run per subset finds nothing.
+- **Bisecting was the wrong tool anyway.** `coredumpctl info -1` gave the answer
+  in one command, after ~40 minutes of subset runs had given a contradictory
+  one.
+- The three different signals (SIGILL / SIGSEGV / SIGABRT) were the clue: that
+  is memory corruption, not a logic error.
+
+**The stack:**
+
+```
+#9  PyTuple_GET_SIZE          (_cffi_backend.cpython-312-x86_64-linux-gnu.so)
+#10 general_invoke_callback   (_cffi_backend)
+#12 ffi_closure_unix64_inner  (_cffi_backend)
+#14 libportaudio.so.2
+#17 clone                     (libc)
+```
+
+A PortAudio thread invoking a CFFI callback whose Python state is gone. In
+other words: **a `sounddevice` stream that outlived the interpreter.**
+
+`tests/test_panic_gate.py::test_panic_gate_4_dictation_typing` (new in
+`44d59fb`) builds a real `Recorder` — not a fake — and drives a real PTT
+press/release, which opens a real `sd.InputStream` on the microphone. It then
+calls `await d.close()`. And `Daemon.close()` did not close the recorder:
+`run()`'s `finally` closed it, separately, on the line *after* `await
+self.close()`. Every caller of `close()` that was not `run()` leaked a live
+audio stream.
+
+**Decision.** Move the audio teardown into `Daemon.close()`, first, before the
+session distillation, and delete the trailing `self._recorder.close()` from
+`run()`. `Recorder.close()` and `WakeListener.stop()` are both idempotent, so
+`run()` is unaffected and the devices are now released *earlier* than before —
+the mic no longer stays open across a distillation that calls the LLM.
+
+**Result.** `pytest -q` → **567 passed, rc=0, five runs out of five.** The
+command is trustworthy for the first time.
+
+**Consequences.** `Daemon.close()` now owns the audio lifecycle. A future
+teardown step for a new device belongs there, not in `run()`.
+
+**Rejected.** Closing the recorder in the test (fixes one caller, leaves the
+next one to rediscover this — the sibling-caller mistake ADR-074 already paid
+for). `pytest-forked` / `--forked` to isolate the crash (a workaround that hides
+a real resource leak, and rule 7 forbids adopting a dependency for it).
+
+---
+
+## ADR-112 — `ORT_DISABLE_TELEMETRY=1`: onnxruntime phones home to Microsoft on import
+
+**Status:** Accepted (2026-09-02).
+
+**Context.** `tests/test_egress.py` was written the same day (ADR-110) and found
+this within minutes of existing — which is the entire argument for having built
+it. The **live `friday.service` daemon** was holding established HTTPS
+connections to an Azure address:
+
+```
+$ ss -tnp | grep "pid=131978,"
+ESTAB 0 540  192.168.1.66:55082  52.168.117.171:443  users:(("python",pid=131978,fd=49))
+
+$ openssl s_client -connect 52.168.117.171:443 | openssl x509 -noout -subject
+subject=C=US, ST=WA, L=Redmond, O=Microsoft Corporation, CN=*.events.data.microsoft.com
+```
+
+`*.events.data.microsoft.com` is Microsoft's telemetry ingestion pipeline
+(`vortex` / `pipe.aria`). `strings` puts `mobile.events.data.microsoft.com`
+inside `libonnxruntime.so.1.29.0`.
+
+**It is on IMPORT, not on inference, and not only on Windows.** Measured with a
+watcher that samples every 2 s for ~45 s — the connection takes 15–45 s to
+appear, which is why three earlier single-sample controls at ~12 s wrongly read
+clean and produced a confident wrong attribution (I briefly concluded that
+importing `friday` was required; it is not):
+
+| process body | result |
+| :-- | :-- |
+| `import time; sleep(60)` | clean ~45 s |
+| `import numpy; sleep(60)` | clean ~45 s |
+| **`import onnxruntime; sleep(60)`** | **LEAK → `20.50.201.205:443`** |
+| ORT session + 400 inferences | LEAK (same, no additional effect) |
+| ORT + `disable_telemetry_events()` | **STILL LEAKS → `20.42.65.89:443`** |
+| ORT + `ORT_DISABLE_TELEMETRY=1` | **clean ~45 s** |
+
+The documented Python API **does not work**. Only the environment variable
+does, and only if it is set before the library loads.
+
+**Decision.** `friday/__init__.py` sets `os.environ.setdefault(
+"ORT_DISABLE_TELEMETRY", "1")`. That file runs ahead of every `friday.*` module,
+and onnxruntime is imported lazily inside `SileroVad.__init__` and `tts.py`, so
+the ordering holds. `deploy/systemd/friday.service` also carries
+`Environment=ORT_DISABLE_TELEMETRY=1` — belt and braces, and an auditor reading
+the unit can see it. `setdefault`, not assignment, so an owner can opt back in.
+
+**Why here and not at the call sites.** Five components route through
+onnxruntime — Silero VAD, openWakeWord, Kokoro TTS, CAM++ speaker verification,
+and sherpa-onnx (which ships its own `libonnxruntime.so`). There is no single
+session constructor to guard, and `providers=["CPUExecutionProvider"]` is
+already pinned in both of Friday's own `InferenceSession` calls and does not
+prevent this.
+
+**Verified after the fix**, on the real service, with the same watcher:
+
+```
+$ systemctl --user daemon-reload && systemctl --user restart friday
+$ # 30 samples over ~60s against the new MainPID
+CLEAN: no non-loopback connection from friday in ~60s
+```
+
+`tests/test_egress.py::test_onnxruntime_telemetry_is_disabled_before_import`
+guards the env var; `::test_running_daemon_holds_no_non_loopback_connections`
+guards the live process and is what actually caught it.
+
+**Consequences.** Every latency and "local-first" claim made before 2026-09-02
+was made on a machine that was talking to Microsoft on every daemon start. The
+payload was not inspected — ORT telemetry is documented as build/EP/model
+metadata rather than user data, and nothing here contradicts that — but an
+assistant whose first invariant is that nothing leaves the machine does not get
+to assume. Invariant #8 and FR-60 now have a check that can see this class of
+event at all.
+
+**The process lesson, which cost an hour.** A single sample is not an
+observation of an intermittent thing. Three controls read "clean" at 12 s, and
+the fourth, sampled properly, contradicted all three. If a check can be early,
+it can be wrong; sample until the window is longer than the phenomenon.
+
+**Rejected.** `onnxruntime.disable_telemetry_events()` — measured, does not
+work. Blocking the endpoint in `nftables` — needs root, invisible to the suite,
+and hides the behaviour rather than disabling it. Building onnxruntime from
+source without telemetry — enormous, for a variable that already exists.

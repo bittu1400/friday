@@ -27,6 +27,18 @@ a line of the fix list is written. Evidence for every one of them is in
 
 **2026-08-31:** the swap landed first by the user's decision (OQ-51, ADR-095), so what is owed here is no longer a probe that decides anything — it is one live hands-free capture with the voiced fraction logged at `wake.py:_on_frame`, confirming that Silero ends captures through the **AEC path** as it does offline. If it does not, the suspect is D18 (the reference path), not the detector.
 
+**2026-09-02 (evening): attempted, NOT answered.** This is the item Phase 2
+shipped without and did not count (design §11). The daemon was restarted onto
+current code, `vad.create()` was confirmed to return `SileroVad`, the wake
+listener was confirmed active in the journal, and a 180-second journal window
+was opened to catch `capture start source=wake` and time what followed. **The
+window closed with zero lines** — nothing was said, so nothing was captured.
+That is not evidence in either direction. The rig is correct and takes three
+minutes; it needs a human at the microphone. Re-run it exactly as staged:
+watch for `capture start source=wake` and measure the gap to the next line —
+**~2-4 s means Silero ended the capture and D3 is fixed live; ~15 s means the
+cap fired and the next suspect is D18, not the detector.**
+
 
 All three wake captures ran the full 15 s cap. One contained zero speech by
 Silero's reckoning yet ADR-066's 3 s bail-out never fired, which can only
@@ -834,7 +846,10 @@ change that makes the invariant true again.
 ### OQ-62 — What should `just selftest` do with a WARN?
 
 **Decider:** USER · **Blocks:** Phase 1 item, weakly ·
-**Status:** OPEN (raised 2026-09-02, audit F20)
+**Status:** **CLOSED 2026-09-02 — three states shipped (ADR-108).** `run_selftest`
+returns 0 clean / 1 on any FAIL / 2 with a `[DEGRADED]` headline on any WARN.
+Verified live: 9/9 PASS, rc=0. The default was taken; nothing scripted the old
+exit code.
 
 `run_selftest` sets `has_fail` **only** on `Status.FAIL`. WARN prints yellow and
 the run still ends `[PASSED] All required system checks passed`. WARN is

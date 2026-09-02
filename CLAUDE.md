@@ -122,9 +122,11 @@ verification with a 10-utterance voiceprint (G13, ADR-059).
 (Verified 2026-08-30 with the LLM confirmed on GPU — see `llm_on_gpu`. It was
 450 passed on 2026-08-29; +26 from fix-list Steps 1–2, then +4 from the TTS
 engine fallback, ADR-085.)
-**`just test-egress` is NOT in that list on purpose: it cannot detect egress**
-— it inspects *listening* sockets (D15). Every "egress proof" in these docs
-traces back to it.
+**`just test-egress` became a real check on 2026-09-02 (ADR-110)** — it guards
+`socket.getaddrinfo` / `socket.socket.connect` and its FAIL path is proven.
+Before that it could not detect egress: v1 inspected *listening* sockets (D15)
+and v2 asserted `urlparse()` on config constants. **Every "egress proof" written
+before ADR-110 traces to one of those two and is worthless.**
 
 **Five review passes found defects the desk suite missed** — the pattern here
 is that green tests do NOT prove a feature works, because the tests never
@@ -327,7 +329,8 @@ properly found **three more defects (D13–D15)**: the STT path phones home to
 Hugging Face at every daemon start (~9 KB metadata, no audio or text —
 `friday/audio/stt.py:96` lacks `local_files_only=True`); ADR-058's wake-pause
 during dictation was never implemented; and **`just test-egress` cannot detect
-egress at all**, which is why the first one survived. Defects now **D1–D15**.
+egress at all**, which is why the first one survived *(finally closed by
+ADR-110 on 2026-09-02, at the second attempt)*. Defects now **D1–D15**.
 Also measured: decode is bandwidth-bound at ~272 GB/s, so `tok/s ~= 272 /
 weights_GB` and Qwen2.5-7B Q4_K_M is **already at this card's roof** — the
 2172 ms p50 TTFA is mostly not generation. Bigger-model question is OQ-46.
@@ -861,7 +864,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The AEC row printed a number, so the AEC was measured" | `aec.create()` returns `NullAec` on ImportError and only logs it. The first live AEC run printed a "WebRTC APM" row that was a passthrough reading +0.0 dB -- a fake row that looks exactly like a real measurement of a useless canceller. |
 | "sounddevice gave me the audio, so the capture is good" | Both callbacks take a `status` argument. Discard it and a dropped input block shifts everything after it, so the reference stops lining up and BOTH cancellers score badly on the same capture -- which reads as canceller instability. |
 | "`pgrep -f foo` to find the process, then kill it" | `pgrep -f` matches its OWN command line. Twice on 2026-08-30 a cleanup one-liner killed the shell running it (exit 144). Bracket the pattern: `pgrep -f "[f]oo"`. |
-| "`just test-egress` passes, so nothing leaves the machine" | It inspects `ss -ltnp` — **listening** sockets. Egress is outbound. The recipe named `test-egress` looks at the one category that cannot contain an egress event, and duplicates `selftest`'s `socket_binds`. Every "egress proof" in these docs traces to it. Asking `ss -tnp` instead found D13 in one command (D15). |
+| "`just test-egress` passes, so nothing leaves the machine" | True since ADR-110 (2026-09-02) and **false in every document written before it**. v1 inspected `ss -ltnp` — **listening** sockets, the one category that cannot contain an egress event (D15). v2, shipped by Phase 1 as the *fix*, asserted `urlparse()` on two config constants — it reads three strings and observes no connection, and would not have caught D13 either, because `huggingface.co` is not in a config constant. v3 guards `socket.getaddrinfo`/`socket.socket.connect` and was proven by removing `local_files_only=True` and watching it name `huggingface.co`. Twice this check was declared fixed while still blind; check what it observes, not what it is named. |
 | "RAM and CPU look normal, so no local model is running" | Wrong meter. A GPU-resident model lives in **VRAM**: 4712 MiB held, 519 MB RSS, 0 % GPU between turns, 6 min CPU over 2 days. Idle is what correct looks like. `nvidia-smi --query-compute-apps` is the meter. |
 | "The ADR says the wake word is paused during dictation" | ADR-058 decided it; `grep -rn is_dictating` returns two hits, one of which is the property itself. Nothing tells the detector. Third time an ADR was mistaken for an implementation (see `cancel_reminder`/ADR-070 and both Hyprland tools/ADR-074) — D14. |
 | "Only poll the wake detector when we need it" | openWakeWord is a STREAMING model. Starving it leaves stale features and a stale score, and it re-fires the instant you resume — that was OQ-29. Feed it every frame; ignore the result instead. |
@@ -890,6 +893,12 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The launch returned quickly, so there is no latency there" | `_LAUNCH_GRACE_S = 0.4`, and a GUI app never exits, so the `wait_for` **always** runs the full grace. Measured: detached launch 402 ms, command 2 ms (F29). Launches and commands are different latency classes and every budget written before 2026-09-02 conflated them. |
 | "Read the governor to check the power profile" | `scaling_governor` reads `powersave` and `scaling_max_freq` reads `5400` in **all three profiles**. Only `powerprofilesctl get`, `/sys/firmware/acpi/platform_profile`, or `scaling_cur_freq` sampled UNDER LOAD tell them apart (F28). A profile check written the obvious way can never fail — write the FAIL-path test. |
 | "I added fixtures and the eval gate is green" | Regressions are `prev.get(fid) and not passed`. A **newly added** fixture has no baseline entry, so a failing new fixture is **never** a regression (F23). The "≥90%" gate the harness docstring promises exists nowhere in code — `main()` returns 1 only on regressions. Re-baseline after adding, and read the rate, not the exit code. |
+| "The unit file on disk is the one systemd is running" | The installed unit was a **symlink to the repo file**, so `diff` said IDENTICAL — while `systemctl show` reported `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes`. Nobody had run `daemon-reload`, so `Type=notify` + `WatchdogSec=10s` had been committed, documented and **never once executed**. Editing a unit is not deploying it. Ask `systemctl show`, and prove a watchdog by leaving it running and reading `NRestarts`. |
+| "The fix is committed, so the fix is running" | The live daemon had started at `15:32:40`; every Phase 1/2 source file had an mtime of `18:44`–`18:49`. Two whole phases of fixes existed only on disk. `ps -o lstart=` against the file mtimes is one command and it answers this. |
+| "pytest segfaulted, so bisect the tests" | `coredumpctl info -1` gave the culprit in one command after ~40 minutes of subset runs had given a contradictory answer. And the crash was **~90%, not 100%**: the first delta-debugger took one clean run as proof and discarded the whole set. Three different signals (SIGILL/SIGSEGV/SIGABRT) mean memory corruption — read the core, and if you must bisect a flaky crash, repeat every trial. |
+| "The test tears down what it built, it calls `close()`" | `Daemon.close()` did not close the recorder — `run()`'s `finally` did, on the next line. A test that built a **real** `Recorder` and called only `close()` left a live PortAudio stream, whose CFFI callback then fired after interpreter teardown and killed the suite at session finish (ADR-111). Teardown split across two functions is teardown that one caller will miss. |
+| "It is a local model, so nothing leaves the machine" | The live daemon held two ESTAB sockets to `*.events.data.microsoft.com` — **`import onnxruntime` phones home to Microsoft telemetry, on import, on Linux** (ADR-112). Five components route through ORT, so every daemon start did it. `onnxruntime.disable_telemetry_events()` does NOT stop it; only `ORT_DISABLE_TELEMETRY=1`, set before the library loads, does. Rule 7 checks a dependency's *footprint*; it never asked what one talks to. |
+| "I checked and it was clean" | Once, at 12 seconds. The ORT telemetry socket takes **15-45 s** to appear, so three single-sample controls all read clean and produced a confident wrong cause (that importing `friday` was required — it is not). A single sample is not an observation of an intermittent thing. Sample until your window is longer than the phenomenon (ADR-112). |
 | "It is opt-in, so it does not need a confirm" | `clipboard_read` is gated because reading it aloud can voice a password. A screenshot leaks strictly more, and a misheard "look at my screen" would photograph it and describe it out loud. Opt-in is not a gate; a mishear is exactly what a gate is for (ADR-104). |
 | "One UI does this, so both do" | C1 was the TUI's confirm handler. One layer over, in the same file, `set_dnd` and `dictation_mode` still speak success and change nothing in text mode — the TUI has no `DndManager` and no `DictationManager`, and the **daemon** applies the state (F27). When you find a defect in one caller, grep the other one before you close it. |
 | "The summary is distilled, so no transcript reaches disk" | `distill_dialogue` sends the RAW dialogue to the model and writes the result to `session_summaries`. The only thing stopping verbatim quotes is a sentence in `DISTILL_SYSTEM` saying not to (F22). Invariant #7 is enforced on that path by the exact mechanism ADR-008 rejects for injection defence. |
