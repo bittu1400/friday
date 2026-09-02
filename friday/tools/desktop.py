@@ -58,8 +58,24 @@ class DesktopApp(NamedTuple):
 
 # Launcher placeholders (freedesktop Exec key). A literal "%u" left in argv is
 # passed to the binary as an argument.
-_FIELD_CODE: Final = re.compile(r"^%[a-zA-Z]$")
+#
+# NOT anchored: the pattern used to be `^%[a-zA-Z]$`, which only matched a code
+# that was a WHOLE token. Field codes are also written inside one — Spotify ships
+# `Exec=spotify --uri=%u` — and that survived the filter and reached the binary
+# verbatim as `--uri=%u`, the one such case among the 162 scanned entries here.
+# Strip in place and drop only what empties out, which is what GLib's launcher
+# does: a bare `%u` disappears, `--uri=%u` becomes `--uri=`.
+_FIELD_CODE: Final = re.compile(r"%[a-zA-Z]")
 _NON_KEY: Final = re.compile(r"[^a-z0-9]+")
+
+
+def _strip_field_codes(tok: str) -> str:
+    """Expand freedesktop Exec field codes to nothing, as a launcher does.
+
+    `%%` is a literal percent per the spec, so protect it before stripping or
+    `%%s` would lose its `%s`.
+    """
+    return _FIELD_CODE.sub("", tok.replace("%%", "\0")).replace("\0", "%")
 
 
 def app_key(name: str) -> str:
@@ -96,7 +112,7 @@ def _parse(path: Path) -> tuple[str, DesktopApp] | None:
     exec_line = sec.get("Exec", "").strip()
     if not exec_line:
         return None
-    argv = [t for t in shlex.split(exec_line) if not _FIELD_CODE.fullmatch(t)]
+    argv = [s for s in (_strip_field_codes(t) for t in shlex.split(exec_line)) if s]
     if not argv:
         return None
 

@@ -4786,3 +4786,78 @@ that anything could reach it. Reported back to the owner rather than built.
   produced five real wakes and zero false ones, so the path this ADR optimises
   has not been exercised at a microphone. `capture abandoned: no speech within
   5.0s` in the journal is what confirms it.
+
+---
+
+## ADR-114 — `KillMode=process`: a launched app must not die with the daemon
+
+**Status:** Accepted (2026-09-02). Fixes **D29**. Amends ADR-043.
+
+**Context.** The owner: *"Even if friday says launching [app], nothing opens."*
+
+Every app Friday launches is a **child of the daemon**, and the daemon is a
+systemd user service. `start_new_session=True` (`executor.py:100`) gives the
+child a new session and process group, which is what ADR-043 needed for a
+fire-and-forget launch — but **cgroup membership is inherited and a process
+cannot leave its cgroup by forking.** Confirmed on the machine:
+
+```
+$ systemctl --user show friday -p ControlGroup -p KillMode
+ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/friday.service
+KillMode=control-group          # systemd's default
+```
+
+`KillMode=control-group` SIGKILLs **every process in the cgroup** when the unit
+stops or restarts. So every window Friday has ever opened dies with the daemon —
+and the unit is `Restart=always` with `WatchdogSec=10s` and
+`PartOf=graphical-session.target`, so that happens without anyone asking.
+
+**Measured, with the executor's own detach branch running under this unit's
+exact properties** (`Type=simple`, `KillMode=control-group`, `ProtectSystem=strict`,
+`PrivateTmp=yes`, `NoNewPrivileges=yes`, same `PassEnvironment`):
+
+```
+foot windows before:                      0
+reported OK after 401 ms                  <- the _LAUNCH_GRACE_S timeout path
+foot during (parent alive):               1
+systemctl --user stop <probe>
+foot after parent stopped:                0     <- KillMode=control-group
+foot after parent stopped:                1     <- KillMode=process
+```
+
+**Decision.** `KillMode=process` on `friday.service`. systemd then kills only
+the main process on stop or restart and leaves the apps running.
+
+**Rejected: launching through `systemd-run --user --scope`,** which would give
+each app its own cgroup and is the textbook answer. It puts a **wrapper at
+argv[0]**, and `assert_not_banned` inspects only argv[0] — that is exactly F5,
+the open finding about `env` / `flatpak` / `distrobox-enter` prefixes passing
+the ban list. The ban list would be vetting `systemd-run` instead of the app.
+Not worth reopening a known hole to fix a lifecycle bug.
+
+**Safe here** because the daemon's only other children are short-lived commands
+(`wpctl`, `brightnessctl`, `playerctl`, `nmcli`, `hyprctl`) that exit on their
+own, and ADR-073's `_kill_group` still reaps a timed-out one explicitly —
+`KillMode` governs systemd's stop behaviour, not the executor's.
+
+**Consequences.**
+
+- A launched app now outlives the daemon, which is what a user means by
+  "open my browser". It also means a stuck child is no longer cleaned up by a
+  service restart; nothing in the current tool set can produce one.
+- **Not proven through the daemon itself.** The proof above drives the
+  executor's real spawn under the real unit properties, but no app has been
+  launched by the live daemon and survived a restart, because that needs a
+  spoken turn. `systemd-cgls --user-unit friday.service` after a launch, then a
+  restart, is the confirmation.
+
+### ADR-114a — Amendment: embedded XDG field codes were not stripped
+
+Found while auditing the same path. `desktop.py`'s `_FIELD_CODE` was anchored
+(`^%[a-zA-Z]$`), so it only removed a field code that was a **whole token**.
+Codes are also written inside one — Spotify ships `Exec=spotify --uri=%u` — and
+that reached the binary verbatim as `--uri=%u`. One of the 162 scanned entries
+on this machine. Now stripped in place the way GLib's launcher expands them (a
+bare `%u` disappears, `--uri=%u` becomes `--uri=`), with `%%` protected as the
+literal percent the spec says it is. `tests/test_desktop_apps.py` gains two
+checks and the FAIL path was demonstrated by restoring the anchors.

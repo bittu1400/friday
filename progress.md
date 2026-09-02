@@ -109,6 +109,117 @@ of what was BUILT; it is not a statement that it is all honest.
 
 ---
 
+## SESSION 2026-09-02 (night, later) — **D29: EVERY APP FRIDAY LAUNCHED DIED WITH THE DAEMON** (ADR-114)
+
+**The owner's report:** *"Even if friday says launching [app], nothing opens."*
+
+### The cause, and it is one line of unit file
+
+Every app Friday launches is a **child of the daemon**, and the daemon is a
+systemd user service. `start_new_session=True` (`executor.py:100`) detaches the
+child from the terminal and the process group — which is all ADR-043 ever needed
+— but **cgroup membership is inherited, and a process cannot leave its cgroup by
+forking.** Asked of the system:
+
+```
+$ systemctl --user show friday -p ControlGroup -p KillMode
+ControlGroup=/user.slice/user-1000.slice/user@1000.service/app.slice/friday.service
+KillMode=control-group          # systemd's DEFAULT -- never set explicitly
+```
+
+`control-group` SIGKILLs everything in the cgroup on stop or restart. The unit
+is `Restart=always`, `WatchdogSec=10s`, `PartOf=graphical-session.target`, so
+this fires without anyone asking.
+
+### The measurement
+
+The executor's own detach branch, run under this unit's exact properties
+(`Type=simple`, `ProtectSystem=strict`, `PrivateTmp=yes`, `NoNewPrivileges=yes`,
+same `PassEnvironment`), with the parent kept alive past the grace:
+
+```
+foot windows before:                 0
+reported OK after 401 ms                     <- the _LAUNCH_GRACE_S timeout path
+foot during (parent alive):          1
+$ systemctl --user stop <probe>
+foot after parent stopped:           0       <- KillMode=control-group
+foot after parent stopped:           1       <- KillMode=process
+```
+
+**Fix: `KillMode=process`.** Deployed, and read back from systemd rather than
+from the file (gotcha #2):
+
+```
+$ systemctl --user daemon-reload && systemctl --user restart friday
+$ systemctl --user show friday -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload
+KillMode=process   Type=notify   WatchdogUSec=10s   NeedDaemonReload=no
+```
+
+**REJECTED: `systemd-run --user --scope`,** the textbook answer, which would give
+each app its own cgroup. It puts a **wrapper at argv[0]**, and
+`assert_not_banned` inspects only argv[0] — that is **F5** exactly, the open
+finding about `env` / `flatpak` / `distrobox-enter` prefixes passing the ban
+list. Not reopening a known security hole to fix a lifecycle bug.
+
+### Second defect found on the same path: ADR-114a
+
+`desktop.py`'s field-code filter was anchored, `^%[a-zA-Z]$`, so it only removed
+a code that was a **whole token**. Codes are also written inside one — Spotify
+ships `Exec=spotify --uri=%u` — and that reached the binary verbatim. **1 of the
+162 scanned entries.** Now stripped in place as GLib's launcher expands them,
+with `%%` protected as the literal percent the spec says it is:
+
+```
+'%u'         -> ''            'spotify'    -> 'spotify'
+'--uri=%u'   -> '--uri='      '-f%F'       -> '-f'
+'%%u'        -> '%u'          '100%%'      -> '100%'
+```
+
+FAIL path demonstrated by restoring the anchors:
+`FAILED tests/test_desktop_apps.py::test_field_code_inside_a_token_is_stripped`.
+
+### Two wrong causes were chased first. Both are recorded because both looked right.
+
+1. **"The sandbox blocks the window."** An A/B said sandboxed = 0 windows,
+   unsandboxed = 1. **The control was broken:** the sandboxed run used
+   `systemd-run --wait`, so the count was taken *after* the unit had already
+   exited and the window was long gone, while the unsandboxed run was sampled
+   *during*. Bisecting `ProtectSystem=strict`, `PrivateTmp=yes` and
+   `NoNewPrivileges=yes` one at a time showed **all three produce a window**.
+   The sandbox is innocent.
+2. **"VS Code never opens under the daemon."** True, and **self-inflicted**: a
+   `pkill` earlier in the session left VS Code's single-instance state stale, so
+   `code` opened nothing **from a plain shell either**. An invalid subject, not
+   a Friday defect. Caught by testing the control.
+
+Also checked and clean: the daemon's `/proc/<pid>/environ` carries all of
+`WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`,
+`HYPRLAND_INSTANCE_SIGNATURE`, `LANG`; and all **162** app ids resolve under the
+daemon's own narrower `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/bin`), not
+just under an interactive shell's.
+
+### Gates
+
+```
+.venv/bin/python -m pytest -q                575 passed (was 573; +2 field-code)
+.venv/bin/python -m friday.eval_harness      60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest          9/9 PASS, rc=0
+scripts/bootstrap.py --check                 11/11 PASS
+just grammar + git diff --quiet grammars/    clean
+```
+
+**NOT PROVEN THROUGH THE DAEMON.** The proof above drives the executor's real
+spawn under the real unit properties, but no app has been launched by the *live*
+daemon and survived a restart, because that needs a spoken turn. The
+confirmation is one command after a launch:
+
+```bash
+systemd-cgls --user-unit friday.service     # the app is listed here
+systemctl --user restart friday             # with KillMode=process it survives
+```
+
+---
+
 ## SESSION 2026-09-02 (night, at the microphone) — THE MICROPHONE. **D3 IS FIXED LIVE. OQ-39 CLOSED.** Phase 2 is 7 of 7.
 
 **The one thing owed since Phase 2 has been done.** The owner ran the staged rig
@@ -4057,7 +4168,7 @@ block. **There is nothing left owed at a microphone before Phase 3.**
 Use the venv interpreter directly. These are the numbers as of this commit:
 
 ```bash
-.venv/bin/python -m pytest -q            # 573 passed, rc=0
+.venv/bin/python -m pytest -q            # 575 passed, rc=0
 .venv/bin/python -m friday.eval_harness  # 60/60 (100%), regressions 0
 .venv/bin/python -m friday.selftest      # 9/9 PASS, rc=0
 .venv/bin/python -m pytest -q tests/test_injection.py   # 20/20 blocked
@@ -4087,6 +4198,9 @@ speak) abandons; `VAD_END_SILENCE_S` (0.8 s, mid-sentence) truncates.
 
 ### Still owed, cheap, and NOT done at the microphone session
 
+- **ADR-114 (D29) end to end** — say "open the browser", then
+  `systemctl --user restart friday`, and check the window is still there. The
+  cgroup fix is proven at the mechanism level but not through the live daemon.
 - **ADR-113's abandon path** — one live false wake, to see
   `capture abandoned: no speech within 5.0s` in the journal.
 - **OQ-57** — record the G12 vocabulary clips into `~/.cache/whisper-bench/clips`

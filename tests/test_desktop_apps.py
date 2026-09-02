@@ -179,3 +179,35 @@ Name=Code
 Exec=/opt/code-insiders/code
 """)
     assert desktop.scan([sysd, userd])["code"].argv == ("/opt/code-insiders/code",)
+
+
+def test_field_code_inside_a_token_is_stripped(tmp_path: Path) -> None:
+    """The filter was anchored (`^%[a-zA-Z]$`), so it only caught a field code
+    that was a WHOLE token. Spotify ships `Exec=spotify --uri=%u`, and that
+    reached the binary verbatim as `--uri=%u` — the one such entry among the
+    162 scanned on this machine (found 2026-09-02). Strip in place, the way a
+    launcher expands it, and drop only what empties out.
+    """
+    _write(tmp_path, "spotify.desktop", """
+[Desktop Entry]
+Type=Application
+Name=Spotify
+Exec=spotify --uri=%u
+Categories=Audio;Music;
+""")
+    apps = desktop.scan([tmp_path])
+    assert apps["spotify"].argv == ("spotify", "--uri=")
+    assert not any("%" in a for a in apps["spotify"].argv)
+
+
+def test_double_percent_survives_as_a_literal(tmp_path: Path) -> None:
+    """`%%` is a literal percent in the Exec key. Stripping naively would eat
+    the `%s` out of `%%s` and change the argument."""
+    _write(tmp_path, "pct.desktop", """
+[Desktop Entry]
+Type=Application
+Name=Pct
+Exec=/usr/bin/pctdemo --label=100%%s %f
+""")
+    apps = desktop.scan([tmp_path])
+    assert apps["pct"].argv == ("/usr/bin/pctdemo", "--label=100%s")

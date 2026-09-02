@@ -22,6 +22,27 @@ WorkingDirectory=%h/Projects/Personal/Intern/friday
 ExecStart=%h/Projects/Personal/Intern/friday/.venv/bin/python -m friday.voice_main
 Restart=always
 RestartSec=3s
+# Apps Friday launches are its CHILDREN, so they live in this unit's cgroup —
+# `start_new_session=True` gives the child a new session and pgid, but cgroup
+# membership is inherited and a process cannot leave it. With systemd's default
+# KillMode=control-group, stopping or restarting friday.service SIGKILLs the
+# whole group, so every window Friday ever opened dies with the daemon — and
+# `Restart=always` + `WatchdogSec=10s` + `PartOf=graphical-session.target` mean
+# that happens on its own. Measured 2026-09-02 with the executor's own spawn
+# under this unit's exact properties: a foot window present while the parent
+# lived, gone one second after `systemctl --user stop`. KillMode=process kills
+# only the daemon and leaves the apps running — verified the same way, window
+# still there after the stop.
+#
+# The alternative, launching through `systemd-run --scope` so each app gets its
+# own cgroup, was rejected: it puts a WRAPPER at argv[0], and `assert_not_banned`
+# inspects only argv[0] (F5). The ban list would then be checking `systemd-run`
+# instead of the app, which is the exact hole F5 is about.
+#
+# Safe here because the daemon's only other children are short-lived commands
+# (wpctl, brightnessctl, playerctl, nmcli, hyprctl) that exit on their own, and
+# ADR-073's `_kill_group` still reaps a timed-out one explicitly.
+KillMode=process
 # %t/friday (XDG_RUNTIME_DIR/friday) holds the PTT socket (config.RUNTIME_DIR).
 # /run is tmpfs and wiped on reboot, so systemd must recreate the dir on every
 # start — without this, ReadWritePaths=%t/friday below fails NAMESPACE setup
