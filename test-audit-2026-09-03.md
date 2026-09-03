@@ -28,13 +28,18 @@ file was left modified and no test was added.**
 > | **M4** | **CLOSED** — `tests/test_executor.py::test_subprocess_gets_the_minimal_explicit_env_only` |
 > | **M5** | **CLOSED** — `tests/test_speaker.py` now CALLS `verify()`; the dead `test_speaker_verifier_mock` is gone |
 > | **M16** | **CLOSED via `selftest`, not via the suite** (OQ-66 = c) — `friday/selftest.py::check_unit_deployed` asks `systemctl show`, with 6 FAIL/WARN paths tested |
-> | **M6** | **STILL OPEN.** The eval gate remains 0 % covered and is the next thing to write |
+> | **M6** | **CLOSED 2026-09-03 (last)** — `tests/test_eval_gate.py` (new, 6 tests). All four exit-condition mutations now turn it red |
+> | **M7** | **CLOSED 2026-09-03 (last)** — `tests/test_selftest_fail_paths.py` now calls `run_selftest()` itself; `has_fail`/`has_warn` are both pinned |
 > | everything else | unchanged, and the effort estimates in §F still hold |
 >
-> Suite is **596 passed** (was 581); `just selftest` is **10/10** (was 9/9).
-> Every one of the six was verified by applying its mutation and watching the
+> Suite is **606 passed** (581 → 596 with the tier-1 tests → 602 with M6 → 606
+> with M7); `just selftest` is **10/10** (was 9/9).
+> Every one of the eight was verified by applying its mutation and watching the
 > suite turn red, then reverting — which is now line six of the definition of
 > done (OQ-67 = b).
+>
+> **Tier 1 and tier 2 are now both closed.** What is left is tier 3 (M8-M11,
+> the hardening layers) and the housekeeping findings.
 
 Companion: `audit-2026-09-02.md` audited the code. This file audits the thing
 that is supposed to be watching the code. Where a finding here overlaps one
@@ -254,7 +259,7 @@ accept/reject decision has never been executed by a test, in either direction.
 These matter out of proportion to their blast radius: they are what the project
 trusts when it trusts everything else.
 
-#### M6 — The eval gate is entirely untested — 0 of 4
+#### M6 — The eval gate is entirely untested — 0 of 4  *(CLOSED 2026-09-03, last)*
 
 ```
 eval_harness.py:
@@ -274,7 +279,7 @@ The third of these is **F23's exact shape**. F23 was fixed in code — the
 test was added, so the fix can silently regress. *A fix without a FAIL-path test
 is a fix with a countdown on it.*
 
-#### M7 — Selftest's FAIL path does not set the exit code, and nothing notices
+#### M7 — Selftest's FAIL path does not set the exit code, and nothing notices  *(CLOSED 2026-09-03, last)*
 
 ```
 selftest.py:  has_fail = True  ->  has_fail = False
@@ -388,8 +393,8 @@ These held against everything thrown at them.
 | **M3** | 1 | The `rm` denylist entry is double-covered by its own test | 1 argv, ~2 lines |
 | **M4** | 1 | The subprocess env is never read by a test — invariant #3 | 1 test, ~15 lines |
 | **M5** | 1 | `SpeakerVerifier.verify()` is called by no test | 1 test, ~20 lines |
-| **M6** | 2 | The eval gate is 0 % covered — it can stop gating | 1 test file, ~60 lines |
-| **M7** | 2 | Selftest FAIL → exit 1 is untested (WARN → 2 is tested) | 1 test, ~15 lines |
+| **M6** | 2 | The eval gate is 0 % covered — it can stop gating | **CLOSED** — `tests/test_eval_gate.py`, 6 tests |
+| **M7** | 2 | Selftest FAIL → exit 1 is untested (WARN → 2 is tested) | **CLOSED** — 4 parametrised rows on `run_selftest()` |
 | **M8** | 3 | 3 of 4 grounding-answer cleaners untested (25 %) | parametrise 1 test |
 | **M9** | 3 | 2 of 5 search-body cleaners untested | parametrise 1 test |
 | **M10** | 3 | YouTube netloc re-assertion + NFKC untested (ADR-027) | 2 asserts |

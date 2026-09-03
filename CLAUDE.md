@@ -29,18 +29,26 @@ reverting — which is now line six of the definition of done. Report:
 **`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
 Decisions: **ADR-117**.
 
-**Still open from that audit and deliberately so: M6 — the `just eval` gate is
-0 % covered.** All four of its exit-condition mutations survive; `just eval` can
-be made to always exit 0 and no test notices. It is tier 2, it is the contract
-Phase 3 is measured by, and it is the first thing to write if you want another
-90 minutes of the same work.
+**>>> 2026-09-03 (last): TIER 2 IS CLOSED TOO. M6 and M7.** The eval gate could
+be made to always exit 0 and the self-test's FAIL path could stop producing
+exit 1 — the two gates every session is told to trust. `tests/test_eval_gate.py`
+is new (6 tests, all four exit-condition mutations turn it red);
+`tests/test_selftest_fail_paths.py` now calls `run_selftest()` itself, so
+`has_fail` and `has_warn` are both pinned. `pytest` **596 → 606**, `friday/`
+unchanged. **What is left of that audit is tier 3 — M8-M11, the hardening
+layers** — which is depth, not the wall, and is deliberately not the next job.
+
+**In both cases the untested seam was the last function before the exit code.**
+`_report` and `run_selftest` each turn a list of well-tested results into a
+verdict, and neither had ever been called by a test. That is M2's sentence — the
+suite tested functions, not the wiring between them — applied to a gate.
 
 **Mutation score tracks, almost perfectly, whether a module has a defect number
 behind it.** Everything at 100 % — `daemon`, `vad`, `desktop`, `db`, `audit`,
 affirmation, `client`, `typer`, `logging` — carries a D-, H- or ADR-number from a
-live failure. `eval_harness` scored 0 % and still does (M6);
+live failure. `eval_harness` scored 0 % and is now pinned (M6);
 `speaker` scored 0 % and is now pinned (M5); confirm gates were 40 % and the
-three unarmed ones are now pinned (M1); `grounding` 25 %. None of those had ever
+three unarmed ones are now pinned (M1); `grounding` 25 % and still is (M8). None of those had ever
 failed in front of a human — which is the point: the fossil record only records
 what already bit. **The suite
 is a fossil record of what has already hurt** — which is why its regressions are
@@ -209,8 +217,8 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-**Gate numbers, all re-run 2026-09-03 after the tier-1 tests landed:**
-`uv run pytest` **596 passed, rc=0**, `just eval` **60/60 (100%), regressions 0**,
+**Gate numbers, all re-run 2026-09-03 (last) after M6 and M7 landed:**
+`uv run pytest` **606 passed, rc=0**, `just eval` **60/60 (100%), regressions 0**,
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
@@ -274,10 +282,9 @@ short version, in order:**
 
 ```
 0.  VERIFY THE GROUND          2 min   commands in START HERE, no judgement needed
-1.  ONE MICROPHONE ITEM        60 s    D29/ADR-114. Launch FIRST, then restart
-2.  M6, THE EVAL GATE          ~30 lines. The contract Phase 3 is measured by, 0 % covered
-3.  PHASE 3                    design-2026-09-02.md 11.1. Contract not optional
-4.  RECORD IT                  paste output into progress.md per rule 6, then commit
+1.  ONE MICROPHONE ITEM        60 s    D29/ADR-114. Launch FIRST, then restart. NEEDS A HUMAN
+2.  PHASE 3                    design-2026-09-02.md 11.1. Contract not optional
+3.  RECORD IT                  paste output into progress.md per rule 6, then commit
 ```
 
 1. ~~**Say "open the browser."**~~ **DONE 2026-09-03** — the owner confirmed a
@@ -294,13 +301,15 @@ short version, in order:**
    0.543, `capture abandoned: no speech within 5.0s` at +4.985 s, and no STT
    line and no TTFA after it. **ADR-113 is proven live.**
 
-**The tier-1 tests are DONE (M1-M5, ADR-117) — do not write them twice.**
-`tests/test_confirm_arming.py` is new; `test_executor.py`, `test_action_surface.py`,
-`test_speaker.py` and `test_selftest_fail_paths.py` grew. What is still open from
-that audit is **M6: the `just eval` gate is 0 % covered** — all four of its
-exit-condition mutations survive, so it can be made to always exit 0 with nothing
-noticing. It is the contract Phase 3 is measured by, which is the argument for
-writing it before Phase 3 rather than after.
+**The tier-1 AND tier-2 tests are DONE — do not write them twice.** M1-M5 under
+ADR-117 (`tests/test_confirm_arming.py` is new; `test_executor.py`,
+`test_action_surface.py`, `test_speaker.py` and `test_selftest_fail_paths.py`
+grew) and **M6 + M7 on 2026-09-03 (last)** (`tests/test_eval_gate.py` is new;
+`test_selftest_fail_paths.py` grew again). The gate Phase 3 is judged by can no
+longer be made to always exit 0. **What remains is tier 3 — M8-M11** — three
+grounding cleaners, two search cleaners, the YouTube netloc re-assertion and two
+`validate.py` guards, all parametrise-one-test sized. Every one is depth behind
+a wall that still stands, which is why Phase 3 outranks them.
 
 If a launch ever fails again, do **not** start from the sandbox — `ProtectSystem`,
 `NoNewPrivileges` and `KillMode` are all measured innocent for the *window*
@@ -1006,7 +1015,7 @@ just eval               # eval fixtures -> pass count (currently 60; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 596
+just test               # full unit + adversarial + injection suite (pytest -q). 606
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -1156,7 +1165,8 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The suite is green, so the invariant holds" | Measured 2026-09-03, before the fix: three of the five confirm gates could have their branch DELETED from `turn.py` with all **581 tests still passing** — `system_wifi{off}` dispatched and dropped the network, `hypr_window{close}` closed the window, neither asked (M1) — and `assert_not_banned(argv)` could be removed from the executor with the adversarial and injection suites green (M2). Invariant #10 was enforced by code nothing was watching. **Fixed the same day (ADR-117), and the point survives the fix:** break the line and see if anything turns red. That is the only version of this question with an answer, and it is now line six of the definition of done. |
 | "Both modules have good tests, so the feature is tested" | That is exactly how M2 survived. `assert_not_banned` was thoroughly unit-tested. `executor.execute` was thoroughly unit-tested. **Nothing crossed between them**, so the one line joining them could be deleted silently. **Closed 2026-09-03** — `tests/test_executor.py::test_banned_argv_is_denied_at_dispatch` (ADR-117). When two well-tested modules meet, ask what tests the EDGE — the suite tested functions, not wiring, and that single sentence explains every hole the mutation audit found. |
 | "The test feeds the dangerous input, so the rule is covered" | `test_hard_ban_rejects_dangerous_commands` feeds `["rm","-rf","/"]` — and that argv is caught by the `"rm -"` SUBSTRING rule as well as the binary denylist, so two rules fire and the assertion cannot tell which. Dropping `"rm"` from `BANNED_BINARIES` left the suite green while `rm /home/bittusah/notes.db` sailed through (M3). **Closed 2026-09-03** — the same test now also feeds `["rm","/home/bittusah/notes.db"]` and `["dd","of=/dev/nvme0n1"]`, which no substring rule touches (ADR-117). **A denylist entry needs an argv only that rule rejects.** A test that passes through two rules proves one of them at most. |
-| "The fix landed, so that defect is dead" | F23 and F20 were both genuinely fixed in code. F23's fix has **no test at all** — all four mutations of the eval gate survive, so `just eval` can be made to always exit 0 (M6). F20's fix is half-tested: `has_warn = True -> False` is KILLED, `has_fail = True -> False` **SURVIVES** (M7). A fix without a FAIL-path test has a countdown on it, and the gates that guard the gates are the worst place to leave one. |
+| "The fix landed, so that defect is dead" | F23 and F20 were both genuinely fixed in code and **both fixes were pinned by nothing**. F23's `unbaselined_fails` branch worked and all four eval-gate mutations still survived, so `just eval` could be made to always exit 0 (M6). F20's fix was half-tested: `has_warn = True -> False` was KILLED, `has_fail = True -> False` **SURVIVED** (M7) — the FAIL path had existed since G9 and only the recent OQ-62 half had a test. **Both closed 2026-09-03 (last).** A fix without a FAIL-path test has a countdown on it, and the gates that guard the gates are the worst place to leave one. |
+| "The function is tested, so the gate is tested" | `_report` and `run_selftest` are each the last function before an exit code, and **neither had ever been called by a test** — every test one layer down drove an individual check or an individual fixture. `just eval` and `just selftest` are the two commands this project trusts when it trusts everything else, and both could be made to always exit 0. Test the thing that returns the verdict, not only the things it reads. |
 | "The test is named after the thing, so it tests the thing" | `test_speaker_verifier_mock` constructed a `SpeakerVerifier` and **never called it** — the local was assigned and unused, and its assertions ran `cosine_similarity()`, which the test twenty lines above already covered. `grep -rn "\.verify(" tests/` returned nothing: the entire G13 accept/reject decision was executed by no test, and both mutations of its return statement survived (M5). Coverage would still have credited the import. **Closed 2026-09-03** — that test is DELETED and replaced by `test_verify_accepts_the_owner_and_rejects_an_impostor`, which calls `verify()` in both directions (ADR-117). |
 | "A mutation survived, so that is a defect" | Four of the five surviving constants are CORRECT to leave free: the logic consuming `VAD_END_SILENCE_S`, `RETENTION_DAYS` and the wake threshold/refractory is fully tested — every wake-gating, VAD and retention mutation was killed — so only the default floats, and pinning a tuning knob converts every future tuning run into a test edit. `MAX_CAPTURE_S` is the exception because **FR-4 calls it a hard cap**. Ask what the constant is FOR before freezing it (ADR-116a). |
 | "The unit test reads the service file, so the unit is verified" | It verifies the FILE. The installed unit is a **symlink** to that file, so it always matches — which is why `tests/test_service_unit.py` would have passed throughout the weeks when `systemctl show` said `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes` and the watchdog had never fired (M16). Of 79 test files, only `test_egress.py` shells out to the live system. Deployment is a live question; ask `systemctl`. **Answered 2026-09-03 (OQ-66 = c, ADR-117): the live question went to `friday/selftest.py::check_unit_deployed`, not into the suite** — `selftest` is the tool built for live questions and the 6.7 s suite stays hermetic. The file test still exists and still only proves the file. |

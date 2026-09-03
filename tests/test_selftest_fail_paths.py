@@ -220,3 +220,31 @@ def test_unit_deployed_warns_when_the_unit_is_not_installed(monkeypatch):
 def test_unit_deployed_warns_without_a_user_bus(monkeypatch):
     _systemctl("", returncode=1)(monkeypatch)
     assert selftest.check_unit_deployed().status is Status.WARN
+
+
+# --- M7: the exit code itself ----------------------------------------------
+# Every test above drives one check. `run_selftest` — which turns those
+# statuses INTO an exit code — was executed by none of them, so
+# `has_fail = True -> False` survived the whole suite: a FAILing check no
+# longer produced exit 1. That is F20's own defect, re-armed. `just selftest`
+# is the command every session is told to run first, and rc is all it says.
+
+
+def _results(*statuses: Status) -> list[selftest.CheckResult]:
+    return [
+        selftest.CheckResult(f"c{i}", s, "msg") for i, s in enumerate(statuses)
+    ]
+
+
+@pytest.mark.parametrize(
+    "statuses, expected",
+    [
+        ((Status.PASS, Status.PASS), 0),
+        ((Status.PASS, Status.WARN), 2),  # OQ-62 / ADR-108
+        ((Status.PASS, Status.FAIL), 1),
+        ((Status.WARN, Status.FAIL), 1),  # FAIL outranks WARN
+    ],
+)
+def test_run_selftest_exit_code(monkeypatch, statuses, expected):
+    monkeypatch.setattr(selftest, "run_all_checks", lambda: _results(*statuses))
+    assert selftest.run_selftest() == expected
