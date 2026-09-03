@@ -5104,3 +5104,86 @@ that reason.
 
 The general rule: **a mutation surviving is a question, not a verdict.** Ask
 what the constant is *for* before writing a test that freezes it.
+
+---
+
+## ADR-117 — The tier-1 test gaps close first; live deploy questions go to `selftest`; a touched invariant ships with its mutation shown red
+
+**Date:** 2026-09-03
+**Status:** Accepted
+**Closes:** OQ-65, OQ-66, OQ-67 (all three raised the same day by ADR-116's
+mutation audit)
+**Supersedes:** nothing. Amends the definition of done in `CLAUDE.md`.
+
+### Context
+
+The mutation audit (ADR-116, `test-audit-2026-09-03.md`) injected 85 defects and
+found 29 that no test could see. Five were tier 1 — a hard invariant deleted in
+silence — and it deliberately fixed none of them, because three of the calls
+were the owner's:
+
+1. **Ordering (OQ-65).** Phase 3 is scheduled to rewrite `executor.py` (F4, F5),
+   which is where two of the five gaps live, and Phase 3's acceptance contract
+   is `just eval` — itself 0 % covered (M6).
+2. **Where a live question belongs (OQ-66).** All six checks in
+   `tests/test_service_unit.py` parse the unit file from disk. The installed
+   unit is a **symlink to that file**, so it always matches; the suite would
+   have stayed green through the weeks `systemctl show` reported `Type=simple`,
+   `WatchdogUSec=0`, `NeedDaemonReload=yes` and the watchdog had never fired
+   (M16).
+3. **Whether mutation becomes policy (OQ-67).** A full sweep is ~10 minutes
+   against a 6.7 s suite.
+
+### Decision
+
+**OQ-65 → (a) tests first.** The five tier-1 gaps close before Phase 3 starts.
+
+**OQ-66 → (c) a `unit_deployed` check in `friday/selftest.py`.** The suite stays
+hermetic and 6.7 s — which is why it gets run — and the live question goes to
+the tool built for live questions, which already exits 2 on WARN.
+
+**OQ-67 → (b) per-invariant, on demand.** One line joins the definition of done:
+*a change touching a hard invariant ships with a mutation of that line
+demonstrated to turn the suite red.* No gate, no standing cost. A full sweep in
+`just test` stays rejected for ADR-116's reason: it freezes a hand-picked
+mutation list into the gate, and a stale mutation list is one more thing that
+can be green while wrong.
+
+### What shipped
+
+| finding | test | the mutation it was proven to kill |
+| :-- | :-- | :-- |
+| **M1** | `tests/test_confirm_arming.py` (new) | all three `turn.py` gates → `if False:` — 3 failed |
+| **M2** | `tests/test_executor.py` | `assert_not_banned(argv)` → `pass` |
+| **M3** | `tests/test_action_surface.py` | `"rm", "rmdir",` → `"rmdir",` in `BANNED_BINARIES` |
+| **M4** | `tests/test_executor.py` | `env=dict(spec.env)` → `env=None` |
+| **M5** | `tests/test_speaker.py` | `return score >= th, score` → `return True, score`, and → `return score < th, score` |
+| **M16** | `friday/selftest.py` + `tests/test_selftest_fail_paths.py` | six FAIL/WARN paths, one per directive plus the pending reload |
+
+Every one was verified the way ADR-116 says to: the mutation was applied, the
+suite was watched turn red, and the source was restored. `581 → 596 passed`.
+
+`check_unit_deployed` asks `systemctl --user show` for `LoadState`,
+`NeedDaemonReload` and the four directives this project has actually been bitten
+by — `Type=notify` and `WatchdogUSec=10s` (ADR-109), `PrivateTmp=no` (D30,
+ADR-115), `KillMode=process` (D29, ADR-114). A pending reload or any drift is
+**FAIL**; no user bus or an uninstalled unit is **WARN**, because foreground
+`just voice` is a supported mode.
+
+### Cost, and what was rejected
+
+`selftest` is 9 checks no longer; it is 10, and its docstring says ten (the
+docstring counting itself is F20's lesson). The four expected values are
+**duplicated** between `_UNIT_EXPECTED` and `tests/test_service_unit.py` — that
+is deliberate: one pins the file, the other pins what systemd is running, and
+the whole point of M16 is that those are different questions. Changing a
+directive now costs two edits, which is the correct price.
+
+**Rejected: OQ-66 (b), a pytest that shells out to `systemctl`.** It buys the
+same coverage and costs a skip line in every environment without a user bus.
+Of 81 test files exactly one (`tests/test_egress.py`) talks to the live system,
+and that ratio is worth keeping.
+
+**Rejected: writing the tier-1 tests after Phase 3.** They would then be written
+against new code with no baseline — the audit's own finding is that this
+project's strong tests are the ones written *before* the next thing moved.

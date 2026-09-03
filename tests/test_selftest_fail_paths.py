@@ -166,3 +166,57 @@ def test_power_profile_warns_on_acpi_quiet_profile(monkeypatch, tmp_path):
     assert res.status is Status.WARN
     assert "quiet" in res.message
 
+
+
+# --- M16 / OQ-66: unit_deployed asks systemd, not the file ------------------
+
+_LIVE = (
+    "LoadState=loaded\nNeedDaemonReload=no\nType=notify\n"
+    "WatchdogUSec=10s\nPrivateTmp=no\nKillMode=process\n"
+)
+
+
+def _systemctl(stdout: str, returncode: int = 0):
+    def _run(monkeypatch):
+        monkeypatch.setattr(selftest.shutil, "which", lambda n: "/usr/bin/systemctl")
+        monkeypatch.setattr(
+            selftest.subprocess, "run", lambda *a, **k: _Proc(stdout, returncode)
+        )
+    return _run
+
+
+def test_unit_deployed_passes_on_this_machines_real_output(monkeypatch):
+    _systemctl(_LIVE)(monkeypatch)
+    assert selftest.check_unit_deployed().status is Status.PASS
+
+
+def test_unit_deployed_fails_on_pending_daemon_reload(monkeypatch):
+    # The exact state systemd was in for weeks while the committed watchdog had
+    # never once fired. `tests/test_service_unit.py` was green throughout.
+    _systemctl(_LIVE.replace("NeedDaemonReload=no", "NeedDaemonReload=yes"))(monkeypatch)
+    assert selftest.check_unit_deployed().status is Status.FAIL
+
+
+@pytest.mark.parametrize(
+    "was,now",
+    [
+        ("Type=notify", "Type=simple"),            # ADR-109, the watchdog is dead
+        ("WatchdogUSec=10s", "WatchdogUSec=0"),    # ADR-109
+        ("PrivateTmp=no", "PrivateTmp=yes"),       # D30 — no browser ever opens
+        ("KillMode=process", "KillMode=control-group"),  # D29 — apps die on restart
+    ],
+)
+def test_unit_deployed_fails_on_each_load_bearing_directive(monkeypatch, was, now):
+    _systemctl(_LIVE.replace(was, now))(monkeypatch)
+    assert selftest.check_unit_deployed().status is Status.FAIL
+
+
+def test_unit_deployed_warns_when_the_unit_is_not_installed(monkeypatch):
+    # Foreground `just voice` is a supported mode, so this is DEGRADED, not FAIL.
+    _systemctl("LoadState=not-found\nNeedDaemonReload=no\n")(monkeypatch)
+    assert selftest.check_unit_deployed().status is Status.WARN
+
+
+def test_unit_deployed_warns_without_a_user_bus(monkeypatch):
+    _systemctl("", returncode=1)(monkeypatch)
+    assert selftest.check_unit_deployed().status is Status.WARN

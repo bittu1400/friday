@@ -10,6 +10,15 @@ def test_hard_ban_rejects_dangerous_commands():
         with pytest.raises(PolicyRejected):
             assert_not_banned([b, "-rf", "/"])
 
+    # M3: a denylist entry needs an argv that ONLY that rule rejects. The loop
+    # above proves nothing about BANNED_BINARIES for `rm` — ["rm","-rf","/"] is
+    # also caught by the "rm -" substring rule, so dropping "rm" from the binary
+    # set left the suite green while `rm /home/bittusah/notes.db` sailed through.
+    # No dash, no metacharacter: the binary rule is the only thing standing here.
+    for argv in (["rm", "/home/bittusah/notes.db"], ["dd", "of=/dev/nvme0n1"]):
+        with pytest.raises(PolicyRejected):
+            assert_not_banned(argv)
+
     # Injection patterns
     with pytest.raises(PolicyRejected):
         assert_not_banned(["ls", ";", "rm", "-rf", "/"])

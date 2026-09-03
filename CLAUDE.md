@@ -12,27 +12,37 @@ enum is generated from the XDG desktop entries and merged over the five
 curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
 and shell `Exec` entries are never offered.
 
-**>>> 2026-09-03: D30 IS CONFIRMED CLOSED BY THE OWNER, AND THE TEST SUITE HAS
-BEEN AUDITED BY MUTATION — 85 injected defects, 56 killed, 29 survived, score
-66 %. Read `progress.md`'s `>>> START HERE <<<` block first; it carries the
-numbered todo list, the runnable commands, and the three questions owed to the
-owner (OQ-65 blocks the first job).**
+**>>> 2026-09-03 (later): THE FIVE TIER-1 TEST GAPS ARE CLOSED, AND THE THREE
+QUESTIONS ARE ANSWERED. OQ-65 = tests first, OQ-66 = a `selftest` check,
+OQ-67 = the sixth definition-of-done line — all three are ADR-117.
+`pytest` 581 → 596, `selftest` 9/9 → 10/10, `eval` still 60/60 with 0
+regressions. Read `progress.md`'s `>>> START HERE <<<` block first.**
 
-**The finding that matters: THE SUITE TESTS FUNCTIONS, NOT WIRING.** Three of
-the five confirm gates can have their branch deleted from `turn.py` with all
-581 tests passing — invariant #10, demonstrated. `assert_not_banned(argv)` can
-be removed from the executor and the adversarial and injection suites still
-pass. `SpeakerVerifier.verify()` is called by no test in the repository. The
-whole `just eval` gate is 0 % covered. Report: **`test-audit-2026-09-03.md`**,
-findings **M1–M19**. Method: **ADR-116**. **Nothing was fixed** — no source file
-changed, no test written; the ordering against Phase 3 is the owner's call
-(**OQ-65**).
+**THE SUITE TESTED FUNCTIONS, NOT WIRING — and the five places where that let a
+hard invariant be deleted in silence now have tests.** M1 (three confirm gates
+armed nowhere — `tests/test_confirm_arming.py`), M2 (the executor's
+`assert_not_banned` call), M3 (the `rm` denylist entry, which its own test could
+not protect because two rules fired), M4 (the subprocess env, invariant #3), M5
+(`SpeakerVerifier.verify()`, called by no test in the repository). **Every one
+was proven by applying the mutation and watching the suite go red**, then
+reverting — which is now line six of the definition of done. Report:
+**`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
+Decisions: **ADR-117**.
+
+**Still open from that audit and deliberately so: M6 — the `just eval` gate is
+0 % covered.** All four of its exit-condition mutations survive; `just eval` can
+be made to always exit 0 and no test notices. It is tier 2, it is the contract
+Phase 3 is measured by, and it is the first thing to write if you want another
+90 minutes of the same work.
 
 **Mutation score tracks, almost perfectly, whether a module has a defect number
 behind it.** Everything at 100 % — `daemon`, `vad`, `desktop`, `db`, `audit`,
 affirmation, `client`, `typer`, `logging` — carries a D-, H- or ADR-number from a
-live failure. `eval_harness` and `speaker` score 0 %; confirm gates 40 %,
-`grounding` 25 %; none of those has ever failed in front of a human. **The suite
+live failure. `eval_harness` scored 0 % and still does (M6);
+`speaker` scored 0 % and is now pinned (M5); confirm gates were 40 % and the
+three unarmed ones are now pinned (M1); `grounding` 25 %. None of those had ever
+failed in front of a human — which is the point: the fossil record only records
+what already bit. **The suite
 is a fossil record of what has already hurt** — which is why its regressions are
 genuinely pinned, and why it cannot tell you what will hurt next.
 
@@ -104,9 +114,11 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-116. Questions still owed: OQ-65, OQ-66, OQ-67 (all
-raised 2026-09-03 by the test audit — **OQ-65 blocks the next session's first
-job**), plus OQ-57, OQ-59, OQ-60, OQ-61, OQ-63. OQ-39 is CLOSED** (D3 proven live 2026-09-02 night), **OQ-64 is CLOSED**
+**Decisions ADR-098…ADR-117. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
+OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
+**ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
+went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
+CLOSED** (D3 proven live 2026-09-02 night), **OQ-64 is CLOSED**
 (the post-wake pause budget → **ADR-113**: 3.0 → 5.0 s, and an abandoned capture
 now skips STT and the turn) **and OQ-62 is CLOSED** (selftest WARN → exit 2
 `[DEGRADED]`).
@@ -194,9 +206,9 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-**Gate numbers, all re-run 2026-09-02 evening with the LLM confirmed on GPU:**
-`uv run pytest` **568 passed, rc=0**, `just eval` **60/60 (100%), regressions 0**,
-`just test-injection` **20/20 blocked**, `just selftest` **9/9, rc=0**,
+**Gate numbers, all re-run 2026-09-03 after the tier-1 tests landed:**
+`uv run pytest` **596 passed, rc=0**, `just eval` **60/60 (100%), regressions 0**,
+`just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
 (The fixture set was 28 until D16 was fixed on 2026-08-30 — ADR-089 — then 50,
@@ -259,10 +271,9 @@ short version, in order:**
 
 ```
 0.  VERIFY THE GROUND          2 min   commands in START HERE, no judgement needed
-1.  ASK OQ-65                  1 min   it decides what job 3 even is
-2.  TWO MICROPHONE ITEMS       90 s    D29/ADR-114 and ADR-113, owed since 2026-09-02
-3a. TIER-1 TESTS (OQ-65 = a)   ~90 lines across 5 files, M1-M5, mechanical
-3b. PHASE 3      (OQ-65 = b)   design-2026-09-02.md 11.1. Contract not optional
+1.  TWO MICROPHONE ITEMS       90 s    D29/ADR-114 and ADR-113, owed since 2026-09-02
+2.  M6, THE EVAL GATE          ~30 lines. The contract Phase 3 is measured by, 0 % covered
+3.  PHASE 3                    design-2026-09-02.md 11.1. Contract not optional
 4.  RECORD IT                  paste output into progress.md per rule 6, then commit
 ```
 
@@ -275,12 +286,13 @@ short version, in order:**
    `capture abandoned: no speech within 5.0s`. That is ADR-113, which has never
    fired live because no false wake has occurred since the change.
 
-**OQ-65 is the one that blocks work.** The mutation audit found five places
-where a hard invariant can be deleted with all 581 tests green (M1-M5, ~90 lines
-of test to close). Phase 3 is scheduled to rewrite `executor.py` (F4, F5) — two
-of those five live there — and Phase 3's own acceptance contract is `just eval`,
-which finding **M6** shows is 0 % covered. Tests first, Phase 3 first, or split:
-the owner decides. Do not default it.
+**The tier-1 tests are DONE (M1-M5, ADR-117) — do not write them twice.**
+`tests/test_confirm_arming.py` is new; `test_executor.py`, `test_action_surface.py`,
+`test_speaker.py` and `test_selftest_fail_paths.py` grew. What is still open from
+that audit is **M6: the `just eval` gate is 0 % covered** — all four of its
+exit-condition mutations survive, so it can be made to always exit 0 with nothing
+noticing. It is the contract Phase 3 is measured by, which is the argument for
+writing it before Phase 3 rather than after.
 
 If a launch ever fails again, do **not** start from the sandbox — `ProtectSystem`,
 `NoNewPrivileges` and `KillMode` are all measured innocent for the *window*
@@ -392,7 +404,7 @@ daemon in the foreground to actually see `heard=…`**; it logs one warning sayi
 so. Short version:
 
 ```bash
-just selftest      # MUST be 9/9 and rc=0. WARN now exits 2 [DEGRADED] (ADR-108).
+just selftest      # MUST be 10/10 and rc=0. WARN now exits 2 [DEGRADED] (ADR-108).
                    # If llm_on_gpu FAILS: systemctl --user restart friday-llm
 ```
 
@@ -768,15 +780,17 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  116 ADRs
-                      (ADR-001..ADR-116; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  117 ADRs
+                      (ADR-001..ADR-117; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
                       ADR-110/111/112 are the 2026-09-02 evening verification
                       pass: a real egress check, the PortAudio teardown leak,
                       and onnxruntime's telemetry.  ADR-113 is the post-wake
                       pause budget (OQ-64).  ADR-116 is the mutation-testing
                       method, and 116a is why a surviving constant is a QUESTION
-                      and not automatically a defect.
+                      and not automatically a defect.  ADR-117 answers the three
+                      questions ADR-116 raised (OQ-65/66/67) and ships the tests
+                      for M1-M5 plus the `unit_deployed` check for M16.
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
                       keeps the reasoning behind every answered question)
@@ -933,16 +947,20 @@ justified in writing.
    [ ] evidence pasted into progress.md
    [ ] any diagram the change contradicts is fixed in the SAME commit
    [ ] a new decision has an ADR; a new unknown has an OQ entry
+   [ ] a change touching a HARD INVARIANT ships with a mutation of that line
+       demonstrated to turn the suite RED -- applied, watched fail, reverted
 ```
 
 A diagram that disagrees with the code is a bug in the diagram.
 
-**A proposed sixth line is OPEN, not adopted — OQ-67.** The mutation audit
-recommends: *a change touching a hard invariant ships with a mutation of that
-line demonstrated to turn the suite red.* That is the existing "write the
-FAIL-path test" rule made specific, and it costs seconds. It is **not** in the
-list above because adopting it is the owner's decision, not this session's
-(rule 1). A full mutation sweep in `just test` was rejected outright — ADR-116.
+**The sixth line was adopted 2026-09-03 — OQ-67 answered (b), ADR-117.** It is
+the existing "write the FAIL-path test" rule made specific, and it costs
+seconds: apply the mutation, watch the suite go red, restore the file. It exists
+because five hard invariants were found deletable in silence (M1-M5) and every
+one of the tests that now pins them was proven this way rather than asserted to.
+**A full mutation sweep in `just test` stays rejected** — ADR-116: it freezes a
+hand-picked mutation list into the gate, and a stale mutation list is one more
+thing that can be green while wrong.
 
 ## Style
 
@@ -979,7 +997,7 @@ just eval               # eval fixtures -> pass count (currently 60; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 581
+just test               # full unit + adversarial + injection suite (pytest -q). 596
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -989,7 +1007,8 @@ just test-egress        # REAL egress check since ADR-110: guards socket.getaddr
 just test-binds         # listening sockets only -- what test-egress used to be
 just test-no-fstring-sql# assert store/ SQL is strictly parameterized
 just selftest           # health: servers, gpu arch, LLM-actually-on-GPU, db perms,
-                        # audio, binds, panic switch, power profile (9 checks).
+                        # audio, binds, panic switch, power profile, and the
+                        # RUNNING unit vs the committed one (10 checks, ADR-117).
                         # rc 0 clean / 1 any FAIL / 2 any WARN [DEGRADED] (ADR-108)
 just stats [--tools]    # measured latency by action class from action_audit (ADR-109)
 just say "hello"        # speak one line with Kokoro
@@ -1125,7 +1144,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "`argv[0]` is not on the denylist, so the command is safe" | Measured: `env python3 /tmp/x.py`, `flatpak run …`, `distrobox-enter … -- bash` and bare `python3` all PASS `assert_not_banned` (F5). Only `argv[0]` is inspected, and `env`/`flatpak`/`distrobox-enter` each execute an arbitrary following command. `~/.local/share/applications` is user-writable and already holds an `env`-prefixed entry. Resolve the EFFECTIVE binary through wrapper prefixes first. |
 | "The docs say that area is fixed, so start somewhere else" | The 2026-09-02 audit was told to ignore the docs and read the code cold. It found three defects the docs would have talked it out of — F2, F3 and F21 — because a doc records the FIX and not the REGRESSION. Read the code first; read the docs to write them up. |
 | "The number is close enough to write down" | v1 of that audit published "6 of 20" (it was 7, and one value was lost in sorting), "8 paths" (10), "700 ms" (816), and a 1.5 s target derived from an STT assumption a five-minute measurement disproved. Measure, THEN write the number down — and when you re-check, re-check your own work first. |
-| "The suite is green, so the invariant holds" | Measured 2026-09-03: three of the five confirm gates can have their branch DELETED from `turn.py` and all **581 tests still pass** — `system_wifi{off}` dispatches and drops your network, `hypr_window{close}` closes the window, neither asks (M1). `assert_not_banned(argv)` can be removed from the executor and the adversarial and injection suites still pass (M2). Invariant #10 is enforced by code that nothing is watching. Break the line and see if anything turns red; that is the only version of this question with an answer. |
+| "The suite is green, so the invariant holds" | Measured 2026-09-03, before the fix: three of the five confirm gates could have their branch DELETED from `turn.py` with all **581 tests still passing** — `system_wifi{off}` dispatched and dropped the network, `hypr_window{close}` closed the window, neither asked (M1) — and `assert_not_banned(argv)` could be removed from the executor with the adversarial and injection suites green (M2). Invariant #10 was enforced by code nothing was watching. **Fixed the same day (ADR-117), and the point survives the fix:** break the line and see if anything turns red. That is the only version of this question with an answer, and it is now line six of the definition of done. |
 | "Both modules have good tests, so the feature is tested" | That is exactly how M2 survives. `assert_not_banned` is thoroughly unit-tested. `executor.execute` is thoroughly unit-tested. **Nothing crosses between them**, so the one line joining them can be deleted silently. When two well-tested modules meet, ask what tests the EDGE — the suite tests functions, not wiring, and that single sentence explains every hole the mutation audit found. |
 | "The test feeds the dangerous input, so the rule is covered" | `test_hard_ban_rejects_dangerous_commands` feeds `["rm","-rf","/"]` — and that argv is caught by the `"rm -"` SUBSTRING rule as well as the binary denylist, so two rules fire and the assertion cannot tell which. Drop `"rm"` from `BANNED_BINARIES` and the suite stays green while `rm /home/bittusah/notes.db` sails through (M3). **A denylist entry needs an argv only that rule rejects.** A test that passes through two rules proves one of them at most. |
 | "The fix landed, so that defect is dead" | F23 and F20 were both genuinely fixed in code. F23's fix has **no test at all** — all four mutations of the eval gate survive, so `just eval` can be made to always exit 0 (M6). F20's fix is half-tested: `has_warn = True -> False` is KILLED, `has_fail = True -> False` **SURVIVES** (M7). A fix without a FAIL-path test has a countdown on it, and the gates that guard the gates are the worst place to leave one. |

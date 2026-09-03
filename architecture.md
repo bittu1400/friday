@@ -57,7 +57,9 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
                             must run the same text as a fresh command
      dialogue.py            in-RAM session dialogue ring buffer (ADR-048)
      logging_config.py      structured JSON logging, 10MB x 5 rotation, redaction (FR-43)
-     selftest.py            unified 9-subsystem sanity & health check CLI (G9, F28, ADR-109)
+     selftest.py            unified 10-subsystem sanity & health check CLI (G9, F28,
+                            ADR-109; the 10th asks systemd whether the RUNNING unit
+                            matches the committed one -- M16, ADR-117)
      stats_cli.py           `just stats` — latency & TTFA breakdown by action class (ADR-107, FR-128)
      watchdog.py            systemd sd_notify READY/STOPPING + periodic WATCHDOG task (F11, ADR-109)
      prefs_cli.py           `just prefs` — list/export/forget/reset

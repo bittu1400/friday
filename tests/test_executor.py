@@ -88,3 +88,53 @@ def test_policy_rejected_query_is_denied_not_dispatched() -> None:
     spec = REGISTRY["youtube_search"]
     r = _run(executor.execute(spec, {"query": "lofi; rm -rf ~"}, RID))
     assert r.outcome is Outcome.DENIED
+
+
+def test_banned_argv_is_denied_at_dispatch() -> None:
+    # M2, invariant #10. `assert_not_banned` is thoroughly unit-tested and the
+    # executor is thoroughly unit-tested; nothing crossed between them, so
+    # deleting the executor's call left 42 security tests green — the
+    # adversarial and injection suites included. This asserts the WIRING.
+    #
+    # The path does not exist, so if the gate is ever removed the mutation
+    # shows up as OK/ERROR here rather than as a deleted file.
+    spec = _spec(["rm", "/nonexistent/friday-ban-probe"], "rm")
+    r = _run(executor.execute(spec, {}, RID))
+    assert r.outcome is Outcome.DENIED
+
+
+def test_subprocess_gets_the_minimal_explicit_env_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    # M4, FR-32 / invariant #3: "minimal explicit env, no inheritance". No test
+    # had ever read the env the executor actually passes, so `env=dict(spec.env)`
+    # could become `env=None` — every launched process inheriting the daemon's
+    # whole environment — with the suite green. F4 rewrites this line in Phase 3.
+    captured: dict[str, object] = {}
+
+    class _FakeProc:
+        pid = 4242
+
+        async def wait(self) -> int:
+            return 0
+
+    async def _fake_exec(*argv: str, **kw: object) -> _FakeProc:
+        captured.update(kw)
+        return _FakeProc()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+    env = MappingProxyType({"PATH": "/usr/bin:/bin", "DISPLAY": ":0"})
+    spec = ToolSpec(
+        tool_id="probe",
+        risk="reversible",
+        build_argv=lambda p: ["true"],
+        target_binary=lambda p: "true",
+        display=lambda p: "the probe",
+        cwd="/",
+        env=env,
+        timeout_s=5.0,
+    )
+    r = _run(executor.execute(spec, {}, RID))
+
+    assert r.outcome is Outcome.OK
+    assert captured["env"] == dict(env), "the child did not get spec.env verbatim"
+    assert "HOME" not in (captured["env"] or {}), "the daemon's environment leaked in"

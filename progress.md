@@ -12,6 +12,14 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-09-03 (later): THE FIVE TIER-1 TEST GAPS ARE CLOSED AND THE THREE
+QUESTIONS ARE ANSWERED (ADR-117). `pytest` 581 → 596, `selftest` 9/9 → 10/10,
+`eval` still 60/60 with 0 regressions. `friday/` is unchanged apart from
+`selftest.py` — the findings were missing tests, not defects. Every one was
+proven by applying its mutation and watching the suite turn RED, which is now
+line six of the definition of done. Still owed: the two microphone items
+(ADR-114, ADR-113) and **M6, the eval gate, still 0 % covered**. <<<**
+
 **>>> 2026-09-03: THE LAUNCH BUG IS CONFIRMED CLOSED, AND THE TEST SUITE WAS
 AUDITED BY MUTATION.**
 
@@ -24,11 +32,12 @@ steps 2 and 3 of the START HERE block.
 
 **Then the tests were attacked.** 85 defects injected into the source one at a
 time, full suite run against each: **56 killed, 29 survived, mutation score
-66 %.** The suite is real — but it **tests functions, not wiring**, and
-**three of the five confirm gates can be deleted with all 581 tests passing**
+66 %.** The suite is real — but it **tested functions, not wiring**, and
+**three of the five confirm gates could be deleted with all 581 tests passing**
 (invariant #10, demonstrated). Report: **`test-audit-2026-09-03.md`**, findings
-**M1–M19**. Method: **ADR-116**. **No source file was changed and no test was
-written** — the ordering against Phase 3 is the owner's call, **OQ-65**. <<<
+**M1–M19**. Method: **ADR-116**. That session changed no source file and wrote
+no test; the five tier-1 gaps were closed later the same day under **ADR-117**
+once the owner answered **OQ-65**. <<<
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, post-audit
 **Phase 1 ("Stop Lying") COMPLETE** (ADR-108, plus F9 finished properly in ADR-110),
@@ -42,7 +51,8 @@ D18 is therefore NOT implicated in end-of-speech and stays parked (OQ-52).
 (ADR-111; it died with SIGSEGV/SIGILL on ~9 runs in 10 until 2026-09-02 evening,
 so the previous "563 passed" was true but only reachable file-by-file).
 `just eval` **60/60 (regressions 0)**, `just test-injection` **20/20 blocked**,
-`just selftest` **9/9, rc=0**, `just test-no-fstring-sql` **OK**,
+`just selftest` **10/10, rc=0** (nine until ADR-117 added `unit_deployed`),
+`just test-no-fstring-sql` **OK**,
 `just test-egress` **PASS — and it is now a real egress check** (ADR-110; the
 version that shipped with Phase 1 asserted `urlparse()` on config constants and
 could not observe a connection). **It found real egress the day it was written:
@@ -50,13 +60,16 @@ onnxruntime phones home to `*.events.data.microsoft.com` on import, on every
 daemon start, and had been doing so for the life of the project — ADR-112, fixed
 and verified live.** `just bootstrap --check` **11/11**, `just stats` **active**.
 
-`uv run pytest` is now **581 passed** (568 → 573 with ADR-113's tests → 575
+`uv run pytest` is now **596 passed** (568 → 573 with ADR-113's tests → 575
 with ADR-114a's → 581 with `tests/test_service_unit.py`, which is **6 checks,
-not 5** — the START HERE block said 5 until 2026-09-03, finding M18). Note `uv`
+not 5** — the START HERE block said 5 until 2026-09-03, finding M18 — → **596**
+with ADR-117's tier-1 tests, M1-M5 plus the eight FAIL/WARN paths of the new
+`unit_deployed` check). Note `uv`
 is not on PATH in this environment; use `.venv/bin/python -m pytest -q`.
 
-**Every gate re-run 2026-09-03, pasted below in the session block:** `pytest`
-**581 rc=0**, `eval` **60/60 (100%), regressions 0**, `selftest` **9/9 rc=0**,
+**Every gate re-run 2026-09-03 (later), pasted below in the session block:**
+`pytest` **596 rc=0**, `eval` **60/60 (100%), regressions 0**, `selftest`
+**10/10 rc=0** (the tenth is `unit_deployed`, ADR-117/OQ-66),
 `bootstrap --check` **11/11**, `test_egress` **8**, `test_service_unit` **6**,
 grammars **byte-identical**. The mechanical doc-vs-tree check is clean: **0
 dangling ADR / OQ / FR ids, 0 dead file citations** (14 flagged paths are all
@@ -4604,7 +4617,264 @@ doc map, M19), `spec.md` (FR-4 note — the hard cap has no test, M14).
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-03**, after the test-suite mutation audit) <<<
+## 2026-09-03 (later) — the five tier-1 test gaps are CLOSED, and the three questions are answered (ADR-117)
+
+**Owner answers, asked as one batch (rule 2) before a line was written:**
+**OQ-65 = (a) tests first. OQ-66 = (c) move it to `selftest`. OQ-67 = (b)
+per-invariant, on demand.** All three recorded in `adr.md` as **ADR-117** and
+moved to `open-questions.md`'s Closed section the same turn (rule 4).
+
+### 0. The ground, verified before anything was touched
+
+```
+$ .venv/bin/python -m pytest -q                        581 passed, rc=0
+$ .venv/bin/python -m friday.eval_harness              60/60 (100%), regressions 0
+$ .venv/bin/python -m friday.selftest                  9/9 PASS, rc=0
+$ .venv/bin/python scripts/bootstrap.py --check        11/11 PASS
+$ pytest -q tests/test_egress.py tests/test_injection.py tests/test_service_unit.py
+                                                       15 passed
+$ .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/
+                                                       grammars byte-identical
+
+$ systemctl --user show friday -p PrivateTmp -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload
+NeedDaemonReload=no   Type=notify   WatchdogUSec=10s   PrivateTmp=no   KillMode=process
+$ ls -d tmp*/ 2>/dev/null | wc -l                      0
+$ systemctl --user is-active friday friday-llm friday-searxng
+active / active / active
+```
+
+**One thing looked wrong and was not.** `find friday -name '*.py'` reports
+`friday/daemon.py` at **2026-09-03 07:39**, later than the daemon's start at
+**2026-09-02 21:43:49** — the exact shape of "the fix is committed, so the fix is
+running", which has bitten twice. It is an artefact of the mutation audit: 85
+defects were injected and reverted, which rewrites mtimes without changing
+content. The content check is the one that answers it — `git status` clean, and
+the last commit touching `friday/*.py` is `ec2ee19` at **21:27:50**, before the
+daemon started. **Compare commit times, not mtimes, after a mutation run.**
+
+### 1. The five tier-1 tests, each proven by watching the suite go red
+
+Every one was verified the way ADR-116 says to and the way this audit exists to
+enforce: **apply the mutation, run the suite, watch it fail, restore the file.**
+Not one is asserted to.
+
+```
+M1  tests/test_confirm_arming.py (NEW, 4 tests)
+    mutation: all three turn.py gates -> `if False:`
+    $ pytest -q tests/test_confirm_arming.py
+    FAILED ...[system_wifi]  FAILED ...[clipboard_set]  FAILED ...[hypr_window]
+    3 failed, 1 passed in 0.51s          <- baseline: 4 passed in 0.08s
+
+M2  tests/test_executor.py::test_banned_argv_is_denied_at_dispatch
+    mutation: executor.py `assert_not_banned(argv)` -> `pass`
+    1 failed, 8 passed in 0.45s
+    (that mutation used to leave 42 security tests green, injection suite included)
+
+M3  tests/test_action_surface.py  (+ an argv ONLY the binary rule rejects)
+    mutation: ban.py  "rm", "rmdir",  ->  "rmdir",
+    1 failed, 12 passed in 0.04s
+    (["rm","-rf","/"] could never prove this: the "rm -" substring rule fires too)
+
+M4  tests/test_executor.py::test_subprocess_gets_the_minimal_explicit_env_only
+    mutation: executor.py `env=dict(spec.env)` -> `env=None`
+    1 failed, 8 passed in 0.45s
+
+M5  tests/test_speaker.py::test_verify_accepts_the_owner_and_rejects_an_impostor
+    mutation: speaker.py `return score >= th, score` -> `return True, score`
+    1 failed, 4 passed in 0.06s
+    mutation:                              -> `return score < th, score`
+    1 failed, 4 passed in 0.07s
+
+$ git diff --quiet friday/ && echo REVERTED clean     # after every round
+REVERTED clean
+```
+
+**M5 deleted a test as well as adding two.** `test_speaker_verifier_mock`
+constructed a `SpeakerVerifier` and never called it — the local was assigned and
+unused, and its assertions ran `cosine_similarity()` that the test twenty lines
+above already covered. It is replaced by one that calls `verify()` in both
+directions (owner accepted at cos 0.995, impostor rejected at cos 0.0, threshold
+0.75, `compute_embedding` monkeypatched so the decision is tested and not the
+ONNX extractor) and one pinning the documented **fail-OPEN** behaviour when
+nobody has enrolled.
+
+### 2. M16 — the live deploy question went to `selftest`, not to the suite (OQ-66 = c)
+
+`friday/selftest.py::check_unit_deployed` asks `systemctl --user show` for
+`LoadState`, `NeedDaemonReload` and the four directives this project has
+actually been bitten by. Pending reload or drift → **FAIL**; no user bus or an
+uninstalled unit → **WARN**, because foreground `just voice` is supported.
+
+```
+$ .venv/bin/python -m friday.selftest | tail -3
+[PASS] unit_deployed   Running friday.service matches the repo (reload clean, 4 directives verified)
+[PASSED] All required system checks passed successfully.        rc=0
+
+$ .venv/bin/python scripts/bootstrap.py --check | grep Selftest
+[PASS] Selftest verified (10/10 checks PASS)
+```
+
+**Six FAIL/WARN paths are tested** in `tests/test_selftest_fail_paths.py` — a
+pending `daemon-reload`, each of `Type=simple`, `WatchdogUSec=0`,
+`PrivateTmp=yes`, `KillMode=control-group`, plus `LoadState=not-found` and a
+missing user bus. A check that cannot fail is worthless; that file exists for
+exactly this.
+
+The four expected values are **deliberately duplicated** between
+`_UNIT_EXPECTED` and `tests/test_service_unit.py`. One pins the file, the other
+pins what systemd is running, and M16's whole point is that those are different
+questions. Changing a directive now costs two edits, which is the right price.
+
+### 3. Gates after the change
+
+```
+$ .venv/bin/python -m pytest -q                  596 passed, rc=0      (was 581)
+$ .venv/bin/python -m friday.eval_harness        60/60 (100%), regressions 0
+$ .venv/bin/python -m friday.selftest            10/10 PASS, rc=0      (was 9/9)
+$ .venv/bin/python scripts/bootstrap.py --check  11/11 PASS
+$ .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/
+                                                 grammars byte-identical
+```
+
+### 4. What changed, and what did not
+
+| file | change |
+| :-- | :-- |
+| `tests/test_confirm_arming.py` | **NEW.** 4 tests. M1 — the three confirm gates nothing armed |
+| `tests/test_executor.py` | +2 tests. M2 (ban-list wiring), M4 (the minimal explicit env, FR-32) |
+| `tests/test_action_surface.py` | +1 loop. M3 — an argv only `BANNED_BINARIES` rejects |
+| `tests/test_speaker.py` | M5. The dead `test_speaker_verifier_mock` replaced by two that call `verify()` |
+| `tests/test_selftest_fail_paths.py` | +8 tests. Every FAIL and WARN path of the new check |
+| `friday/selftest.py` | **+`check_unit_deployed`** and `_UNIT_EXPECTED`; docstring 9 → 10 checks |
+| `justfile` | the `selftest` comment, 9 → 10 checks |
+| `adr.md` | **+ADR-117** — the three owner decisions, what shipped, what was rejected |
+| `open-questions.md` | OQ-65, OQ-66, OQ-67 moved to Closed with the answers and the date |
+| `CLAUDE.md` | status header, gate numbers, doc map (117 ADRs), the "suite is green" temptation row, **and the sixth definition-of-done line** |
+| `test-audit-2026-09-03.md` | a STATUS block: M1-M5 and M16 closed, M6 still open |
+
+**Nothing in `friday/` changed except `selftest.py`.** The five tier-1 findings
+were missing tests, not defects — the code under them was correct, and it still
+is. `git diff` on `turn.py`, `executor.py`, `ban.py` and `speaker.py` is empty.
+
+### 5. Still owed, and deliberately
+
+- **The two microphone items.** D29/ADR-114 (restart with an app open) and
+  ADR-113 (`capture abandoned: no speech within 5.0s`). Ninety seconds, unmoved
+  from the previous block, and they need the owner at the machine because the
+  test only means anything when the **daemon** is the process that launched the
+  app — a text-mode launch is a different cgroup and a different experiment.
+- **M6 — the `just eval` gate is 0 % covered.** All four exit-condition
+  mutations survive. It is the contract Phase 3 is measured by.
+
+---
+
+## >>> START HERE: NEXT SESSION (written **2026-09-03, later**, after the tier-1 tests landed) <<<
+
+**Read this whole block before touching anything. Everything below is measured;
+nothing in it is belief.**
+
+### The state in six lines
+
+- **The five tier-1 test gaps are CLOSED** (M1-M5, ADR-117), each proven by
+  applying its mutation and watching the suite turn red. **Do not write them
+  twice.**
+- **OQ-65, OQ-66 and OQ-67 are answered and closed** — tests first; the live
+  deploy check went to `selftest` as `check_unit_deployed`; and *a change
+  touching a hard invariant ships with a mutation of that line demonstrated to
+  turn the suite red* is now **line six of the definition of done**.
+- **`friday/` is unchanged apart from `selftest.py`.** The tier-1 findings were
+  missing tests, not defects.
+- Gates: `pytest` **596 rc=0**, `eval` **60/60, regressions 0**, `selftest`
+  **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**.
+- **ADR-114 and ADR-113 are still unconfirmed by a human.** Ninety seconds. They
+  have been owed since 2026-09-02 and they are job 1.
+- **M6 is the only tier-1-shaped thing left**: `just eval` can be made to always
+  exit 0 and no test notices — and it is Phase 3's acceptance contract.
+
+### THE TODO LIST, in order
+
+```
+[ ] 0.  VERIFY THE GROUND       2 min    commands below, no judgement needed
+[ ] 1.  TWO MICROPHONE ITEMS    90 s     D29/ADR-114 and ADR-113. Owed since 2026-09-02
+[ ] 2.  M6 — THE EVAL GATE      ~30 lines. The contract Phase 3 is judged by, 0 % covered
+[ ] 3.  PHASE 3                 design-2026-09-02.md 11.1. Contract not optional
+[ ] 4.  RECORD IT               paste output here per rule 6, then commit
+```
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 596 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0  <- TEN since ADR-117
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
+```
+
+`check_unit_deployed` now does the systemd half of this check for you: if
+`selftest` is 10/10 then `NeedDaemonReload`, `Type`, `WatchdogUSec`,
+`PrivateTmp` and `KillMode` are all what the repo says they are. It does NOT
+answer "is the running daemon this code" — for that, compare the daemon's start
+time against the last **commit** that touched `friday/*.py`, not against file
+mtimes (a mutation run rewrites those):
+
+```bash
+ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
+git log -1 --format=%ci -- 'friday/*.py'
+ls -d tmp*/ 2>/dev/null | wc -l          # MUST be 0. 2 per restart means /tmp went read-only
+```
+
+### 1. Two microphone items — ninety seconds, owed since 2026-09-02
+
+Both need the **daemon** to be the acting process; a text-mode launch is a
+different cgroup and a different experiment.
+
+1. **`systemctl --user restart friday` with an app open.** Say "open the
+   browser", confirm the window, restart, and check the window is still there
+   (`hyprctl clients`). **D29 / ADR-114** (`KillMode=process`).
+2. **Watch for one false wake** and the journal line
+   `capture abandoned: no speech within 5.0s`. **ADR-113.** It has never fired
+   live because no false wake has occurred since the change.
+
+Record the result here either way. A negative result is worth more than
+anything in Phase 3.
+
+### 2. M6 — the eval gate, the last tier-1-shaped hole
+
+`test-audit-2026-09-03.md` §D tier 2 has the detail. All four exit-condition
+mutations of `friday/eval_harness.py` survive: `just eval` can be made to always
+exit 0, regressions can stop being detected, and the ≥90 % floor the docstring
+promises can be removed, with nothing noticing. **This is the gate Phase 3's
+§11.1 contract is written in terms of**, which is the whole argument for writing
+it before Phase 3 rather than after.
+
+Follow line six of the definition of done: apply each mutation, watch it turn
+red, revert.
+
+### 3. Phase 3 — `design-2026-09-02.md` §11.1
+
+Acceptance criteria are §11.1 and **they are not optional**. Two are already
+verified true:
+
+```
+[verified 2026-09-02] `just grammar` output is byte-identical to the committed .gbnf
+[verified 2026-09-02] PARAM_SCHEMA has exactly 25 actions (criterion 3.8's table)
+```
+
+**Contract:** if the regenerated grammars move, or `just eval` drops below
+**60/60 with 0 regressions**, the refactor changed behaviour and is wrong.
+
+F4 (one explicit subprocess env) and F5 (wrapper prefixes `env`/`flatpak`/
+`distrobox-enter` pass the ban list) both land on `executor.py`. **Both of those
+lines now have a test under them** — `test_subprocess_gets_the_minimal_explicit_env_only`
+and `test_banned_argv_is_denied_at_dispatch` — which is what OQ-65 = (a) bought.
+
+---
+
+## >>> (superseded 2026-09-03, later, by the block above) START HERE: NEXT SESSION (written **2026-09-03**, after the test-suite mutation audit) <<<
 
 **Read this whole block before touching anything. Everything below is measured;
 nothing in it is belief.**

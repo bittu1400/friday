@@ -17,6 +17,11 @@ Performs full-system sanity and health verification (architecture.md §7, friday
      just wildcard literals, across `ss` and both `/proc/net/tcp` and `tcp6`.
   9. Power profile verification (F28 / ADR-107): ensures power profile is
      `balanced`/`performance` via `powerprofilesctl get` or sysfs; warns on `power-saver`.
+ 10. The RUNNING unit matches the committed one (M16 / OQ-66): asks systemd,
+     not the file. The installed unit is a SYMLINK to `deploy/systemd/`, so a
+     file comparison always matches — which is why one stayed green through the
+     weeks systemd reported `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes`
+     and the watchdog had never once fired.
 
 Every check must be able to FAIL (M-L3/L4/L9, 2026-08-29). `gpu_arch` returned
 PASS on output it could not parse — and PASSed through a whole GPU outage;
@@ -25,7 +30,7 @@ not the same as "probably fine"; `check_database` opened the database to read
 its version, which CREATED a missing one, then reported PASS on the file it had
 just conjured. A check that cannot fail is worthless.
 
-Nine checks, and this list says nine. A docstring that miscounts the checks is a
+Ten checks, and this list says ten. A docstring that miscounts the checks is a
 small lie about the one tool whose whole job is telling you the truth about the system.
 """
 
@@ -606,6 +611,88 @@ def check_power_profile() -> CheckResult:
     )
 
 
+# The four directives this project has actually been bitten by, and the value
+# systemd must REPORT for each. `tests/test_service_unit.py` pins them in the
+# file; the installed unit is a symlink to that file, so the file check can
+# never disagree — which is why it would have stayed green through the weeks
+# `systemctl show` said `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes`
+# (M16). Editing a unit is not deploying it: this asks systemd.
+_UNIT_EXPECTED: dict[str, str] = {
+    "Type": "notify",       # ADR-109 — the watchdog needs it; it read `simple`
+    "WatchdogUSec": "10s",  # ADR-109 — it read 0 while WatchdogSec=10s was committed
+    "PrivateTmp": "no",     # D30 / ADR-115 — it hid Chromium's singleton socket
+    "KillMode": "process",  # D29 / ADR-114 — apps died with the daemon
+}
+
+
+def check_unit_deployed(unit: str = "friday") -> CheckResult:
+    """Verify the unit systemd is RUNNING matches the one in the repo (OQ-66).
+
+    Answers the live half of the question `tests/test_service_unit.py` can only
+    ask of a file. FAILs on a pending daemon-reload or on any of the four
+    load-bearing directives disagreeing; WARNs when there is no user bus or the
+    unit is not installed (foreground `just voice` is a supported mode).
+    """
+    if shutil.which("systemctl") is None:
+        return CheckResult("unit_deployed", Status.PASS, "Not a systemd host")
+
+    props_wanted = ["LoadState", "NeedDaemonReload", *_UNIT_EXPECTED]
+    argv = ["systemctl", "--user", "show", unit]
+    for key in props_wanted:
+        argv += ["-p", key]
+
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=3.0, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return CheckResult(
+            "unit_deployed", Status.WARN, f"systemctl unavailable ({type(exc).__name__})"
+        )
+    if proc.returncode != 0:
+        return CheckResult(
+            "unit_deployed", Status.WARN, "No systemd user bus (running unit unknown)"
+        )
+
+    props = dict(
+        line.split("=", 1) for line in proc.stdout.splitlines() if "=" in line
+    )
+
+    if props.get("LoadState") != "loaded":
+        return CheckResult(
+            "unit_deployed",
+            Status.WARN,
+            f"{unit}.service is not loaded (LoadState={props.get('LoadState', '?')})",
+            details="Install the units: see docs/systemd-setup.md",
+        )
+
+    if props.get("NeedDaemonReload") == "yes":
+        return CheckResult(
+            "unit_deployed",
+            Status.FAIL,
+            "The unit on disk differs from the one systemd is running",
+            details="systemctl --user daemon-reload && systemctl --user restart " + unit,
+        )
+
+    drift = [
+        f"{k}={props.get(k, '?')} (want {want})"
+        for k, want in _UNIT_EXPECTED.items()
+        if props.get(k) != want
+    ]
+    if drift:
+        return CheckResult(
+            "unit_deployed",
+            Status.FAIL,
+            "Running unit disagrees with the committed one: " + ", ".join(drift),
+            details="systemctl --user daemon-reload && systemctl --user restart " + unit,
+        )
+
+    return CheckResult(
+        "unit_deployed",
+        Status.PASS,
+        f"Running {unit}.service matches the repo (reload clean, "
+        f"{len(_UNIT_EXPECTED)} directives verified)",
+    )
+
+
 def run_all_checks() -> list[CheckResult]:
     """Execute all self-test checks and return results."""
     return [
@@ -618,6 +705,7 @@ def run_all_checks() -> list[CheckResult]:
         check_panic_switch(),
         check_socket_binds(),
         check_power_profile(),
+        check_unit_deployed(),
     ]
 
 

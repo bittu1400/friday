@@ -12,6 +12,26 @@ verified before and after every round. Working tree clean at exit; **no source
 file was left modified and no test was added.**
 **Question being audited:** *do these tests protect trust, or manufacture it?*
 
+> **STATUS, added 2026-09-03 (later).** This report is a snapshot of `ef6b8e4`
+> and stays one — the numbers below describe the tree as it was. What has since
+> changed, under **ADR-117** (owner answers to OQ-65/66/67):
+>
+> | finding | state |
+> | :-- | :-- |
+> | **M1** | **CLOSED** — `tests/test_confirm_arming.py` (new). All three `turn.py` gates set to `if False:` now fail 3 tests |
+> | **M2** | **CLOSED** — `tests/test_executor.py::test_banned_argv_is_denied_at_dispatch` |
+> | **M3** | **CLOSED** — `tests/test_action_surface.py` gained an argv only the binary rule rejects |
+> | **M4** | **CLOSED** — `tests/test_executor.py::test_subprocess_gets_the_minimal_explicit_env_only` |
+> | **M5** | **CLOSED** — `tests/test_speaker.py` now CALLS `verify()`; the dead `test_speaker_verifier_mock` is gone |
+> | **M16** | **CLOSED via `selftest`, not via the suite** (OQ-66 = c) — `friday/selftest.py::check_unit_deployed` asks `systemctl show`, with 6 FAIL/WARN paths tested |
+> | **M6** | **STILL OPEN.** The eval gate remains 0 % covered and is the next thing to write |
+> | everything else | unchanged, and the effort estimates in §F still hold |
+>
+> Suite is **596 passed** (was 581); `just selftest` is **10/10** (was 9/9).
+> Every one of the six was verified by applying its mutation and watching the
+> suite turn red, then reverting — which is now line six of the definition of
+> done (OQ-67 = b).
+
 Companion: `audit-2026-09-02.md` audited the code. This file audits the thing
 that is supposed to be watching the code. Where a finding here overlaps one
 there, the F-number is named.

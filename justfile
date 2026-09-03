@@ -125,9 +125,12 @@ voice *ARGS:
 ptt CMD:
     uv run python -m friday.ptt_cli {{CMD}}
 
-# Full system self-test (G9), 9 checks: llama-server, searxng, GPU arch,
+# Full system self-test (G9), 10 checks: llama-server, searxng, GPU arch,
 # LLM actually on GPU, DB perms/schema (incl. WAL sidecars), audio devices,
-# panic switch, loopback-only socket binds, power profile (F28, ADR-109).
+# panic switch, loopback-only socket binds, power profile (F28, ADR-109),
+# and the RUNNING unit vs the committed one (M16/OQ-66, ADR-117 -- systemd is
+# asked, because the installed unit is a symlink and the file check can never
+# disagree with itself).
 # Exit: 0 all PASS / 1 any FAIL / 2 any WARN, printed as [DEGRADED] (ADR-108).
 # WARN used to print [PASSED] -- that was F20.
 selftest *ARGS:

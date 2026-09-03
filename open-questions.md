@@ -845,74 +845,6 @@ out of.
 
 ---
 
-## Raised by the test-suite mutation audit (`test-audit-2026-09-03.md`)
-
-### OQ-65 — Do the tier-1 test gaps get closed before Phase 3, or after?
-
-**Decider:** USER · **Blocks:** the next session's first job · **Status:** OPEN (raised 2026-09-03, ADR-116)
-
-The mutation audit found five tier-1 gaps: three confirm gates with no arming
-test (M1, invariant #10), the executor→ban-list wiring (M2, invariant #10), the
-`rm` denylist entry its own test cannot protect (M3), the subprocess env (M4,
-invariant #3), and `SpeakerVerifier.verify()` (M5). **None is a code defect** —
-`friday/` is currently correct on all five. They are lines that can be broken
-silently.
-
-Total effort is about **90 lines of test across five files**, all mechanical:
-the three arming tests copy `tests/test_clipboard_confirm.py` almost verbatim,
-and M3 is a two-line argv addition.
-
-| | |
-| :-- | :-- |
-| **a. Tests first** *(recommended)* | ~90 lines, one session, and Phase 3 then refactors under a net. Phase 3's §11.1 contract is *"if the grammars move or eval drops below 60/60, the refactor is wrong"* — that contract is exactly what M6 shows can stop working, and M2/M4 sit on `executor.py`, which **F4 and F5 are scheduled to rewrite in Phase 3.** Writing the tests after that rewrite means writing them against new code with no baseline. |
-| **b. Phase 3 first** | Defensible: nothing is broken today, and the Capability record is the actual roadmap. Cost: the Phase 3 diff lands on unprotected lines, and `just eval` — the gate Phase 3 is contractually measured by — is itself 0 % covered (M6). |
-| **c. Split** | M2, M3 and M6 before Phase 3 (they guard the things Phase 3 will touch and the gate it is judged by, ~40 lines); M1, M4, M5 after. |
-
-**Default if nobody decides:** (a). It is one short session, it is the cheapest
-these tests will ever be, and the audit's own finding is that this project's
-strong tests are the ones written *before* the next thing moved.
-
-### OQ-66 — May the test suite ask the running system, or must it stay pure-unit?
-
-**Decider:** USER · **Blocks:** how M16 is fixed (or whether it is) · **Status:** OPEN (raised 2026-09-03)
-
-All six checks in `tests/test_service_unit.py` parse
-`deploy/systemd/friday.service` **from disk**. They cannot catch the failure
-this project has already been bitten by: the installed unit is a **symlink** to
-that file, so it always matches, while `systemctl show` reported `Type=simple`,
-`WatchdogUSec=0`, `NeedDaemonReload=yes` — `Type=notify` and `WatchdogSec=10s`
-committed, documented and **never once executed**.
-
-Of 81 test files, only `tests/test_egress.py` shells out to the live system.
-
-| | |
-| :-- | :-- |
-| **a. Leave it pure-unit** | The suite stays hermetic, fast (6.7 s) and runnable anywhere. `just selftest` and `just bootstrap --check` are where live questions belong, and the START HERE block already carries a manual `systemctl show` step. |
-| **b. Add a live check, skipped when absent** *(recommended)* | One test that runs `systemctl --user show friday -p NeedDaemonReload -p Type -p WatchdogUSec` and `pytest.skip()`s if there is no user bus. Catches deploy drift in CI-less local runs; costs one skip line in every foreign environment. |
-| **c. Move it to `selftest`** | Add a `unit_deployed` check to `friday/selftest.py` instead. It is the tool built for live questions, it already exits 2 on WARN, and nothing about the suite changes. |
-
-**Default if nobody decides:** (c). It puts the live question in the tool that
-exists for live questions, and it keeps the 6.7 s suite hermetic — which is why
-it gets run.
-
-### OQ-67 — Does a mutation sweep join the definition of done?
-
-**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (raised 2026-09-03, ADR-116)
-
-The audit was a one-off. The question is whether it recurs, and the honest cost
-is that a full sweep is **~10 minutes** against a 6.7 s suite.
-
-| | |
-| :-- | :-- |
-| **a. No** | Keep it as a periodic audit, run when something feels untrustworthy. Zero standing cost. |
-| **b. Per-invariant, on demand** *(recommended)* | Do not gate. Add one line to the definition of done: *a change touching a hard invariant ships with a mutation of that line demonstrated to turn the suite red* — which is the existing "write the FAIL-path test" rule, made specific. Costs seconds, catches M1/M2/M7's whole class. |
-| **c. Full sweep in `just test`** | Rejected in ADR-116: it freezes this audit's hand-picked mutation list into the gate, and a stale mutation list is one more thing that can be green while being wrong. |
-
-**Default if nobody decides:** (b), because it is a sharper phrasing of a rule
-the project already has rather than a new gate.
-
----
-
 ## Kept Open (Long-Term / Optional)
 
 ### OQ-28 — Should a meta-question about capability route to chat, not web_search?
@@ -1280,6 +1212,69 @@ grounding turn is grammar-locked exactly like search (ADR-008).
 _(Move entries here with the answer and the date. Do not delete them —
 the reasoning behind a closed question is the thing you will want in six
 months.)_
+
+- **OQ-65 — Do the tier-1 test gaps get closed before Phase 3, or after?**
+  **ANSWERED 2026-09-03 by the USER → (a) tests first. ADR-117. Done the same
+  session.** All five closed — M1 (`tests/test_confirm_arming.py`, new), M2 and
+  M4 (`tests/test_executor.py`), M3 (`tests/test_action_surface.py`), M5
+  (`tests/test_speaker.py`). `581 → 596 passed`, `eval` still 60/60 with 0
+  regressions, grammars byte-identical.
+
+  Each was verified the way ADR-116 says to and the way this whole audit exists
+  to enforce: **the mutation was applied and the suite watched turn red**, not
+  asserted to. The three `turn.py` confirm branches set to `if False:` fail 3 of
+  the 4 new arming tests; `assert_not_banned(argv)` → `pass` fails the new
+  executor test that previously left 42 security tests green; dropping `"rm"`
+  from `BANNED_BINARIES` now fails, because the argv added is one that **only**
+  the binary rule rejects (`["rm", "/home/bittusah/notes.db"]` — the existing
+  `["rm","-rf","/"]` is also caught by the `"rm -"` substring rule, so it could
+  never tell the two apart); `env=dict(spec.env)` → `env=None` fails; and both
+  mutations of `verify()`'s return fail.
+
+  **What the deciding argument turned out to be:** not that anything was broken
+  — nothing was — but that Phase 3 rewrites `executor.py`, where M2 and M4 live,
+  and is contractually measured by `just eval`, which M6 shows is 0 % covered.
+  Writing these after Phase 3 means writing them against new code with no
+  baseline.
+
+  M5 also removed a test rather than adding one: `test_speaker_verifier_mock`
+  built a `SpeakerVerifier` it never called and asserted `cosine_similarity()`
+  that the test twenty lines above already covered. It is now
+  `test_verify_accepts_the_owner_and_rejects_an_impostor`, plus one pinning the
+  documented fail-OPEN behaviour when nobody has enrolled.
+
+- **OQ-66 — May the test suite ask the running system, or must it stay pure-unit?**
+  **ANSWERED 2026-09-03 by the USER → (c) move it to `selftest`. ADR-117.
+  Shipped: `check_unit_deployed`, `friday/selftest.py`.** The suite stays
+  hermetic and 6.7 s — which is why it gets run — and the live question goes to
+  the tool built for live questions, which already exits 2 on WARN.
+
+  It asks `systemctl --user show` for `LoadState`, `NeedDaemonReload` and the
+  four directives this project has actually been bitten by: `Type=notify` and
+  `WatchdogUSec=10s` (ADR-109), `PrivateTmp=no` (D30/ADR-115),
+  `KillMode=process` (D29/ADR-114). Pending reload or drift → **FAIL**; no user
+  bus or unit not installed → **WARN**, because foreground `just voice` is a
+  supported mode. `just selftest` is now **10/10**, and its docstring says ten
+  (F20's lesson: the docstring that miscounts is a lie told by the one tool
+  whose job is the truth).
+
+  **Six FAIL/WARN paths are tested** in `tests/test_selftest_fail_paths.py`,
+  one per directive plus the pending reload — a check that cannot fail is
+  worthless, which is the rule that file exists for.
+
+  **Rejected: (b), a pytest that shells out.** Same coverage, plus a skip line
+  in every environment without a user bus. One of 81 test files talks to the
+  live system and that ratio is worth keeping.
+
+- **OQ-67 — Does a mutation sweep join the definition of done?**
+  **ANSWERED 2026-09-03 by the USER → (b) per-invariant, on demand. ADR-117.**
+  One line added to `CLAUDE.md`'s definition of done: *a change touching a hard
+  invariant ships with a mutation of that line demonstrated to turn the suite
+  red.* No gate, no standing cost, and it is the existing "write the FAIL-path
+  test" rule made specific rather than a new one. A full sweep in `just test`
+  stays rejected (ADR-116): it freezes a hand-picked mutation list into the
+  gate, and a stale mutation list is one more thing that can be green while
+  being wrong.
 
 - **OQ-64 — How long may the user pause after "hey jarvis" before speaking?**
   **ANSWERED 2026-09-02 (night) by the USER → ADR-113, implemented and deployed
