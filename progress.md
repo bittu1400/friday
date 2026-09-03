@@ -22,8 +22,21 @@ that morning** — a marginal wake (0.543) opened a speechless capture,
 `capture abandoned: no speech within 5.0s` at +4.985 s, and no STT line and no
 TTFA after it. <<<**
 
+**>>> 2026-09-03 (last, 3): D31 IS PROVEN LIVE BY VOICE — and its STT half is
+not. Eleven voice turns at 11:26-11:28 dispatched **`firefox`, `discord`,
+`obsidian`, `kitty`** (plus `vlc`), the first scanned ids in the life of the
+project, all at 402-412 ms (the healthy signature). `firefox` resolved to
+`firefox`, **not `browser`** — the owner's exact complaint, spoken, fixed. But
+"LibreWolf" reached the planner as `wolf_studio` and "Zen Browser" as
+`jin_browser`, **both already in the hotwords**, both correctly rejected:
+**single-word names 4/4, two-word 0/2 — that is D32, new and open.** One thing
+must be ASKED not investigated: four of the five apps were gone eight minutes
+later while Discord was still up, and nobody knows if the owner closed them.
+<<<**
+
 **>>> 2026-09-03 (last, 2): D31 — ONLY FIVE APPS HAD EVER LAUNCHED, a month
-after ADR-097 widened the enum to 165. `action_audit` proved it in one query.
+after ADR-097 widened the enum to every installed desktop entry. `action_audit`
+proved it in one query.
 Not an executor bug: the requests never reached it. ADR-097 widened one list and
 left TWO at Phase 1 — the planner prompt (so `firefox` resolved to `browser` and
 Brave opened) and `STT_HOTWORDS` (so Whisper was never biased toward an app name
@@ -5069,14 +5082,16 @@ the launcher name them. Like firefox didn't open, and all."*
 browser 26   terminal 5   editor 5   video 2   vlc 1
 ```
 
-ADR-097 widened the enum from those five to **165** on 2026-09-02. **Not one of
-the other 160 has ever run.**
+ADR-097 widened the enum from those five to every installed desktop entry on
+2026-09-02 — **165 ids as scanned 2026-09-03**, and that is a generated number
+that moves with what is installed (M19: state the shape, date the observation).
+**Not one of the others has ever run.**
 
 **The executor is innocent and that was checked first**, because ADR-114 taught
 this project what it costs to ship the wrong cause:
 
 ```
-entries whose argv[0] does not resolve: 0    (all 165)
+entries whose argv[0] does not resolve: 0    (of 165 scanned 2026-09-03)
 ```
 
 The requests never reached it.
@@ -5201,7 +5216,316 @@ too** — it has been since 2026-09-02.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-03, last-2**, after D31) <<<
+## 2026-09-03 (last, 3) — **D31 PROVEN LIVE BY VOICE, and the STT half did not hold: D32.**
+
+**Found while readying the docs, by running the `action_audit` query the START
+HERE block had just been written to recommend.** The owner had already gone to
+the microphone. Nobody was asked to; the rows were simply there.
+
+### What the system says
+
+```
+daemon started   Thu Sep  3 11:26:11 2026
+ADR-118 commit   2026-09-03 11:16:25 +0545  c1787cc
+NRestarts        0        KillMode  process
+```
+
+The daemon was restarted **ten minutes after the commit**, so it was running the
+new prompt and the new hotwords. Eleven turns between 11:26 and 11:29, **every
+one by voice** — `capture start source=wake` once, `source=ptt` ten times. No
+text-mode turn in the window.
+
+```
+11:26:27  open_app {"app": "firefox"}   allowed ok  404 ms
+11:27:06  open_app {"app": "discord"}   allowed ok  402 ms
+11:27:49  open_app {"app": "obsidian"}  allowed ok  403 ms
+11:28:02  open_app {"app": "vlc"}       allowed ok  412 ms
+11:28:15  open_app {"app": "kitty"}     allowed ok  402 ms
+```
+
+**Four scanned ids — `firefox`, `discord`, `obsidian`, `kitty` — the first ever
+dispatched in this project.** Before this the whole table held `browser`,
+`terminal`, `editor`, `video`, `vlc` and nothing else.
+
+- **`firefox` resolved to `firefox`, not `browser`.** That is the owner's exact
+  complaint, spoken, fixed.
+- **`kitty` resolved to `kitty`, not `foot`.**
+- All five sit at **402-412 ms** — the 400 ms launch grace timing out, i.e. the
+  process was alive when measured. D30's dead-launch signature is **49-119 ms**.
+- **Discord was still running eight minutes later**, nine processes, started
+  11:27:06 to the second.
+
+**ADR-118's planner half is proven live.**
+
+### D32 — the STT half did not hold, and the log named it
+
+```
+11:27:38  E_TOOL_NOTFOUND: app 'wolf_studio' not installed, failing closed to none
+11:28:28  E_TOOL_NOTFOUND: app 'jin_browser' not installed, failing closed to none
+```
+
+Those are **"LibreWolf"** and **"Zen Browser"**. **Both are in the twenty
+hotwords this ADR added, and Whisper mangled both anyway** — it split the
+compound and reassembled it as a different plausible compound. **Five of eleven
+turns ended `action=none`.**
+
+**A single-word app name landed 4 of 4. A two-word one landed 0 of 2.** n=6, so
+that is a shape and not a law — but it is the shape to widen next, and it
+**revises OQ-68 rather than answering it**: a hotword biases decoding toward a
+token sequence, it does not repair one the acoustic model split in the wrong
+place. `wolf_studio` and `jin_browser` are not near-misses of a rare word; they
+are ordinary two-word phrases the enum then correctly rejected. **Adding the
+other ~145 names would not have changed either turn.**
+
+The fail-closed path worked exactly as designed **and said so in the log** —
+`E_TOOL_NOTFOUND` names the id it rejected, which is the only reason this took
+minutes instead of a session.
+
+### The one thing that is NOT resolved, and must not be guessed
+
+At 11:35, eight minutes after launch, `discord` was running and **`firefox`,
+`obsidian`, `kitty` and `vlc` were not.** All five had recorded `ok` at ~400 ms.
+
+**Two readings, and the evidence cannot separate them:** the owner closed four
+test launches and kept the app they actually use, or four apps outlived the
+400 ms grace and died after it — a longer-timescale D30. **Asking is the whole
+job**; guessing here is precisely how ADR-114 shipped a real mechanism as the
+wrong cause. It is question 1 of the next session and it takes one sentence.
+
+### And a third thing the audit table could not have told us
+
+**An Electron app moves itself out of the service cgroup.** Discord, launched by
+the daemon at 11:27:06, eight minutes later:
+
+```
+462141  0::/user.slice/.../friday.service                  <- the daemon
+463212  0::/user.slice/.../friday.service                  <- discord's crashpad handler
+463321  0::/user.slice/.../app-discord-463321.scope        <- Discord ITSELF
+```
+
+It asks systemd for its own scope. `systemctl --user status friday` shows only
+the daemon and the crashpad handler; `TasksCurrent` counts 83 but
+`cgroup.procs` holds two PIDs.
+
+**Consequence for D29/ADR-114: Discord was never at risk from
+`KillMode=control-group`, so it is the wrong subject to test it with.** That is
+ADR-115a's lesson exactly — bisecting `PrivateTmp` with `foot`, which has no
+`/tmp` socket. **A cheaper substitute is a different experiment.** ADR-114 was
+proven with `foot`; use `foot` or `kitty`, and read `cgroup.procs` rather than
+assuming.
+
+It also means **D29's real blast radius was never uniform**: plain apps died on
+every restart, Electron ones did not. Nobody had looked.
+
+### Two method notes this block cost
+
+- **`pgrep -f "[f]irefox"` still matched its own shell.** The bracket trick
+  defeats `pgrep`'s self-match, but the pattern was inside a `bash -c` string, so
+  the *wrapper* process carried the literal text and matched. It reported
+  firefox, obsidian, kitty and vlc all alive when only Discord was. **Second-order
+  version of a trap already in CLAUDE.md.** Match a full binary path with
+  `ps -eo cmd | grep -F` from a script file, and read the start times.
+- **`strftime('%s', '...')` in SQLite parses the string as UTC**, so
+  `created_at > strftime('%s','2026-09-03 11:00:00')` returned nothing on a
+  UTC+05:45 machine while rows from 11:28 local plainly existed. Compare on
+  `datetime(created_at,'unixepoch','localtime')` instead. The query in the START
+  HERE block does not have this bug — it only orders and displays.
+
+### Gates, re-run after every doc edit
+
+```
+pytest              608 passed, rc=0
+eval                64/64 (100%), regressions 0
+selftest            10/10, rc=0
+bootstrap --check   11/11
+grammars            byte-identical
+citation check      clean against the known-good exception list
+```
+
+---
+
+## >>> START HERE: NEXT SESSION (written **2026-09-03, last-3**, after D31 was proven live) <<<
+
+**Read this whole block before touching anything. Everything below is measured;
+nothing in it is belief.**
+
+### The state in seven lines
+
+- **D31's planner half is PROVEN LIVE BY VOICE** (2026-09-03 11:26-11:28, eleven
+  turns, all voice). `firefox` → `firefox` not `browser`, `kitty` → `kitty` not
+  `foot`; four scanned ids dispatched, the first ever. **ADR-118.**
+- **D32 is NEW and OPEN**: two-word app names die in STT. "LibreWolf" became
+  `wolf_studio`, "Zen Browser" became `jin_browser`, **both already in the
+  hotwords**, both correctly rejected by the enum. Single-word 4/4, two-word 0/2.
+- **One question must be ASKED, not investigated** — see job 1. Four apps that
+  launched `ok` were gone eight minutes later; a fifth was still running. Nobody
+  knows whether the owner closed them.
+- **ADR-114 / D29 needs one VOICE launch of the right app.** The daemon has run
+  since 11:26:11 with `NRestarts=0`, but **Discord escaped into its own systemd
+  scope** and is not a valid subject — measured, see job 2. Launch `kitty` or a
+  terminal by voice, confirm the PID is in `cgroup.procs`, then restart.
+- Gates: `pytest` **608 rc=0**, `eval` **64/64, regressions 0**, `selftest`
+  **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**.
+- The mutation audit's **tier 1 and tier 2 are closed** (M1-M7). What is left is
+  tier 3 (M8-M11) — depth behind walls that still stand.
+- **`friday/` changed in exactly two files** on 2026-09-03: `llm/prompt.py` and
+  `config.py`. Both ADR-118.
+
+### THE TODO LIST, in order
+
+```
+[ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed
+[ ] 1.  ASK ONE QUESTION        10 s    did the owner close those four apps?
+[ ] 2.  D29 / ADR-114           60 s    launch-then-restart. Already set up
+[ ] 3.  D32 — TWO-WORD NAMES    open    what to do about "Zen Browser"
+[ ] 4.  PHASE 3                 design-2026-09-02.md 11.1. Contract not optional
+[ ] 5.  RECORD IT               paste output here per rule 6, then commit
+```
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 608 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 64/64 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
+ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
+```
+
+Is the running daemon this code?
+
+```bash
+ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
+git log -1 --format=%ci -- 'friday/*.py'
+```
+
+**Two traps, both hit on 2026-09-03:** compare COMMIT times, not file mtimes (a
+mutation run rewrites mtimes without changing content); and a newer commit is
+not automatically a stale daemon — check the changed file is in the import graph
+before restarting, because a restart costs the owner their session:
+
+```bash
+.venv/bin/python -c "import friday.voice_main, sys; print('friday.selftest' in sys.modules)"
+# selftest -> False (not in the graph).  llm.prompt and config -> True (they are).
+```
+
+### 1. Ask one question — ten seconds, and it is the highest-value thing here
+
+At 11:35 on 2026-09-03, `discord` (launched by Friday at 11:27:06) was running
+and **`firefox`, `obsidian`, `kitty` and `vlc` were not** — all four had recorded
+`ok` at ~400 ms minutes earlier.
+
+**Ask the owner: "did you close firefox, obsidian, kitty and vlc after
+testing?"**
+
+- **Yes** → nothing to chase. D31 is fully proven and job 2 is next.
+- **No** → a **new defect**, and a serious one: a launch that outlives the 400 ms
+  grace and dies after it. That is D30's shape at a longer timescale, and the
+  400 ms `ok` row would then be lying a second way. **Do not start from the
+  sandbox** (`ProtectSystem`, `NoNewPrivileges`, `KillMode` are all measured
+  innocent, `PrivateTmp` is gone). Spawn the app by hand with the daemon's exact
+  `_APP_ENV` and **keep stderr** — the executor sends it to `DEVNULL`, which is
+  what made D30 cost a whole session.
+
+**This is an ASK, not an investigation.** Guessing which reading is right is
+exactly how ADR-114 shipped a real mechanism as the wrong cause.
+
+### 2. D29 / ADR-114 — sixty seconds, and it is finally set up
+
+An app Friday launched must survive a daemon restart. Children inherit
+`friday.service`'s cgroup and the default `KillMode=control-group` SIGKILLed them
+all on stop or restart, with `Restart=always` behind it.
+
+Every previous attempt failed on **ordering** — the restart came before the
+launches. There is a second trap underneath it, measured 2026-09-03 and **not
+known when ADR-114 was written**:
+
+**An Electron/Chromium app moves itself OUT of the service cgroup.** Discord was
+launched by the daemon at 11:27:06 and eight minutes later:
+
+```
+462141  0::/user.slice/.../friday.service                      <- the daemon
+463212  0::/user.slice/.../friday.service                      <- discord's crashpad handler
+463321  0::/user.slice/.../app-discord-463321.scope            <- Discord ITSELF, escaped
+```
+
+It calls systemd and gets its own scope. **So Discord was never at risk from
+`KillMode=control-group` and is the wrong subject to test D29 with** — the same
+mistake as bisecting `PrivateTmp` with `foot`, which has no `/tmp` socket
+(ADR-115a). **Bisect with the subject that actually fails.**
+
+Use an app that STAYS in the cgroup. ADR-114 was proven with `foot`, and `kitty`
+behaves the same way. **Check, do not assume:**
+
+```bash
+# 1. launch by VOICE — "open kitty" / "open a terminal".
+#    A text-mode launch is a DIFFERENT CGROUP and a different experiment.
+hyprctl clients | grep -c "^Window"                  # count before
+cat /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/friday.service/cgroup.procs
+#    ^ the launched app's PID MUST be in that list. If it is not, it escaped
+#      into its own scope and proves nothing — pick a different app.
+
+# 2. restart
+systemctl --user restart friday
+
+# 3. the window must still be there
+hyprctl clients | grep -c "^Window"                  # same count
+```
+
+### 3. D32 — two-word app names do not survive STT
+
+Measured live, n=6: **single-word app names 4 of 4, two-word 0 of 2.**
+
+```
+11:27:38  E_TOOL_NOTFOUND: app 'wolf_studio' not installed, failing closed to none   <- "LibreWolf"
+11:28:28  E_TOOL_NOTFOUND: app 'jin_browser' not installed, failing closed to none   <- "Zen Browser"
+```
+
+**Both words were already in `STT_HOTWORDS`.** That is the finding: a hotword
+biases decoding toward a token sequence, it does not repair one the acoustic
+model split in the wrong place. `wolf_studio` and `jin_browser` are ordinary
+two-word phrases, not near-misses, and the enum correctly rejected both.
+
+**Do NOT open this by adding the other ~145 names.** They would not have changed
+either turn, and OQ-68's price half is already answered — the twenty cost nothing
+(`bench-stt` p95 651 ms, miss 4/20). What is unknown is efficacy on compounds.
+
+Widen the sample before choosing a fix: say six or eight two-word names
+("Zen Browser", "LibreWolf", "Android Studio", "IntelliJ IDEA", "Visual Studio
+Code", "GitHub Desktop") and read the `E_TOOL_NOTFOUND` lines. Only then decide
+between a spoken-alias map, a normalisation step, or leaving it. **Three of those
+six are ids that already exist under a different spelling**, which is a hint
+about where the cheap fix is.
+
+### 4. Phase 3 — `design-2026-09-02.md` §11.1
+
+Acceptance criteria are §11.1 and **they are not optional**. Two are verified:
+
+```
+[verified 2026-09-02] `just grammar` output is byte-identical to the committed .gbnf
+[verified 2026-09-02] PARAM_SCHEMA has exactly 25 actions (criterion 3.8's table)
+```
+
+**Contract:** if the regenerated grammars move, or `just eval` drops below
+**64/64 with 0 regressions** (60/60 until ADR-118 added E61-E64), the refactor
+changed behaviour and is wrong. **That contract has a test under it** —
+`tests/test_eval_gate.py`, which is what M6 bought.
+
+F4 and F5 both land on `executor.py`, and **both of those lines have a test
+under them** — `test_subprocess_gets_the_minimal_explicit_env_only` and
+`test_banned_argv_is_denied_at_dispatch` (OQ-65 = a).
+
+Phase 3 §3.7 is "derive `STT_HOTWORDS`". **D32 is that row's evidence** — but
+deriving the list does not fix a compound the acoustic model splits, so do job 3
+before assuming §3.7 covers it.
+
+---
+
+## >>> (superseded 2026-09-03, last-3, by the block above) START HERE: NEXT SESSION (written **2026-09-03, last-2**, after D31) <<<
 
 **Read this whole block before touching anything. Everything below is measured;
 nothing in it is belief.**

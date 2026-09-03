@@ -32,12 +32,22 @@ Decisions: **ADR-117**.
 **>>> 2026-09-03 (last, 2): D31 — "ONLY THE FIVE PRE-CONFIGURED APPS EVER
 OPENED." The owner was right and the audit table proved it in one query:
 `open_app` has run with browser/terminal/editor/video/vlc and NOTHING ELSE, a
-month after ADR-097 widened the enum to 165. Not an executor bug — the requests
+month after ADR-097 widened the enum (**165 ids as scanned 2026-09-03** — it is
+generated, so it moves; M19). Not an executor bug — the requests
 never reached it. ADR-097 widened one list and left TWO at Phase 1: the planner
 prompt (so `firefox` resolved to `browser` and Brave opened) and `STT_HOTWORDS`
 (so Whisper was never biased toward any app name past the five). Both fixed,
-**ADR-118**. `eval` 60 → 64 fixtures, `pytest` 606 → 608. **The owner has not
-retested by voice yet.** <<<**
+**ADR-118**. `eval` 60 → 64 fixtures, `pytest` 606 → 608.
+
+**AND IT WAS PROVEN LIVE THE SAME DAY, BY VOICE — eleven turns, 11:26-11:28.**
+`firefox` → **`firefox`, not `browser`** (the owner's exact complaint),
+`discord`, `obsidian`, `kitty`, `vlc`, all at **402-412 ms** — the healthy
+signature. **Four scanned ids dispatched, the first in the life of the
+project.** But *"LibreWolf"* reached the planner as `wolf_studio` and *"Zen
+Browser"* as `jin_browser`, **both already in the twenty hotwords**, both
+correctly rejected: **single-word app names 4/4, two-word 0/2. That is D32.**
+And ONE thing must be **asked, not investigated** — four of the five apps were
+gone eight minutes later while Discord was still up. <<<**
 
 **>>> 2026-09-03 (last): TIER 2 IS CLOSED TOO. M6 and M7.** The eval gate could
 be made to always exit 0 and the self-test's FAIL path could stop producing
@@ -135,7 +145,7 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-117. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
+**Decisions ADR-098…ADR-118. Questions still owed: OQ-68, OQ-57, OQ-59, OQ-60, OQ-61,
 OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
 **ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
 went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
@@ -171,7 +181,8 @@ below and one live measurement.**
 | **D28** | **NEW, FIXED 2026-09-02** — `pytest -q` crashed at session finish; `Daemon.close()` leaked a PortAudio stream (**ADR-111**) |
 | **D29** | **NEW, FIXED 2026-09-02** — every app Friday launched died with the daemon. Children inherit `friday.service`'s cgroup and `KillMode` defaulted to `control-group`, so a stop/restart SIGKILLed the lot — with `Restart=always` + `WatchdogSec=10s` behind it. `KillMode=process` (**ADR-114**). Real, proven, **and NOT the defect the owner reported.** Also fixed: embedded XDG field codes reached the binary (`--uri=%u`), **ADR-114a** |
 | **D30** | **NEW, FIXED 2026-09-02 — THIS is "Friday says launching X and nothing opens."** `PrivateTmp=yes` gave the daemon an empty `/tmp`. Chromium keeps its singleton SOCKET in `/tmp` and only a SYMLINK to it under `$HOME`, so a Friday-launched Brave saw the shared lock, could not reach the socket, and exited **0 in ~50 ms** with no window — announced as a successful launch. Directive removed **and `/tmp` added to `ReadWritePaths=`** — removing it alone leaves `/tmp` visible but READ-ONLY under `ProtectSystem=strict`, which still breaks the socket connect and sent `tempfile` into the repo (**ADR-115**). **FIXED, AND CONFIRMED BY THE OWNER 2026-09-03** — *"i check with open brave, and it worked."* The `action_audit` row corroborates: post-fix `open_app{browser}` is **401 ms** (the 400 ms grace timed out, so the process was alive) against **49-119 ms** for the life of the project. **D30 is CLOSED** |
-| **D31** | **NEW, FIXED 2026-09-03** — *"only the pre-configured five apps opened… firefox didn't open."* **True, and the audit table proved it in one query: in the life of the project `open_app` has run with browser(26), terminal(5), editor(5), video(2), vlc(1) and NOTHING ELSE**, a month after ADR-097 widened the enum to 165. The executor is innocent — all 165 argv[0]s resolve and none was ever reached. **Two Phase-1 artifacts ADR-097 left behind, each sufficient alone.** (1) The prompt's *"a spoken brand name maps to its id"* — written so "Brave"→`browser` — generalised to the whole category: `firefox`→**browser**, `neovim`/`vim`→**editor**, and `"zen browser"`→`'zen'`, not in the enum, fails closed, nothing opens. **The five canonical ids were eating their own categories.** (2) `STT_HOTWORDS` still named the same five apps — **D26's exact shape, fourth Phase-1 artifact** after the eval fixtures (D16), the chat persona (D24/F2) and the G12 control words (D26). Fixed: a named program now wins over its category (19/23 → 22/23), twenty app names added to the hotwords (**p95 651 ms, miss 4/20 — no cost**), E61-E64 added, E23/E24 made action-only. **ADR-118.** Owner has not retested by voice yet |
+| **D31** | **NEW, FIXED 2026-09-03** — *"only the pre-configured five apps opened… firefox didn't open."* **True, and the audit table proved it in one query: in the life of the project `open_app` has run with browser(26), terminal(5), editor(5), video(2), vlc(1) and NOTHING ELSE**, a month after ADR-097 widened the enum (**165 ids as scanned 2026-09-03**, a generated number — M19). The executor is innocent — **every one of those 165 `argv[0]`s resolves to a real executable** and none was ever reached. **Two Phase-1 artifacts ADR-097 left behind, each sufficient alone.** (1) The prompt's *"a spoken brand name maps to its id"* — written so "Brave"→`browser` — generalised to the whole category: `firefox`→**browser**, `neovim`/`vim`→**editor**, and `"zen browser"`→`'zen'`, not in the enum, fails closed, nothing opens. **The five canonical ids were eating their own categories.** (2) `STT_HOTWORDS` still named the same five apps — **D26's exact shape, fourth Phase-1 artifact** after the eval fixtures (D16), the chat persona (D24/F2) and the G12 control words (D26). Fixed: a named program now wins over its category (19/23 → 22/23), twenty app names added to the hotwords (**p95 651 ms, miss 4/20 — no cost**), E61-E64 added, E23/E24 made action-only. **ADR-118. PROVEN LIVE BY VOICE the same day** — eleven turns, `firefox`/`discord`/`obsidian`/`kitty`/`vlc` at 402-412 ms, four of them scanned ids never dispatched before. **D31 is CLOSED for single-word names**; the compound-name residue is D32 |
+| **D32** | **NEW, OPEN 2026-09-03** — **a two-word app name does not survive STT, and a hotword does not fix it.** *"LibreWolf"* reached the planner as `wolf_studio`, *"Zen Browser"* as `jin_browser`; the enum correctly rejected both and the journal named them (`E_TOOL_NOTFOUND: app 'jin_browser' not installed, failing closed to none`). **Both words were already in `STT_HOTWORDS`** — which is the finding: a hotword biases decoding toward a token sequence, it does not repair one the acoustic model split in the wrong place. These are not near-misses of a rare word, they are plausible two-word phrases. Measured live: **single-word 4/4, two-word 0/2** (n=6, so a shape not a law). **Do NOT open this by adding the other ~145 names** — they would not have changed either turn. Widen the sample first: `progress.md`'s START HERE job 3 |
 
 **What is fixed, and what that does NOT mean.** `is_affirmation` normalises STT
 punctuation, head-matches with a negative-word veto, and a `_DECLINE` set
@@ -293,22 +304,43 @@ short version, in order:**
 
 ```
 0.  VERIFY THE GROUND          2 min   commands in START HERE, no judgement needed
-1.  ONE MICROPHONE ITEM        60 s    D29/ADR-114. Launch FIRST, then restart. NEEDS A HUMAN
-2.  PHASE 3                    design-2026-09-02.md 11.1. Contract not optional
-3.  RECORD IT                  paste output into progress.md per rule 6, then commit
+0b. RESTART THE DAEMON         5 s     ADR-118 IS in its import graph. Do this BEFORE 1
+1.  SAY APP NAMES OUT LOUD     2 min   D31/ADR-118, unproven by voice. Answers OQ-68 too
+2.  ONE MICROPHONE ITEM        60 s    D29/ADR-114. Launch FIRST, then restart
+3.  PHASE 3                    design-2026-09-02.md 11.1. Contract not optional
+4.  RECORD IT                  paste output into progress.md per rule 6, then commit
 ```
 
-1. ~~**Say "open the browser."**~~ **DONE 2026-09-03** — the owner confirmed a
+Jobs 1 and 2 are **one** microphone session: job 1's launches are exactly what
+job 2 needs open before the restart. Do them together, in that order.
+
+0b. **Restart the daemon first.** Unlike ADR-117's commit, ADR-118 touched
+   `friday/llm/prompt.py` and `friday/config.py`, and **both are in the daemon's
+   import graph** (`voice_main` loads them). A daemon started before that commit
+   is running the old prompt and the old hotword list, and job 1 would measure
+   the defect instead of the fix. Check with
+   `ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)` against
+   `git log -1 --format=%ci -- friday/llm/prompt.py friday/config.py`.
+
+1. **Say "open firefox", "open kitty", "open neovim", "open zen browser",
+   "open discord", "open obsidian".** Then read `action_audit`, never Friday.
+   `docs/reality-check.md` **§A1b** is the manifest row and it lists what each
+   outcome means. Short version: **~400 ms in `duration_ms` = the process was
+   alive; under ~120 ms = it died** (D30's signature). A row carrying the wrong
+   id (`browser` for firefox) means the daemon was not restarted; **no row at
+   all** means STT never delivered the word, which is the hotword half and
+   **OQ-68**.
+2. ~~**Say "open the browser."**~~ **DONE 2026-09-03** — the owner confirmed a
    window appeared, and the `action_audit` row agrees (**401 ms** post-fix
    against 49-119 ms before). **D30/ADR-115 is CLOSED.**
-2. **`systemctl --user restart friday` with an app open.** The window must still
+3. **`systemctl --user restart friday` with an app open.** The window must still
    be there. That is D29/ADR-114, **the one thing still unconfirmed by a human.**
-   **Order matters and it is why 2026-09-03 did not settle it:** the owner's
-   restart was at 08:08:16 and every app Friday launched that day came after it.
-   Launch first (by VOICE — a text-mode launch is a different cgroup), confirm
-   the app is inside `friday.service`'s cgroup with `systemctl --user status
-   friday`, then restart, then `hyprctl clients`.
-3. ~~**Watch for one false wake**~~ **DONE 2026-09-03 08:23** — wake score
+   **Order matters and it is why four sessions have not settled it:** every
+   restart so far came *before* the launches. Launch first (by VOICE — a
+   text-mode launch is a different cgroup), confirm the app is inside
+   `friday.service`'s cgroup with `systemctl --user status friday`, then
+   restart, then `hyprctl clients`.
+4. ~~**Watch for one false wake**~~ **DONE 2026-09-03 08:23** — wake score
    0.543, `capture abandoned: no speech within 5.0s` at +4.985 s, and no STT
    line and no TTFA after it. **ADR-113 is proven live.**
 
@@ -805,13 +837,19 @@ evidence, not defaults. A dependency added without this drill is not done.
                       the manifest of what Friday must DO and must REFUSE, on
                       the real machine.  Section F says what is verified and
                       what is not.  This is the next session's work.
+                      **A1b is new (2026-09-03) and every row in it is
+                      UN-TICKED**: the ~160 scanned applications, which no human
+                      has ever watched open.  A1's title used to end "and
+                      nothing else" -- that title WAS the defect (D31).
    friday.md          the build plan, gate by gate, with commands (all gates
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  117 ADRs
-                      (ADR-001..ADR-117; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  118 ADRs
+                      (ADR-001..ADR-118; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
+                      ADR-118 is D31: a named program wins over its category,
+                      and every list naming a capability widens together.
                       ADR-110/111/112 are the 2026-09-02 evening verification
                       pass: a real egress check, the PortAudio teardown leak,
                       and onnxruntime's telemetry.  ADR-113 is the post-wake
@@ -1086,7 +1124,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "Add streaming TTS now, it's an easy win" | ADR-020. Measure at G6 first. |
 | "Speaker verify is on, so impostors are blocked" | Only if a voiceprint is enrolled — it fails OPEN otherwise, and it is OFF by default (`FRIDAY_SPEAKER_VERIFY_ENABLE`). Enroll with `just enroll-voice` first. |
 | "Make the timer recurring by default / it fired twice so it loops" | Timers are strictly one-shot (marked `fired`). A repeated toast in tests means `notify-send` wasn't stubbed, not a reminder bug. |
-| "A green test suite proves the feature works" | **Nine times now** — the canonical list is in ADR-116's Context: G13 enroll dead on import, `clipboard_set` speaking success while doing nothing, `file_open` opening the wrong file, the CPU-only LLM, 328 green tests over a text UI whose every action confirm crashed, **both Hyprland tools whose argv test asserted exactly the string the compositor rejected**, a `test-egress` that could not observe a connection while passing, a watchdog that had never fired while its unit was committed and documented, and two whole phases of fixes that had never executed. Exercise the actual path; see `docs/reality-check.md`. **And the 2026-09-03 mutation audit is the generalisation of all nine:** the suite tested functions, not wiring. |
+| "A green test suite proves the feature works" | **Ten times now** — the canonical list is in ADR-116's Context: G13 enroll dead on import, `clipboard_set` speaking success while doing nothing, `file_open` opening the wrong file, the CPU-only LLM, 328 green tests over a text UI whose every action confirm crashed, **both Hyprland tools whose argv test asserted exactly the string the compositor rejected**, a `test-egress` that could not observe a connection while passing, a watchdog that had never fired while its unit was committed and documented, two whole phases of fixes that had never executed, and **a 60/60 eval gate over an `open_app` that could not reach 160 of its 165 ids** (D31 — the ten scanned-app fixtures were all programs whose names ARE their ids, so the gate measured the easy end of the enum). Exercise the actual path; see `docs/reality-check.md`. **And the 2026-09-03 mutation audit is the generalisation of all ten:** the suite tested functions, not wiring. |
 | "The health check is green, so the system is healthy" | `gpu_arch` passed through an entire GPU outage — it asked "does a GPU exist", not "is the LLM using it". A check that cannot fail is worthless; write the FAIL-path test. |
 | "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
 | "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |
@@ -1103,7 +1141,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The last session's block says that was already fixed" | It says `just enroll` was corrected in the docstrings; it corrected one file and missed `daemon.py`, in the one warning that fires when speaker verification is failing OPEN. A find-and-replace reported as done. Diff the claim against the tree — `just --list`, `grep`, run it — before believing it. |
 | "The GUI env is settled, ADR-043 and ADR-074 already fixed it" | A third variable was missing: `LANG`. A console app inherits the "C" locale, btop exits 1, `foot` exits with its child, and the detached launch reports ok with no window — measured 2026-09-02. Three vars, three separate live discoveries (`DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`, `LANG`). When a launch reports ok and nothing opens, suspect the env before the code. |
 | "Widen the app list with a fuzzy matcher, it's friendlier" | It converts an adversarial fixture into a launch: a substring match resolves `"browser; rm -rf ~"` to `browser`, and AS-8 must reject. The enum stayed CLOSED and was generated instead — and it was free, because the GBNF grammar never enumerated param values (ADR-097). |
-| "The enum has 165 apps, so 165 apps can be opened" | **Five could.** A month after ADR-097 widened it, `action_audit` had `open_app` rows for browser, terminal, editor, video and vlc and **no others, ever**. The enum is one of THREE lists that have to agree — the enum, the planner prompt, and `STT_HOTWORDS` — and ADR-097 widened one and left two at Phase 1. The prompt's "a spoken brand name maps to its id" made `firefox` resolve to `browser`, so **Brave opened and the owner watched Friday get it wrong**; the hotword list meant Whisper was never biased toward any app name past the five (D31). Widening a capability means widening every list that names it. |
+| "The enum lists every installed app, so every installed app can be opened" | **Five could.** A month after ADR-097 widened it, `action_audit` had `open_app` rows for browser, terminal, editor, video and vlc and **no others, ever**. The enum is one of THREE lists that have to agree — the enum, the planner prompt, and `STT_HOTWORDS` — and ADR-097 widened one and left two at Phase 1. The prompt's "a spoken brand name maps to its id" made `firefox` resolve to `browser`, so **Brave opened and the owner watched Friday get it wrong**; the hotword list meant Whisper was never biased toward any app name past the five (D31). Widening a capability means widening every list that names it. |
 | "The gate covers scanned apps — E51-E60 exist" | It covered `btop`, `calibre`, `anytype`, `ark`, `thunar`, `baobab`, `obsidian`, `spotify`, `discord`, `blueman_manager` — **ten apps whose names ARE their ids and which compete with no canonical id.** Not one browser, editor or terminal among them. 60/60 while three of the five canonical categories ate their competitors. **A fixture set drawn from the easy end of the enum measures the easy end of the enum** — same shape as D16, where 28 fixtures could not see the 20 actions they did not cover. |
 | "Two ids for one program is harmless, they both work" | They do — and the planner then flips between them run to run, so a fixture asserting either one tests a coin toss. `foot`/`terminal` have byte-identical argv; `mpv`/`video` differ in flags and **both hold a window open** (measured). E23 passed, failed, and passed again across three runs of an unchanged system. Assert the ACTION where the ids are equivalent, and keep id assertions for programs that have only one (ADR-118). |
 | "Dedupe the enum by binary, one id per program" | **19 scanned ids share `argv[0]` with a curated entry and 15 of them are different programs** — `btop`, `htop`, `neovim`, `vim`, `micro`, `nvtop`, `jshell`, `distrobox` are all `foot -e <something>`, so argv[0] is `foot`. Deduplicating on argv[0] deletes them all. On the full argv it removes four and leaves the `mpv` case, i.e. a partial fix for a non-symptom. Measure what a cleanup deletes before running it (ADR-118). |
@@ -1112,6 +1150,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The service is hardened, that's good" | `PrivateTmp=yes` broke **every browser launch for the life of the project**. A GUI app's session IPC lives in `/tmp`: Chromium keeps its singleton SOCKET there and only a SYMLINK to it under `$HOME`. The lock is visible, the socket is not, so Brave saw another instance, failed the handoff and exited **0 in ~50 ms** — inside the 400 ms grace, recorded `ok`, no window. It also hid `/tmp/.X11-unix`, so ADR-043's `DISPLAY=:0` could never have worked. The daemon runs as the user launching the user's own apps; the directive isolated the user from themselves (D30, ADR-115). |
 | "I bisected the sandbox and PrivateTmp was clean" | You bisected with `foot`, which has no `/tmp` socket. The probe never touched the broken path — ninth time in this project a green check sat on a live defect, and the second time in ONE session. **Bisect with the subject that actually fails.** The owner said "the browser"; launch the browser. A cheaper substitute is not a control, it is a different experiment (ADR-115a). |
 | "The fix is proven, so the bug is fixed" | ADR-114 was proven at the mechanism level — foot window alive, `systemctl stop`, foot gone — shipped, pushed, and **was not the reported bug**. The owner retested: the browser did not open before or after a restart. A proof that your mechanism is real is not a proof that it is THEIR symptom. Reproduce the user's exact complaint, with their exact app, before claiming it. |
+| "The app is in the service's cgroup, so it tests `KillMode`" | **Not if it is Electron.** Discord, launched by the daemon, put *itself* in `app-discord-<pid>.scope` and left only its crashpad handler behind in `friday.service` — measured 2026-09-03 by reading `/proc/<pid>/cgroup`. It was therefore never at risk from `KillMode=control-group`, and testing D29 with it proves nothing. **Same mistake as bisecting `PrivateTmp` with `foot`** (ADR-115a): a cheaper substitute is a different experiment. Read `cgroup.procs` for the unit and confirm the PID is actually in it. |
 | "`start_new_session=True`, so the app is detached" | It is detached from the terminal and the process group. It is NOT detached from the **cgroup** — membership is inherited and a process cannot leave it by forking. Under systemd's default `KillMode=control-group`, every app Friday launched was SIGKILLed the moment the service stopped or restarted, and `Restart=always` + `WatchdogSec=10s` mean that happens unasked. Measured: a foot window alive while the parent lived, gone one second after `systemctl stop` (D29, ADR-114). |
 | "The obvious fix is `systemd-run --scope`" | It gives each app its own cgroup and it puts a WRAPPER at argv[0] — and `assert_not_banned` inspects only argv[0]. That is F5, the open hole about `env`/`flatpak`/`distrobox-enter` prefixes. Do not reopen a known security hole to fix a lifecycle bug; `KillMode=process` is one line in the unit (ADR-114). |
 | "The field-code filter strips `%u`" | Only where `%u` is the WHOLE token. `^%[a-zA-Z]$` never matched `--uri=%u`, which is how Spotify writes it, so it reached the binary verbatim — 1 of the 162 entries scanned that day (the enum is generated, so that count moves; 165 on 2026-09-03 — M19). Anchors are the bug. And strip `%%` first: it is a literal percent (ADR-114a). |
@@ -1152,6 +1191,10 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The timeout fired, so the tool is missing or hung" | `subprocess.run(timeout=)` kills with SIGKILL. ydotool types at a measured 40.2 ms/char, so a 3 s constant capped dictation at **74 characters** and killed the process between a key down and its key up — `ydotoold` owns the uinput device, so the key auto-repeated for ever. The log then blamed a missing binary while ydotool was installed and running. Size a timeout from the work, and name the failure mode you actually hit (D22, ADR-092). |
 | "D1 is fixed, so spoken confirms work" | D1 fixed how an answer is PUNCTUATED. "Yes, I am sure" — the most natural reply to "Are you sure?" — still matched nothing, because `is_affirmation` compared whole strings. Two more `declined` rows on `system_wifi{off}` before anyone noticed (D25, ADR-093). Match the head, and veto on any negative word: this gate approves destructive actions, so ambiguity must resolve to NOT acting. |
 | "Chat said it can't do that, so it can't" | `system_wifi` was missing from `CHAT_SYSTEM`'s toolset from G12 until 2026-08-30, so Friday truthfully reported a limit that did not exist — while a `system_wifi` confirm was armed in the same session. The model was reading a prompt that was wrong. Diff the persona against `PARAM_SCHEMA`; there is a test for it now (D24, ADR-094). |
+| "The word is in the hotwords, so Whisper will hear it" | *"LibreWolf"* and *"Zen Browser"* were both in `STT_HOTWORDS` and came back as `wolf_studio` and `jin_browser` — **the same session the hotwords were added** (D32). A hotword biases decoding toward a token sequence; it does not repair one the acoustic model split in the wrong place, and a two-word name gives it a wrong place to split. Single-word app names landed 4/4 in that session, two-word 0/2. |
+| "Half the turns failed, so the fix did not work" | Read the journal before concluding. **`E_TOOL_NOTFOUND` names the id the enum rejected**, so five `action=none` turns resolved into two distinct causes in ten seconds — `wolf_studio` and `jin_browser`, i.e. STT, not the planner. The planner half was 4 for 4 in the same session. **A fail-closed path that logs WHAT it rejected turns a session of bisecting into a grep.** |
+| "The processes are alive, I checked with pgrep" | `pgrep -f "[f]irefox"` reported firefox, obsidian, kitty and vlc all running when only Discord was. The bracket trick defeats `pgrep`'s self-match, but the pattern sat inside a `bash -c` string, so the **wrapper** process carried the literal text and matched it. **Second-order version of a trap already in this table.** Match a full binary path with `ps -eo pid,lstart,cmd \| grep -F` from a script FILE, and read the start times — a process that started before your launch is not evidence of your launch. |
+| "The evidence is ambiguous, so pick the likelier reading" | Four apps launched `ok` and were gone eight minutes later; a fifth was still up. Either the owner closed four test launches, or a launch outlives the 400 ms grace and dies after it — **a new defect**. The rows cannot separate them and **one sentence to the owner can.** ADR-114 is what happens when you pick: a real, proven mechanism, shipped as the wrong cause. |
 | "Hotwords are for app names" | They are for every word that selects an action. `wifi` came back as **wife / weapon / way / life** on four consecutive turns because `STT_HOTWORDS` stopped at Phase 1 (D26). Third Phase-1 artifact found in two days, after the eval fixtures and the chat persona. **Anything enumerating what Friday can do that predates G12 is suspect.** |
 | "The model is slow, that is why the assistant feels slow" | Measured n=38: the planner regression from the Gemma swap was **117 ms**, while chat took **7-10 s**. TTFA includes synthesizing the WHOLE reply before the first sound, so a 376-character answer IS the latency. Capping the reply at 2 sentences took chat p50 from 7177 to 4715 ms without touching the model (ADR-094). |
 | "28/28 on the gate, so the planner is fine" | The gate is only as wide as its fixtures. All 28 exercised Phase-1 actions; **20 of the 28 actions in `PARAM_SCHEMA` had no fixture at all**. Widening it to 50 immediately found three live defects in a model that had scored 28/28 for months. FR-97 now has a test: a new action ships with a fixture. |
@@ -1185,4 +1228,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The test is named after the thing, so it tests the thing" | `test_speaker_verifier_mock` constructed a `SpeakerVerifier` and **never called it** — the local was assigned and unused, and its assertions ran `cosine_similarity()`, which the test twenty lines above already covered. `grep -rn "\.verify(" tests/` returned nothing: the entire G13 accept/reject decision was executed by no test, and both mutations of its return statement survived (M5). Coverage would still have credited the import. **Closed 2026-09-03** — that test is DELETED and replaced by `test_verify_accepts_the_owner_and_rejects_an_impostor`, which calls `verify()` in both directions (ADR-117). |
 | "A mutation survived, so that is a defect" | Four of the five surviving constants are CORRECT to leave free: the logic consuming `VAD_END_SILENCE_S`, `RETENTION_DAYS` and the wake threshold/refractory is fully tested — every wake-gating, VAD and retention mutation was killed — so only the default floats, and pinning a tuning knob converts every future tuning run into a test edit. `MAX_CAPTURE_S` is the exception because **FR-4 calls it a hard cap**. Ask what the constant is FOR before freezing it (ADR-116a). |
 | "The unit test reads the service file, so the unit is verified" | It verifies the FILE. The installed unit is a **symlink** to that file, so it always matches — which is why `tests/test_service_unit.py` would have passed throughout the weeks when `systemctl show` said `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes` and the watchdog had never fired (M16). Of 79 test files, only `test_egress.py` shells out to the live system. Deployment is a live question; ask `systemctl`. **Answered 2026-09-03 (OQ-66 = c, ADR-117): the live question went to `friday/selftest.py::check_unit_deployed`, not into the suite** — `selftest` is the tool built for live questions and the 6.7 s suite stays hermetic. The file test still exists and still only proves the file. |
+| "`git checkout -- <file>` puts the mutation back" | Only on a file with **no uncommitted work in it.** Reverting an M6-style mutation that way took an uncommitted hotword change with it, and the next full-suite run failed a test that had passed standalone sixty seconds earlier — which reads exactly like test pollution and is not. Copy the file aside and copy it back, or commit before you mutate (ADR-116, amended). |
+| "The ADR found three frozen sites, so there were three" | ADR-097 widened the app enum and named "three sites frozen at Phase 1". **There were five** — the planner prompt and `STT_HOTWORDS` were both still naming the same five apps, and either one alone stops a scanned app ever launching. A month of `action_audit` proves none did (D31). **An enumeration in an ADR is what the author found, not what exists.** Widening a capability means widening every list that names it: the enum, the prompt, the hotwords, the eval fixtures, the chat persona. |
+| "The registry is generated now, so the coupling is handled" | ADR-042 wrote down in 2026-08-26 that *"the hotwords list is coupled to the registry — a new app must be added there too"*. ADR-097 then replaced the registry with a generated enum and did not touch the hotwords. **A coupling recorded in prose is not a coupling anything enforces** — it is a note that predicts the defect and does not prevent it. `tests/test_stt_hotwords.py` exists because of this. |
 | "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02 and is **165** today, because ADR-097 generates the enum from the machine's XDG desktop entries — it moves whenever an application is installed. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose.** State the shape, and date the observation. |

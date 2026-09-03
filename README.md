@@ -65,7 +65,7 @@ COMPLETE. Phase 2's last item — one proven hands-free capture — landed
 the 15 s cap. D3 is fixed live and OQ-39 is closed.
 
 ```text
-.venv/bin/python -m pytest   596 passed, rc=0 (80 .py files in tests/)
+.venv/bin/python -m pytest   608 passed, rc=0 (81 test files in tests/)
 just eval                 60/60, regressions 0 (100%)
 just test-injection       20/20 blocked
 just test-egress          8 passed (a real egress check since ADR-110)

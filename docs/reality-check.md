@@ -3,7 +3,7 @@
 **Purpose.** A single, systematic list of *everything Friday should be able to
 do* and *everything it must refuse or cannot do*, so a session can verify the
 real system against it — feature by feature — instead of trusting a green test
-suite. **Nine times now**, tests passed while the real path was broken — G13
+suite. **Ten times now**, tests passed while the real path was broken — G13
 enrollment dead on import; `clipboard_set` a no-op that spoke success;
 `file_open` opening the wrong file; llama-server serving from CPU while every
 health check said PASS; 328 green tests over a TUI whose every action confirm
@@ -11,8 +11,11 @@ crashed; both Hyprland tools, whose argv test asserted exactly the string the
 compositor rejected; a `test-egress` that could not observe a connection while
 passing; a watchdog that had never fired while its unit was committed and
 documented; and two whole phases of fixes that had never executed because the
-daemon predated them by three hours. The canonical list lives in **ADR-116**'s
-Context section; keep the two in step. This file exists so that never slips
+daemon predated them by three hours; and a **60/60 eval gate over an `open_app`
+that could not reach 160 of its 165 ids** (D31 — every scanned-app fixture was a
+program whose name IS its id, so the gate measured the easy end of the enum).
+The canonical list lives in **ADR-116**'s Context section; keep the two in
+step. This file exists so that never slips
 through again — and the 2026-09-03 mutation audit is the same lesson stated
 generally: **the suite tested functions, not wiring.**
 
@@ -117,7 +120,14 @@ Then either:
 
 Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
-### A1. Launch apps (`open_app`) — the five, and nothing else
+### A1. Launch apps (`open_app`) — the five curated semantic ids
+
+**The title of this section used to end "and nothing else", and that was the
+defect.** ADR-097 widened the enum on 2026-09-02 from these five to every
+installed desktop entry, and this manifest was not widened with it — so **A1b
+below did not exist for a month, and in that month not one scanned app ever
+launched** (D31, ADR-118). A manifest that lists only the easy half measures
+only the easy half.
 | Say | Expect | C? |
 | :-- | :-- | :-- |
 | "open my browser" | Brave launches; **"Launching Brave."** (ADR-073 — a launch cannot verify a window, so it no longer says "Opened") | |
@@ -146,6 +156,14 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
       ADR-114). Launched apps inherit `friday.service`'s cgroup and `KillMode`
       defaulted to `control-group`, so every stop or restart SIGKILLed them.
       `KillMode=process` now; proven with a probe, unconfirmed by a human.
+      **Every attempt so far failed on ORDERING — the restart came before the
+      launches.** There is a second trap under it, measured 2026-09-03:
+      **an Electron app moves itself out of the service cgroup.** Discord,
+      launched by the daemon, sits in `app-discord-<pid>.scope` and only its
+      crashpad handler stayed in `friday.service`, so **it was never at risk
+      from `KillMode=control-group` and cannot prove this row.** Use `foot` or
+      `kitty`, launched BY VOICE, and confirm the PID is in the unit's
+      `cgroup.procs` before restarting — ADR-115a's lesson, one directive over.
 - [ ] **mpv does NOT open. `'Play a video'` → `youtube_search` (audit v28),
       never `open_app{video}`.** That is OQ-30, open since 2026-08-23 and now
       ANSWERED: YouTube stays the default, with a VLC/mpv fallback when the
@@ -154,6 +172,76 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 - [ ] All five launch and the spoken line matches what opened
 - [ ] A single-instance app already running still reports success, not "That
       didn't work." (ADR-043 amendment — exit code is not a launch verdict)
+
+### A1b. Launch any OTHER installed application — the ~160 scanned ids
+
+**Added 2026-09-03.** Until that day, `action_audit` held `open_app` rows for
+`browser`, `terminal`, `editor`, `video` and `vlc` and **nothing else** — a
+month after the enum was widened. Two Phase-1 artifacts were left behind by
+ADR-097 and either one alone produces the symptom (D31, ADR-118): the planner
+prompt taught the canonical five to swallow their own categories, and
+`STT_HOTWORDS` still named only those five apps.
+
+**Then it was spoken, the same day, and half of it holds.**
+
+| Say | Expect | C? | live 2026-09-03 |
+| :-- | :-- | :-- | :-- |
+| "open firefox" | **Firefox**, not Brave. The owner's own report | | ✅ `firefox` **404 ms** |
+| "open discord" | Discord | | ✅ `discord` **402 ms**, still up 8 min later |
+| "open obsidian" | Obsidian | | ✅ `obsidian` **403 ms** |
+| "open kitty" | **kitty**, not foot | | ✅ `kitty` **402 ms** |
+| "open VLC" | VLC | | ✅ `vlc` **412 ms** |
+| "open librewolf" | LibreWolf | | ❌ STT gave **`wolf_studio`** → `none` |
+| "open zen browser" | Zen, not shortened to `zen` | | ❌ STT gave **`jin_browser`** → `none` |
+| "open neovim" | **neovim in a terminal**, not VS Code | | not spoken yet |
+| "open spotify" | Spotify | | not spoken yet |
+| "open bluetooth settings" | **asks first** — a `Settings` entry is launchable but confirm-gated (FR-111) | **C?** | not spoken yet |
+
+- [x] **TICKED 2026-09-03 — the planner half, by voice.** Eleven turns, one
+      wake and ten PTT, **no text-mode turn in the window**; daemon restarted
+      11:26:11, ten minutes after the ADR-118 commit. Four scanned ids
+      dispatched, the first in the life of the project. All five at
+      **402-412 ms** — the 400 ms launch grace timing out, i.e. the process was
+      alive when measured. **D30's dead-launch signature is 49-119 ms.**
+- [ ] **UN-TICKED — two-word app names (D32).** *"LibreWolf"* reached the
+      planner as `wolf_studio` and *"Zen Browser"* as `jin_browser`; the enum
+      correctly rejected both and the log named them:
+      `E_TOOL_NOTFOUND: app 'jin_browser' not installed, failing closed to none`.
+      **Both words were already in `STT_HOTWORDS`.** Single-word 4/4, two-word
+      0/2. A hotword biases decoding toward a token sequence; it does not repair
+      one the acoustic model split in the wrong place. **Do not open this by
+      adding the other ~145 names** — they would not have changed either turn.
+- [ ] **UN-TICKED and it is a QUESTION, not an investigation.** At 11:35,
+      `discord` was running and `firefox`, `obsidian`, `kitty` and `vlc` were
+      not, eight minutes after all five recorded `ok` at ~400 ms. **Ask the
+      owner whether they closed them.** If they did, this row ticks. If they did
+      not, it is a new defect — a launch that outlives the 400 ms grace and dies
+      after it, i.e. D30's shape at a longer timescale. Guessing between the two
+      is how ADR-114 shipped a real mechanism as the wrong cause.
+- [ ] **Read `duration_ms`, not Friday.** ~400 ms means the launch grace timed
+      out, i.e. the process was still alive at 400 ms. **Under ~120 ms means it
+      died** — that was D30's whole signature.
+- [ ] **`E_TOOL_NOTFOUND` in the journal is the fast diagnosis.** It names the id
+      the enum rejected, so a mis-heard app name is a ten-second finding rather
+      than a session. Grep for it before anything else.
+
+```bash
+sqlite3 ~/.local/state/friday/memory.db \
+  "select datetime(created_at,'unixepoch','localtime'), args_redacted, outcome, duration_ms
+   from action_audit where tool_id='open_app' order by created_at desc limit 10"
+hyprctl clients | grep class
+```
+
+- [ ] **A wrong id in the row is a different failure from no row at all.** A row
+      reading `browser` for "open firefox" means the prompt fix is not live —
+      check the daemon was restarted after the ADR-118 commit, because
+      `llm/prompt.py` and `config.py` are both in its import graph. **No row, or
+      `none`**, means STT never delivered the word: that is the hotword half,
+      and which words failed is worth more than adding the other ~145 blind
+      (**OQ-68**).
+- [ ] **`vim` resolves to `neovim`** and is left that way deliberately — it
+      opens an editor, and over-fitting the prompt to one alias is how the
+      original collapse was written.
 
 ### A2. YouTube
 | Say | Expect |

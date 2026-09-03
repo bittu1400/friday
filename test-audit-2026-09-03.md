@@ -32,8 +32,9 @@ file was left modified and no test was added.**
 > | **M7** | **CLOSED 2026-09-03 (last)** — `tests/test_selftest_fail_paths.py` now calls `run_selftest()` itself; `has_fail`/`has_warn` are both pinned |
 > | everything else | unchanged, and the effort estimates in §F still hold |
 >
-> Suite is **606 passed** (581 → 596 with the tier-1 tests → 602 with M6 → 606
-> with M7); `just selftest` is **10/10** (was 9/9).
+> Suite is **608 passed** (581 → 596 with the tier-1 tests → 602 with M6 → 606
+> with M7 → 608 with ADR-118's `tests/test_stt_hotwords.py`); `just selftest`
+> is **10/10** (was 9/9).
 > Every one of the eight was verified by applying its mutation and watching the
 > suite turn red, then reverting — which is now line six of the definition of
 > done (OQ-67 = b).

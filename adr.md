@@ -1303,7 +1303,12 @@ stays torch-free (`uv add faster-whisper` pulled 18 pkgs, no torch/nvidia).
 
 **Consequences.** FR-10/FR-11 are updated (model + tuning). `small.en` costs
 ~1 GB RAM (abundant). The hotwords list is coupled to the registry — a new
-app must be added there too, noted in `config.py`. If accuracy on names ever
+app must be added there too, noted in `config.py`. **That sentence was written
+on 2026-08-26 and predicted D31 exactly**: ADR-097 replaced the registry with a
+generated enum on 2026-09-02 and did not touch the hotwords, so for a month
+Whisper was biased toward five apps out of a scanned enum of 165 (ADR-118). A
+coupling recorded in prose is not a coupling anything enforces; there is a test
+now (`tests/test_stt_hotwords.py`). If accuracy on names ever
 matters more than latency, distil-large-v3 is the tested fallback (accept
 ~2.6 s) — but confirm-first already mitigates the one case that matters.
 
@@ -3879,7 +3884,16 @@ streaming is what is left.
 ## ADR-097 — `open_app` reaches every installed application, generated from XDG desktop entries
 
 **Date:** 2026-09-02
-**Status:** Accepted
+**Status:** Accepted, **and incomplete — see ADR-118**
+
+> **2026-09-03.** This ADR says "three sites were frozen at Phase 1, not one".
+> **There were five.** The planner prompt and `STT_HOTWORDS` were both left
+> naming the same five apps, and either one alone is enough to stop a scanned
+> app ever launching. `action_audit` says none ever did: a month of
+> `open_app` rows holds `browser`, `terminal`, `editor`, `video`, `vlc` and
+> nothing else. The enum this ADR generated was correct and unreachable
+> (**D31, ADR-118**). Widening a capability means widening **every** list that
+> names it — and finding "three sites" is not evidence that there were three.
 **Context:** ADR-032 shipped five hand-written apps. The user asked for
 "all applications that is not dangerous". This machine has **150 `.desktop`
 files, 101 of which pass a safety scan** — so the gap was 5 vs 101.
@@ -5000,6 +5014,14 @@ launched. A cheaper substitute is not a control, it is a different experiment.
 
 ## ADR-116 — The test suite is measured by mutation, not by counting
 
+> **Amended 2026-09-03 (last, 2), method note.** Reverting a mutation with
+> `git checkout -- <file>` is only safe on a file with **no uncommitted work in
+> it**. Applying the M6-style mutation to `config.py` and reverting it that way
+> silently discarded a hotword change made minutes earlier in the same session;
+> the next full-suite run then failed a test that had passed standalone sixty
+> seconds before, which reads exactly like test pollution and is not.
+> **Copy the file aside and copy it back, or commit before you mutate.**
+
 **Status:** Accepted (2026-09-03). Establishes the method used in
 `test-audit-2026-09-03.md`. Does not change any source file.
 **Amended by ADR-117** (same day): the three questions this ADR deliberately
@@ -5007,14 +5029,18 @@ left to the owner — OQ-65, OQ-66, OQ-67 — were answered, and findings **M1-M
 and M16 are CLOSED**. The tense in the sections below is that of the audit, when
 they were all still open; **M6 is the one tier-1-shaped finding that is not.**
 
-**Context.** This project has been bitten nine times by a green suite sitting on
-a live defect — G13 enrollment dead on import, `clipboard_set` speaking success
+**Context.** This project has been bitten **ten** times by a green suite sitting
+on a live defect — G13 enrollment dead on import, `clipboard_set` speaking success
 while doing nothing, `file_open` opening the wrong file, the CPU-only LLM, 328
 green tests over a TUI whose every action confirm crashed, both Hyprland tools
 whose argv test asserted exactly the string the compositor rejected, a
 `test-egress` that could not observe a connection while passing, a watchdog that
-had never fired, and two whole phases of fixes that had never executed. Each was
-found by a human running the real path, usually after the feature had shipped.
+had never fired, two whole phases of fixes that had never executed, and — added
+2026-09-03 — **a 60/60 eval gate over an `open_app` that could not reach 160 of
+its 165 ids** (D31: the ten scanned-app fixtures were all programs whose names
+ARE their ids and which compete with no canonical id, so the gate measured the
+easy end of the enum). Each was found by a human running the real path, usually
+after the feature had shipped.
 
 `CLAUDE.md` already carries the lesson — *"a green test suite is not a working
 feature"* — as a warning. **A warning is not an instrument.** Nothing in the
@@ -5228,9 +5254,11 @@ browser 26   terminal 5   editor 5   video 2   vlc 1
 ```
 
 ADR-097 widened the enum from those five to every installed desktop entry on
-2026-09-02 and **not one of the other 160 has ever run.** The executor is not
-implicated: all 165 registry entries resolve to a real executable, and none of
-them was ever reached.
+2026-09-02 and **not one of the others has ever run.** The executor is not
+implicated: **every registry entry resolves to a real executable** — 165 of them
+as scanned 2026-09-03, and that number is generated from the machine's XDG
+entries, so it moves whenever an application is installed (M19: state the shape,
+date the observation). None of them was ever reached.
 
 Two separate Phase-1 artifacts were left behind by ADR-097, and each one is
 sufficient on its own to produce the reported symptom.
@@ -5305,6 +5333,78 @@ the new E61–E64 carry the id assertions, on programs that have only one id.
 terminal category. `tests/test_stt_hotwords.py` is new: it asserts at least 20
 hotwords name an app in the enum, so a revert to Phase 1 fails, without pinning
 which apps the owner chose.
+
+### Proven live the same day, by voice — and half of it did not hold
+
+**2026-09-03 11:26-11:28.** Daemon restarted at **11:26:11**, ten minutes after
+this commit. Eleven turns, **every one by voice** — one wake, ten PTT; no
+text-mode turn in the window. From `action_audit`:
+
+```
+11:26:27  open_app {"app": "firefox"}   allowed ok  404 ms
+11:27:06  open_app {"app": "discord"}   allowed ok  402 ms
+11:27:49  open_app {"app": "obsidian"}  allowed ok  403 ms
+11:28:02  open_app {"app": "vlc"}       allowed ok  412 ms
+11:28:15  open_app {"app": "kitty"}     allowed ok  402 ms
+```
+
+**Four scanned ids dispatched — `firefox`, `discord`, `obsidian`, `kitty` — the
+first in the life of the project.** Every one at 402-412 ms, the healthy
+signature: the 400 ms launch grace timed out, so the process was alive when it
+was measured (D30's dead-launch signature is 49-119 ms). `firefox` resolved to
+**`firefox`, not `browser`** — the owner's exact complaint — and `kitty` to
+**`kitty`, not `foot`**. Discord was still running **eight minutes later**, nine
+processes, started 11:27:06 to the second.
+
+**The planner half of this ADR is proven. The STT half is not, and the log says
+why:**
+
+```
+11:27:38  E_TOOL_NOTFOUND: app 'wolf_studio' not installed, failing closed to none
+11:28:28  E_TOOL_NOTFOUND: app 'jin_browser' not installed, failing closed to none
+```
+
+Those are **"LibreWolf"** and **"Zen Browser"**. Both words are in the twenty
+hotwords added by this ADR, and **Whisper mangled both anyway** — it split the
+compound and reassembled it as a different compound. **Five of the eleven turns
+ended `action=none`.**
+
+**This is the honest reading, and it revises OQ-68 rather than answering it.**
+A hotword biases decoding toward a token sequence; it does not repair one the
+acoustic model split in the wrong place. `wolf_studio` and `jin_browser` are not
+near-misses of a rare word, they are **plausible two-word phrases** that the
+enum then correctly rejected. Adding the other ~145 names would not have changed
+either turn. **A single-word app name landed 4 for 4; a two-word one landed 0 for
+2** — that is the shape, on n=6, and it is what the next microphone session
+should widen. Tracked as **D32**.
+
+The fail-closed path is working exactly as designed and, importantly, **says so
+in the log** — `E_TOOL_NOTFOUND` names the id it rejected, which is the only
+reason this took minutes instead of a session.
+
+### One thing this run corrects in ADR-114
+
+**An Electron app moves itself out of the service cgroup.** Discord, launched by
+the daemon at 11:27:06, read from `/proc/<pid>/cgroup` eight minutes later:
+
+```
+462141  0::/user.slice/.../friday.service               <- the daemon
+463212  0::/user.slice/.../friday.service               <- discord's crashpad handler
+463321  0::/user.slice/.../app-discord-463321.scope     <- Discord ITSELF
+```
+
+It asks systemd for its own scope, so **it was never at risk from
+`KillMode=control-group`** and is the wrong subject to prove ADR-114 with. Same
+mistake as bisecting `PrivateTmp` with `foot` (ADR-115a): a cheaper substitute
+is a different experiment. ADR-114 was proven with `foot`; use `foot` or
+`kitty`, and read the unit's `cgroup.procs` rather than assuming. **D29's blast
+radius was never uniform** — plain apps died on every restart, Electron ones did
+not, and nobody had looked.
+
+**Not known:** `firefox`, `obsidian`, `kitty` and `vlc` were not running at
+11:35, eight minutes after launch, while `discord` was. Whether the owner closed
+them or they exited is **unresolved and must not be guessed** — that is how
+ADR-114 shipped the wrong cause. It is the first question of the next session.
 
 ### Rejected
 

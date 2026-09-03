@@ -173,7 +173,9 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        eval.jsonl           60 fixtures (ADR-030, ADR-089)
        adversarial.jsonl    AS-1..12 (+ youtube AS-13..16 in test_youtube)
        injection.jsonl      20 hostile search results (FR-63)
-     test_*.py              79 files + conftest.py; 596 collected tests.
+     test_*.py              81 files + conftest.py; 608 collected tests.
+                            Counts move every session -- read the summary
+                            line from `pytest -q`, never this number.
                             Counts move -- read them with
                             `.venv/bin/python -m pytest -q`, never from prose
 

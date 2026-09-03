@@ -356,6 +356,14 @@ from `none` to `firewall_configuration`, at zero code cost — measured, not
 assumed. A second prompt sentence may be worth more than a keyword index.
 
 ### OQ-57 — Do the widened hotwords actually fix the G12 vocabulary?
+
+> **2026-09-03:** this question got a sibling. `STT_HOTWORDS` was found still
+> carrying only the five curated apps a month after ADR-097 widened the app enum
+> — the same defect one list over — and twenty application names were added
+> (D31, ADR-118). **Both are unproven for the same reason**: nobody has spoken
+> the words and read back the rows. One microphone session answers OQ-57 and
+> **OQ-68** together. The cost half IS now measured: p95 651 ms, miss 4/20 with
+> the twenty in, so the open half is efficacy, not price.
 **Status:** OPEN — **scheduled 2026-08-31 by the USER for the next microphone session.** The G12 clips are to be recorded into `~/.cache/whisper-bench/clips` with `record.sh` ("turn off my wifi", "make this fullscreen", "go to workspace three", "copy that to the clipboard", "start dictation"), reference transcripts added, and `just bench-stt` re-run. That permanently widens the STT gate the way FR-97 widened the planner gate.
 
 
@@ -857,17 +865,36 @@ the owner's call, *"for now let's go twenty, we can put all 165 apps later"* —
 and they cost nothing measurable: **p95 651 ms, miss 4/20** on the 20-clip DMIC
 corpus in `balanced`, against a 713-804 ms range and an 800 ms gate (D17).
 
-What is not known is whether a 165-name list behaves the same. The list is a
+What is not known is whether a full-enum list — 165 names as scanned
+2026-09-03, and that number moves — behaves the same. The list is a
 biasing prompt to Whisper, not a lookup, so its cost is not obviously linear and
 its *benefit* has never been proven at all — D26's own widening still has
 unproven efficacy (**OQ-57**), and the twenty added here have not yet been
 spoken at a microphone either.
 
-**What answers it:** say six or eight of the twenty out loud and read the
-`action_audit` rows. If the twenty are landing, add the rest and re-bench; if
-they are not, the problem is not list length and adding 145 more will not fix
-it. **Do not widen this list on the theory that more is better** — that is the
-reasoning D26 already paid for once, in the opposite direction.
+**PARTLY ANSWERED THE SAME DAY, and the answer is "not by adding more".**
+Eleven voice turns at 11:26-11:28 on 2026-09-03: `firefox`, `discord`,
+`obsidian`, `kitty` and `vlc` all dispatched correctly, and **"LibreWolf" came
+back as `wolf_studio` and "Zen Browser" as `jin_browser`** — *both already in
+the twenty*. Single-word app names landed **4 of 4**, two-word **0 of 2**.
+
+So the price half is settled (the twenty cost nothing) and the efficacy half
+splits in two:
+
+- **single-word names: they work.** Adding more of them is cheap and probably
+  helps, and nothing argues against it.
+- **compound names: a hotword does not help**, because it biases decoding toward
+  a token sequence rather than repairing one the acoustic model split in the
+  wrong place. `wolf_studio` and `jin_browser` are ordinary two-word phrases, not
+  near-misses. **That is D32 and it needs a different fix**, not a longer list.
+
+**What answers the rest:** say six or eight *two-word* names out loud — "Zen
+Browser", "LibreWolf", "Android Studio", "IntelliJ IDEA", "Visual Studio Code",
+"GitHub Desktop" — and read the `E_TOOL_NOTFOUND` lines. Three of those six are
+ids that already exist under a different spelling, which is a hint about where
+the cheap fix is. **Do not widen this list on the theory that more is better** —
+that is the reasoning D26 already paid for once, in the opposite direction, and
+2026-09-03 measured it failing in this direction.
 
 `tests/test_stt_hotwords.py` asserts a floor of 20 app names, not a specific
 list, so answering this question does not require editing a test.
