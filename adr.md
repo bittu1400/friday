@@ -4966,10 +4966,14 @@ namespace. This is not a "where do I put my temp files" problem; it is a
 - `tests/test_service_unit.py` asserts `PrivateTmp` is not enabled and
   `KillMode=process`, so a later "harden the service" pass fails the suite
   instead of silently re-breaking every browser launch. FAIL path demonstrated.
-- **Not yet confirmed by the owner.** Verified at the mechanism level —
-  `/proc/<daemon pid>/root/tmp/org.chromium.Chromium.*` now resolves to 2 where
-  a `PrivateTmp` unit sees 0 — but the daemon has not been asked to open the
-  browser by voice since the change.
+- **CONFIRMED BY THE OWNER, 2026-09-03.** *"i check with open brave, and it
+  worked."* Corroborated independently from `action_audit`: the post-fix
+  `open_app{browser}` row reads **401 ms** — the launch grace timed out, so the
+  process was still alive at 400 ms — against **49, 73, 91, 109, 119 ms** for
+  every such row before the fix. The signature flips exactly here.
+  **D30 is closed.** (Verified at the mechanism level first:
+  `/proc/<daemon pid>/root/tmp/org.chromium.Chromium.*` resolves to 2 where a
+  `PrivateTmp` unit sees 0.)
 
 ### ADR-115a — Why the first bisect cleared `PrivateTmp`, and what that costs
 
@@ -4982,3 +4986,121 @@ sampled after the unit had already exited).
 The rule that would have caught it: **bisect with the subject that actually
 fails.** The owner said "the browser"; the browser is what the probe should have
 launched. A cheaper substitute is not a control, it is a different experiment.
+
+## ADR-116 — The test suite is measured by mutation, not by counting
+
+**Status:** Accepted (2026-09-03). Establishes the method used in
+`test-audit-2026-09-03.md`. Does not change any source file.
+
+**Context.** This project has been bitten nine times by a green suite sitting on
+a live defect — G13 enrollment dead on import, `clipboard_set` speaking success
+while doing nothing, `file_open` opening the wrong file, the CPU-only LLM, 328
+green tests over a TUI whose every action confirm crashed, both Hyprland tools
+whose argv test asserted exactly the string the compositor rejected, a
+`test-egress` that could not observe a connection while passing, a watchdog that
+had never fired, and two whole phases of fixes that had never executed. Each was
+found by a human running the real path, usually after the feature had shipped.
+
+`CLAUDE.md` already carries the lesson — *"a green test suite is not a working
+feature"* — as a warning. **A warning is not an instrument.** Nothing in the
+repository could answer "which of my 581 tests would notice if this line were
+wrong", and the two things that look like they answer it do not:
+
+- **Assertion counting** — 526 test functions, 3 without an assertion, all three
+  false positives. A perfect score on a metric that cannot see a hollow test.
+- **Line coverage** — a line being *executed* by a test is not the same as a
+  line being *constrained* by one. `test_speaker_verifier_mock` constructs a
+  `SpeakerVerifier` and never calls it; coverage would still credit the import.
+
+**Decision.** Measure the suite by breaking the source and seeing what turns
+red. A change to `friday/` that leaves `pytest -q` green is an unprotected line,
+stated as a fact rather than a suspicion.
+
+The specific protocol, because a sloppy version of this produces confident
+nonsense:
+
+1. **Mutations are chosen by hand against the ten hard invariants and the defect
+   ledger**, not generated at random. The question is not "what fraction of
+   lines are covered" but "can a hard invariant be removed silently", and a
+   random sweep answers a different, less useful question. **The consequence is
+   that the resulting score is not comparable to `mutmut`'s** and must never be
+   quoted as if it were.
+2. **One mutation at a time, full suite each time.** A targeted subset run would
+   miss a test living in another file — which is exactly the wiring gap being
+   hunted.
+3. **`git checkout -- .` between every mutation**, and the baseline re-verified
+   green before and after each round. Six rounds ran; the tree was confirmed
+   clean at exit.
+4. **A no-op control mutation is included** — an identical string replacement,
+   which must SURVIVE. Without it, a harness that silently failed to apply its
+   patches would report a perfect score and look like good news.
+5. **An anchor that does not match exactly once is a SKIP, never a guess.**
+   Replacing the wrong occurrence produces a survivor that is an artefact.
+
+**Measured, 2026-09-03, revision `ef6b8e4`.** 85 mutations, **56 killed, 29
+survived, mutation score 66 %**. Full baseline `581 passed, rc=0` in 6.7 s; the
+suite ran 86 times during the audit with no flake.
+
+**What it found that nothing else had.** Three of the five confirm gates
+(`system_wifi{off}`, `clipboard_set`, `hypr_window{close}`) can have their
+branch in `turn.py` deleted with 581 tests passing — invariant #10, and the
+exact rows the 2026-08-30 microphone session existed to prove.
+`assert_not_banned(argv)` can be removed from the executor and the adversarial
+and injection suites still pass. `SpeakerVerifier.verify()` is called by no test
+in the repository. The whole `just eval` gate is 0 % covered. Full list:
+`test-audit-2026-09-03.md` §D, findings M1–M19.
+
+**The structural result, which is worth more than the score.** Mutation score
+tracks, almost perfectly, whether a module has a defect number behind it:
+
+```
+100%  daemon, vad, desktop, db, audit, affirmation, client, typer, logging
+      -- every one has a D-, H- or ADR-number from a live failure
+ 0%   eval_harness, speaker
+40%   confirm gates, config          25%  grounding
+      -- none has ever failed in front of a human
+```
+
+**The suite tests functions; it does not test wiring.** Where a defect once bit,
+the test drives the real path end to end. Everywhere else it calls a unit
+directly and never asks whether anything calls that unit.
+
+**Rejected: add a mutation gate to `just test` now.** It costs ~10 minutes per
+full sweep against a 6.7 s suite, and gating on a hand-picked mutation set would
+freeze this audit's choice of what matters. Whether a periodic sweep joins the
+definition of done is **OQ-67**, the owner's call.
+
+**Rejected: fix the findings in the same session that found them.** Rule 1. The
+tier-1 fixes are ~90 lines of test across five files and are mechanical, but
+their *ordering against Phase 3* changes what ships next and is the owner's
+decision — **OQ-65**. The findings are recorded with their effort estimates so
+that decision can be made without re-deriving anything.
+
+**Consequences.**
+
+- `test-audit-2026-09-03.md` is the report; its §F index is the work list and
+  `progress.md`'s `>>> START HERE <<<` block sequences it.
+- The harness is ~40 lines and was deliberately **not** committed: it is
+  reproducible from this ADR in less time than maintaining it would cost, and a
+  committed harness with a stale mutation list is another thing that can go
+  green while being wrong.
+- **This ADR does not claim the suite is bad.** 66 % with the strong half
+  concentrated exactly on the paths that have hurt is a good suite with a known
+  shape. The finding is the shape, not the number.
+
+### ADR-116a — Two survivors that are not defects, and why the distinction matters
+
+`MAX_CAPTURE_S`, `VAD_END_SILENCE_S`, `RETENTION_DAYS`, the wake threshold and
+the wake refractory all survived. Four of those five are **correct to leave
+free**: the logic consuming them is fully tested — every wake-gating, VAD and
+retention-sweep mutation was killed — so only the default value floats, and
+pinning a tuning knob in a test converts every future tuning run into a test
+edit for no safety.
+
+`MAX_CAPTURE_S` is the exception, because **FR-4 calls it a hard cap**. A number
+the spec describes as a bound earns a test; a number the spec describes as a
+default does not. Recorded as M14 rather than folded in with M15 for exactly
+that reason.
+
+The general rule: **a mutation surviving is a question, not a verdict.** Ask
+what the constant is *for* before writing a test that freezes it.

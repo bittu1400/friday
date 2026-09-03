@@ -12,10 +12,35 @@ enum is generated from the XDG desktop entries and merged over the five
 curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
 and shell `Exec` entries are never offered.
 
-**>>> 2026-09-02 (night): PHASE 1 IS DONE, PHASE 2 IS 7-OF-7, AND NOTHING IS
-OWED AT A MICROPHONE ANY MORE. D3 was proven live and OQ-39 is closed. The next
-work is Phase 3. Read `progress.md`'s `>>> START HERE <<<` block first — it
-carries the runnable commands and the one question owed to the owner (OQ-64).**
+**>>> 2026-09-03: D30 IS CONFIRMED CLOSED BY THE OWNER, AND THE TEST SUITE HAS
+BEEN AUDITED BY MUTATION — 85 injected defects, 56 killed, 29 survived, score
+66 %. Read `progress.md`'s `>>> START HERE <<<` block first; it carries the
+numbered todo list, the runnable commands, and the three questions owed to the
+owner (OQ-65 blocks the first job).**
+
+**The finding that matters: THE SUITE TESTS FUNCTIONS, NOT WIRING.** Three of
+the five confirm gates can have their branch deleted from `turn.py` with all
+581 tests passing — invariant #10, demonstrated. `assert_not_banned(argv)` can
+be removed from the executor and the adversarial and injection suites still
+pass. `SpeakerVerifier.verify()` is called by no test in the repository. The
+whole `just eval` gate is 0 % covered. Report: **`test-audit-2026-09-03.md`**,
+findings **M1–M19**. Method: **ADR-116**. **Nothing was fixed** — no source file
+changed, no test written; the ordering against Phase 3 is the owner's call
+(**OQ-65**).
+
+**Mutation score tracks, almost perfectly, whether a module has a defect number
+behind it.** Everything at 100 % — `daemon`, `vad`, `desktop`, `db`, `audit`,
+affirmation, `client`, `typer`, `logging` — carries a D-, H- or ADR-number from a
+live failure. `eval_harness` and `speaker` score 0 %; confirm gates 40 %,
+`grounding` 25 %; none of those has ever failed in front of a human. **The suite
+is a fossil record of what has already hurt** — which is why its regressions are
+genuinely pinned, and why it cannot tell you what will hurt next.
+
+**Phase 1 and Phase 2 remain DONE, 7 of 7.** D3 was proven live and OQ-39 is
+closed. **Two things are still owed at a microphone and they take ninety seconds
+between them:** ADR-114 (restart with an app open — the window must survive) and
+ADR-113 (watch for a false wake and the line `capture abandoned: no speech
+within 5.0s`). Neither has been seen by a human.
 
 The 2026-09-02 audit (`audit-2026-09-02.md`, 29 findings F1–F29) and its plan
 (`design-2026-09-02.md`, 8 owner decisions, 12 phases) are still the map. What
@@ -79,8 +104,9 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-115. Questions still owed: OQ-57, OQ-59, OQ-60, OQ-61,
-OQ-63. OQ-39 is CLOSED** (D3 proven live 2026-09-02 night), **OQ-64 is CLOSED**
+**Decisions ADR-098…ADR-116. Questions still owed: OQ-65, OQ-66, OQ-67 (all
+raised 2026-09-03 by the test audit — **OQ-65 blocks the next session's first
+job**), plus OQ-57, OQ-59, OQ-60, OQ-61, OQ-63. OQ-39 is CLOSED** (D3 proven live 2026-09-02 night), **OQ-64 is CLOSED**
 (the post-wake pause budget → **ADR-113**: 3.0 → 5.0 s, and an abandoned capture
 now skips STT and the turn) **and OQ-62 is CLOSED** (selftest WARN → exit 2
 `[DEGRADED]`).
@@ -111,7 +137,7 @@ below and one live measurement.**
 | **D27** | **NEW, FIXED 2026-09-02** — `import onnxruntime` phones home to `*.events.data.microsoft.com`. `ORT_DISABLE_TELEMETRY=1` (**ADR-112**) |
 | **D28** | **NEW, FIXED 2026-09-02** — `pytest -q` crashed at session finish; `Daemon.close()` leaked a PortAudio stream (**ADR-111**) |
 | **D29** | **NEW, FIXED 2026-09-02** — every app Friday launched died with the daemon. Children inherit `friday.service`'s cgroup and `KillMode` defaulted to `control-group`, so a stop/restart SIGKILLed the lot — with `Restart=always` + `WatchdogSec=10s` behind it. `KillMode=process` (**ADR-114**). Real, proven, **and NOT the defect the owner reported.** Also fixed: embedded XDG field codes reached the binary (`--uri=%u`), **ADR-114a** |
-| **D30** | **NEW, FIXED 2026-09-02 — THIS is "Friday says launching X and nothing opens."** `PrivateTmp=yes` gave the daemon an empty `/tmp`. Chromium keeps its singleton SOCKET in `/tmp` and only a SYMLINK to it under `$HOME`, so a Friday-launched Brave saw the shared lock, could not reach the socket, and exited **0 in ~50 ms** with no window — announced as a successful launch. Directive removed **and `/tmp` added to `ReadWritePaths=`** — removing it alone leaves `/tmp` visible but READ-ONLY under `ProtectSystem=strict`, which still breaks the socket connect and sent `tempfile` into the repo (**ADR-115**). **Fixed in code and in the running unit; NOT yet confirmed by the owner at a microphone** |
+| **D30** | **NEW, FIXED 2026-09-02 — THIS is "Friday says launching X and nothing opens."** `PrivateTmp=yes` gave the daemon an empty `/tmp`. Chromium keeps its singleton SOCKET in `/tmp` and only a SYMLINK to it under `$HOME`, so a Friday-launched Brave saw the shared lock, could not reach the socket, and exited **0 in ~50 ms** with no window — announced as a successful launch. Directive removed **and `/tmp` added to `ReadWritePaths=`** — removing it alone leaves `/tmp` visible but READ-ONLY under `ProtectSystem=strict`, which still breaks the socket connect and sent `tempfile` into the repo (**ADR-115**). **FIXED, AND CONFIRMED BY THE OWNER 2026-09-03** — *"i check with open brave, and it worked."* The `action_audit` row corroborates: post-fix `open_app{browser}` is **401 ms** (the 400 ms grace timed out, so the process was alive) against **49-119 ms** for the life of the project. **D30 is CLOSED** |
 
 **What is fixed, and what that does NOT mean.** `is_affirmation` normalises STT
 punctuation, head-matches with a negative-word veto, and a `_DECLINE` set
@@ -227,23 +253,40 @@ daemon — use `systemctl --user stop friday`. All three units (`friday`,
 the service is up: two daemons fight over the mic and the PTT socket. Stop the
 service first.
 
-**NEXT SESSION: three things are owed at a microphone and they take five
-minutes between them. Then Phase 3.** Read `progress.md`'s
-`>>> START HERE <<<` block first — it carries the runnable commands and the
-gate numbers. In order:
+**NEXT SESSION. `progress.md`'s `>>> START HERE <<<` block carries the numbered
+todo list, the runnable commands and the gate numbers — read it first. The
+short version, in order:**
 
-1. **Say "open the browser."** A window must appear. This is D30/ADR-115 and it
-   is the owner's own bug; it is fixed in the unit and unconfirmed by a human.
-2. **Then `systemctl --user restart friday`.** The window must still be there.
-   That is D29/ADR-114.
+```
+0.  VERIFY THE GROUND          2 min   commands in START HERE, no judgement needed
+1.  ASK OQ-65                  1 min   it decides what job 3 even is
+2.  TWO MICROPHONE ITEMS       90 s    D29/ADR-114 and ADR-113, owed since 2026-09-02
+3a. TIER-1 TESTS (OQ-65 = a)   ~90 lines across 5 files, M1-M5, mechanical
+3b. PHASE 3      (OQ-65 = b)   design-2026-09-02.md 11.1. Contract not optional
+4.  RECORD IT                  paste output into progress.md per rule 6, then commit
+```
+
+1. ~~**Say "open the browser."**~~ **DONE 2026-09-03** — the owner confirmed a
+   window appeared, and the `action_audit` row agrees (**401 ms** post-fix
+   against 49-119 ms before). **D30/ADR-115 is CLOSED.**
+2. **`systemctl --user restart friday` with an app open.** The window must still
+   be there. That is D29/ADR-114, still unconfirmed by a human.
 3. **Watch for one false wake** and the line
-   `capture abandoned: no speech within 5.0s`. That is ADR-113.
+   `capture abandoned: no speech within 5.0s`. That is ADR-113, which has never
+   fired live because no false wake has occurred since the change.
 
-If (1) still fails, do **not** start from the sandbox again — `ProtectSystem`,
+**OQ-65 is the one that blocks work.** The mutation audit found five places
+where a hard invariant can be deleted with all 581 tests green (M1-M5, ~90 lines
+of test to close). Phase 3 is scheduled to rewrite `executor.py` (F4, F5) — two
+of those five live there — and Phase 3's own acceptance contract is `just eval`,
+which finding **M6** shows is 0 % covered. Tests first, Phase 3 first, or split:
+the owner decides. Do not default it.
+
+If a launch ever fails again, do **not** start from the sandbox — `ProtectSystem`,
 `NoNewPrivileges` and `KillMode` are all measured innocent for the *window*
-question. Read `stderr`: the executor sends it to `DEVNULL`, which is why this
-took a whole session. Spawn the app by hand with the daemon's exact `_APP_ENV`
-and keep stderr.
+question, and `PrivateTmp` is gone. Read `stderr`: the executor sends it to
+`DEVNULL`, which is why that took a whole session. Spawn the app by hand with
+the daemon's exact `_APP_ENV` and keep stderr.
 
 **D3 / OQ-39 is CLOSED, measured 2026-09-02 (night).** Five hands-free captures
 through the real AEC path, ended by Silero at 2.988 / 3.684 / 3.093 / 2.337 /
@@ -725,13 +768,15 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  115 ADRs
-                      (ADR-001..ADR-115; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  116 ADRs
+                      (ADR-001..ADR-116; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
                       ADR-110/111/112 are the 2026-09-02 evening verification
                       pass: a real egress check, the PortAudio teardown leak,
                       and onnxruntime's telemetry.  ADR-113 is the post-wake
-                      pause budget (OQ-64).
+                      pause budget (OQ-64).  ADR-116 is the mutation-testing
+                      method, and 116a is why a surviving constant is a QUESTION
+                      and not automatically a defect.
    threat-model.md    threats, controls, and which file enforces each
    open-questions.md  what is undecided and what it blocks (+ ## Closed, which
                       keeps the reasoning behind every answered question)
@@ -747,6 +792,14 @@ evidence, not defaults. A dependency added without this drill is not done.
                       days, every finding traced to a phase or an explicit
                       deferral.  Section 11.1 carries the Phase 3 acceptance
                       criteria and they are not optional.
+   test-audit-2026-09-03.md
+                      THE TEST-SUITE AUDIT.  Findings M1-M19 from 85 mutations.
+                      Read its B (the module table -- the pattern IS the
+                      finding), F (the index, one effort estimate per fix) and
+                      H (what it deliberately did not do).  NOT a code audit:
+                      every M-number is a MISSING TEST and the code under it is
+                      currently correct.  Its 66% is not comparable to a random
+                      mutation tool's score -- see ADR-116.
    Alpha-ox-analysis.md
                       the 2026-08-26 audit.  A SNAPSHOT: its line numbers are
                       stale and some point into deleted code.  Read its
@@ -884,6 +937,13 @@ justified in writing.
 
 A diagram that disagrees with the code is a bug in the diagram.
 
+**A proposed sixth line is OPEN, not adopted — OQ-67.** The mutation audit
+recommends: *a change touching a hard invariant ships with a mutation of that
+line demonstrated to turn the suite red.* That is the existing "write the
+FAIL-path test" rule made specific, and it costs seconds. It is **not** in the
+list above because adopting it is the owner's decision, not this session's
+(rule 1). A full mutation sweep in `just test` was rejected outright — ADR-116.
+
 ## Style
 
 - Python 3.12, `uv`, no system interpreter.
@@ -1002,7 +1062,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The fix is proven, so the bug is fixed" | ADR-114 was proven at the mechanism level — foot window alive, `systemctl stop`, foot gone — shipped, pushed, and **was not the reported bug**. The owner retested: the browser did not open before or after a restart. A proof that your mechanism is real is not a proof that it is THEIR symptom. Reproduce the user's exact complaint, with their exact app, before claiming it. |
 | "`start_new_session=True`, so the app is detached" | It is detached from the terminal and the process group. It is NOT detached from the **cgroup** — membership is inherited and a process cannot leave it by forking. Under systemd's default `KillMode=control-group`, every app Friday launched was SIGKILLed the moment the service stopped or restarted, and `Restart=always` + `WatchdogSec=10s` mean that happens unasked. Measured: a foot window alive while the parent lived, gone one second after `systemctl stop` (D29, ADR-114). |
 | "The obvious fix is `systemd-run --scope`" | It gives each app its own cgroup and it puts a WRAPPER at argv[0] — and `assert_not_banned` inspects only argv[0]. That is F5, the open hole about `env`/`flatpak`/`distrobox-enter` prefixes. Do not reopen a known security hole to fix a lifecycle bug; `KillMode=process` is one line in the unit (ADR-114). |
-| "The field-code filter strips `%u`" | Only where `%u` is the WHOLE token. `^%[a-zA-Z]$` never matched `--uri=%u`, which is how Spotify writes it, so it reached the binary verbatim — 1 of 162 scanned entries. Anchors are the bug. And strip `%%` first: it is a literal percent (ADR-114a). |
+| "The field-code filter strips `%u`" | Only where `%u` is the WHOLE token. `^%[a-zA-Z]$` never matched `--uri=%u`, which is how Spotify writes it, so it reached the binary verbatim — 1 of the 162 entries scanned that day (the enum is generated, so that count moves; 165 on 2026-09-03 — M19). Anchors are the bug. And strip `%%` first: it is a literal percent (ADR-114a). |
 | "The launch returned ok, so the app opened" | It did not. The spawn is fire-and-forget (ADR-043) and reports the *spawn*, not the app. Brave died on a missing `DISPLAY` for the entire project while Friday said "Opened Brave." Ask the system: `pgrep -a brave`, `hyprctl clients`. |
 | "The arithmetic says it won't fit in VRAM" | Load it and read `nvidia-smi`. A 12B and a 14B were both ruled out on paper; both fit, and the 14B fits with MORE headroom than the 12B. The weights+KV model was wrong by 380-390 MiB every time, in unpredictable directions (ADR-084). Decode `tok/s ~= 272 / weights_GB` DOES hold; memory does not. |
 | "`kv_unified = true`, so the extra slots are free" | Not on a sliding-window model. Gemma's SWA cache is sized `n_seq_max x n_swa + n_ubatch`, so it grows with the slot count — `--parallel` auto gave 4 slots and `4x1024+512 = 4608` cells against `1536` at `-np 1`, i.e. **3x the SWA KV**: 765 MiB of an 833 MiB total, while FR-5 guarantees 3 of those slots can never be used. `-np 1` is **+514 MiB for nothing**. On Qwen (full GQA) the same flag changes nothing at all. Two files reasoned from the flag *name* and both got it backwards. |
@@ -1065,3 +1125,11 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "`argv[0]` is not on the denylist, so the command is safe" | Measured: `env python3 /tmp/x.py`, `flatpak run …`, `distrobox-enter … -- bash` and bare `python3` all PASS `assert_not_banned` (F5). Only `argv[0]` is inspected, and `env`/`flatpak`/`distrobox-enter` each execute an arbitrary following command. `~/.local/share/applications` is user-writable and already holds an `env`-prefixed entry. Resolve the EFFECTIVE binary through wrapper prefixes first. |
 | "The docs say that area is fixed, so start somewhere else" | The 2026-09-02 audit was told to ignore the docs and read the code cold. It found three defects the docs would have talked it out of — F2, F3 and F21 — because a doc records the FIX and not the REGRESSION. Read the code first; read the docs to write them up. |
 | "The number is close enough to write down" | v1 of that audit published "6 of 20" (it was 7, and one value was lost in sorting), "8 paths" (10), "700 ms" (816), and a 1.5 s target derived from an STT assumption a five-minute measurement disproved. Measure, THEN write the number down — and when you re-check, re-check your own work first. |
+| "The suite is green, so the invariant holds" | Measured 2026-09-03: three of the five confirm gates can have their branch DELETED from `turn.py` and all **581 tests still pass** — `system_wifi{off}` dispatches and drops your network, `hypr_window{close}` closes the window, neither asks (M1). `assert_not_banned(argv)` can be removed from the executor and the adversarial and injection suites still pass (M2). Invariant #10 is enforced by code that nothing is watching. Break the line and see if anything turns red; that is the only version of this question with an answer. |
+| "Both modules have good tests, so the feature is tested" | That is exactly how M2 survives. `assert_not_banned` is thoroughly unit-tested. `executor.execute` is thoroughly unit-tested. **Nothing crosses between them**, so the one line joining them can be deleted silently. When two well-tested modules meet, ask what tests the EDGE — the suite tests functions, not wiring, and that single sentence explains every hole the mutation audit found. |
+| "The test feeds the dangerous input, so the rule is covered" | `test_hard_ban_rejects_dangerous_commands` feeds `["rm","-rf","/"]` — and that argv is caught by the `"rm -"` SUBSTRING rule as well as the binary denylist, so two rules fire and the assertion cannot tell which. Drop `"rm"` from `BANNED_BINARIES` and the suite stays green while `rm /home/bittusah/notes.db` sails through (M3). **A denylist entry needs an argv only that rule rejects.** A test that passes through two rules proves one of them at most. |
+| "The fix landed, so that defect is dead" | F23 and F20 were both genuinely fixed in code. F23's fix has **no test at all** — all four mutations of the eval gate survive, so `just eval` can be made to always exit 0 (M6). F20's fix is half-tested: `has_warn = True -> False` is KILLED, `has_fail = True -> False` **SURVIVES** (M7). A fix without a FAIL-path test has a countdown on it, and the gates that guard the gates are the worst place to leave one. |
+| "The test is named after the thing, so it tests the thing" | `test_speaker_verifier_mock` constructs a `SpeakerVerifier` and **never calls it** — the local is assigned and unused, and the assertions run `cosine_similarity()`, which the test twenty lines above already covers. `grep -rn "\.verify(" tests/` returns nothing: the entire G13 accept/reject decision is executed by no test, and both mutations of its return statement survive (M5). Coverage would still credit the import. |
+| "A mutation survived, so that is a defect" | Four of the five surviving constants are CORRECT to leave free: the logic consuming `VAD_END_SILENCE_S`, `RETENTION_DAYS` and the wake threshold/refractory is fully tested — every wake-gating, VAD and retention mutation was killed — so only the default floats, and pinning a tuning knob converts every future tuning run into a test edit. `MAX_CAPTURE_S` is the exception because **FR-4 calls it a hard cap**. Ask what the constant is FOR before freezing it (ADR-116a). |
+| "The unit test reads the service file, so the unit is verified" | It verifies the FILE. The installed unit is a **symlink** to that file, so it always matches — which is why `tests/test_service_unit.py` would have passed throughout the weeks when `systemctl show` said `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes` and the watchdog had never fired (M16). Of 81 test files, only `test_egress.py` shells out to the live system. Deployment is a live question; ask `systemctl`. |
+| "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02 and is **165** today, because ADR-097 generates the enum from the machine's XDG desktop entries — it moves whenever an application is installed. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose.** State the shape, and date the observation. |

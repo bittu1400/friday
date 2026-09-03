@@ -12,14 +12,23 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**>>> 2026-09-02 (night, last): THE LAUNCH BUG IS FOUND AND FIXED — D30,
-ADR-115.** `PrivateTmp=yes` gave the daemon an empty `/tmp`, so a Brave it
-launched could not reach the Chromium singleton socket the user's own Brave had
-created there; it exited **0 in ~50 ms** with no window while Friday said
-"Launching Brave." **`KillMode=process` (ADR-114, D29) was shipped first as this
-bug and was wrong about it** — real defect, kept, different symptom. **Neither
-is confirmed by the owner yet.** Read the `>>> START HERE <<<` block: item 1 is
-one spoken "open the browser". <<<
+**>>> 2026-09-03: THE LAUNCH BUG IS CONFIRMED CLOSED, AND THE TEST SUITE WAS
+AUDITED BY MUTATION.**
+
+**D30 / ADR-115 is confirmed by the owner** — *"i check with open brave, and it
+worked."* The `action_audit` row corroborates: `2026-09-03 06:56:56 open_app
+{"app":"browser"} ok **401 ms**`, the healthy signature (grace timed out, process
+alive at 400 ms) against **49–119 ms** for the life of the project. **ADR-114
+(D29) and ADR-113 remain unconfirmed by a human** — two items, ninety seconds,
+steps 2 and 3 of the START HERE block.
+
+**Then the tests were attacked.** 85 defects injected into the source one at a
+time, full suite run against each: **56 killed, 29 survived, mutation score
+66 %.** The suite is real — but it **tests functions, not wiring**, and
+**three of the five confirm gates can be deleted with all 581 tests passing**
+(invariant #10, demonstrated). Report: **`test-audit-2026-09-03.md`**, findings
+**M1–M19**. Method: **ADR-116**. **No source file was changed and no test was
+written** — the ordering against Phase 3 is the owner's call, **OQ-65**. <<<
 
 **Overall status:** **Phase 1 (G0–G9) + Phase 2 (G10–G13) COMPLETE**, post-audit
 **Phase 1 ("Stop Lying") COMPLETE** (ADR-108, plus F9 finished properly in ADR-110),
@@ -42,8 +51,18 @@ daemon start, and had been doing so for the life of the project — ADR-112, fix
 and verified live.** `just bootstrap --check` **11/11**, `just stats` **active**.
 
 `uv run pytest` is now **581 passed** (568 → 573 with ADR-113's tests → 575
-with ADR-114a's → 580 with `tests/test_service_unit.py`). Note `uv` is not on
-PATH in this environment; use `.venv/bin/python -m pytest -q`.
+with ADR-114a's → 581 with `tests/test_service_unit.py`, which is **6 checks,
+not 5** — the START HERE block said 5 until 2026-09-03, finding M18). Note `uv`
+is not on PATH in this environment; use `.venv/bin/python -m pytest -q`.
+
+**Every gate re-run 2026-09-03, pasted below in the session block:** `pytest`
+**581 rc=0**, `eval` **60/60 (100%), regressions 0**, `selftest` **9/9 rc=0**,
+`bootstrap --check` **11/11**, `test_egress` **8**, `test_service_unit` **6**,
+grammars **byte-identical**. The mechanical doc-vs-tree check is clean: **0
+dangling ADR / OQ / FR ids, 0 dead file citations** (14 flagged paths are all
+either outside the repo — `memory.db`, `record.sh`, `docker.service`,
+`~/.cache/friday-model-eval/*` — or deliberate historical notes about filenames
+that never existed).
 
 **Fixed 2026-08-29 (Steps 1–7):** the CRITICAL text-mode confirm break (C1) and
 **all eight HIGHs** — unaudited dispatches and searches (H1), the orphaned
@@ -355,7 +374,7 @@ list. Not reopening a known security hole to fix a lifecycle bug.
 `desktop.py`'s field-code filter was anchored, `^%[a-zA-Z]$`, so it only removed
 a code that was a **whole token**. Codes are also written inside one — Spotify
 ships `Exec=spotify --uri=%u` — and that reached the binary verbatim. **1 of the
-162 scanned entries.** Now stripped in place as GLib's launcher expands them,
+162 scanned entries at the time.** Now stripped in place as GLib's launcher expands them,
 with `%%` protected as the literal percent the spec says it is:
 
 ```
@@ -383,7 +402,7 @@ FAIL path demonstrated by restoring the anchors:
 
 Also checked and clean: the daemon's `/proc/<pid>/environ` carries all of
 `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`,
-`HYPRLAND_INSTANCE_SIGNATURE`, `LANG`; and all **162** app ids resolve under the
+`HYPRLAND_INSTANCE_SIGNATURE`, `LANG`; and all app ids resolve under the
 daemon's own narrower `PATH` (`/usr/local/sbin:/usr/local/bin:/usr/bin`), not
 just under an interactive shell's.
 
@@ -4331,7 +4350,538 @@ system.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-02 night, last**, after the launch-bug session) <<<
+## 2026-09-03 — D30 confirmed, and the test suite audited by mutation
+
+**No source file was changed. No test was written.** Documentation only, plus
+one report. The tree is `ef6b8e4` plus docs; `git status` was clean at exit.
+
+### 1. D30 / ADR-115 confirmed by the owner — the launch bug is closed
+
+The owner, asked to run step 1 of the previous START HERE block:
+
+> *"yes, i check with open brave, and it worked."*
+
+Corroborated from the audit table rather than from the report:
+
+```
+$ sqlite3 -header -column ~/.local/state/friday/memory.db \
+    "select datetime(created_at,'unixepoch','localtime') t, tool_id, args_redacted,
+            outcome, duration_ms from action_audit where tool_id='open_app'
+     order by created_at desc limit 8;"
+
+         t           tool_id      args_redacted     outcome  duration_ms
+-------------------  --------  -------------------  -------  -----------
+2026-09-03 06:56:56  open_app  {"app": "browser"}   ok               401   <- after the fix
+2026-09-02 22:13:19  open_app  {"app": "browser"}   ok               401
+2026-09-02 22:13:03  open_app  {"app": "terminal"}  ok               409
+2026-09-02 21:58:30  open_app  {"app": "browser"}   ok               402
+2026-09-02 21:48:07  open_app  {"app": "browser"}   ok               401
+2026-09-02 21:28:50  open_app  {"app": "browser"}   ok                49   <- before the fix
+2026-09-02 21:28:21  open_app  {"app": "browser"}   ok                91
+2026-09-02 21:10:16  open_app  {"app": "editor"}    ok               409
+```
+
+`_LAUNCH_GRACE_S` is 0.4 s and a GUI app does not exit, so **~400 ms means the
+grace timed out and the process was still alive**. 49–119 ms meant it had
+already died. The signature flips exactly at ADR-115. **D30 is closed.**
+
+**Still owed at a microphone:** ADR-114 (restart with an app open; the window
+must survive) and ADR-113 (`capture abandoned: no speech within 5.0s` on a false
+wake). Neither has been seen by a human.
+
+### 2. A load/thermal question, answered by asking the system
+
+The owner asked why the CPU was loaded and why the package read 78 °C. Neither
+was Friday, and both had one cause:
+
+```
+load average 2.20 of 24 cores      %Cpu: 89.8 id      PSI cpu some avg10=0.00
+PID 301424  code (GitHub Copilot LS)  %CPU 100.3  R  single thread, 6/6 samples
+  psr= 7 7 7 7 7 7        cpu7 scaling_cur_freq: 5199 MHz   <- max turbo, hottest core
+Core 44: +78.0 °C     every other core: +48 to +58 °C     crit = +105 °C
+GPU: 41 °C, 0 % util, 3.69 W
+friday.voice_main: 8.0 %   <- expected, openWakeWord is a streaming model (OQ-29)
+llama-server:      1.1 %   <- correct, idle between turns, model in VRAM
+```
+
+Package temperature reports the **hottest core**, so one pegged core at 5.2 GHz
+sets the number the whole chip reports. Root cause: **four orphaned VS Code
+scopes with zero VS Code windows** — `app-code-{17155,297466,301223,301671}.scope`,
+all `active running`, all reparented to `systemd --user`; the spinner lived in
+`app-code-301223.scope` whose namesake PID no longer existed. Three of the four
+started 21:14–21:20 on 2026-09-02, inside the launch-bug debugging window.
+Stopped on the owner's instruction; load fell **2.20 → 1.24**.
+
+**Not a Friday defect** — recorded because it is the shape CLAUDE.md already
+warns about (*a `pkill` that takes the window process and not the language
+server*), and because it cost real time to attribute.
+
+### 3. Is Friday 100 % local? — No, and the exception is by design
+
+Asked and answered against the system:
+
+```
+$ pytest -q tests/test_egress.py              -> 8 passed
+$ ss -tnp | grep "pid=$(systemctl --user show friday -p MainPID --value)"   -> (none)
+$ ss -tnp | grep llama                                                      -> (none)
+$ ss -tnp state established | grep -v 127.0.0.1   -> anytype, claude, claude-desktop only
+$ docker exec friday-searxng grep use_default_settings /etc/searxng/settings.yml
+use_default_settings: true
+```
+
+Model, STT, TTS, VAD, wake, speaker verification, memory, prefs and audit are
+all local — zero remote sockets on the daemon or on `llama-server`. **The
+exception is `web_search`:** `SEARXNG_URL` is loopback (`config.py:29`), but
+SearXNG is a *metasearch proxy* and `use_default_settings: true` gives it the
+stock engine list, so the query text reaches Google/DuckDuckGo/Bing. Loopback is
+the first hop, not the last. What crosses is the query only — no audio, no
+transcript, no history — and invariant #1 still holds on the return leg.
+
+**Limits stated:** sockets were sampled at idle with no search running, so the
+instrumented `test-egress` run is the stronger evidence; and SearXNG's container
+was **not** audited for its own telemetry — that is OQ-63 territory.
+
+### 4. The mutation audit — the session's main work
+
+**Method (ADR-116):** 85 single-line defects injected into `friday/` one at a
+time; full `pytest -q` against each; `git checkout -- .` between every one;
+baseline re-verified green before and after all six rounds. A mutation that
+leaves the suite green **SURVIVED** — that line is unprotected.
+
+```
+round 1  validator, ban list, executor      19 run   12 killed   7 survived
+round 2  invariant #1, sanitiser, affirm    17 run   12 killed   5 survived
+round 3  VAD, desktop, typer, logging, cfg  16 run   14 killed   2 survived
+round 4  eval gate, selftest, youtube,      15 run    5 killed  10 survived   <- the break
+         confirm gates
+round 5  db, speaker, retention, wake       12 run    6 killed   6 survived   <- incl. the control
+round 6  daemon FSM, wake gating, abandon    7 run    7 killed   0 survived
+                                            ----     ---------  -----------
+harness runs                                86       56          30
+less the no-op control (a survivor BY DESIGN) -1        -          -1
+                                            ----     ---------  -----------
+real mutations                              85       56 KILLED  29 SURVIVED   -> 56/85 = 66 %
+
+(A 20th round-1 mutation, `start_new_session=True -> False`, SIGKILLed the
+harness process itself instead of failing a test — finding M17. Excluded from
+all counts above.)
+```
+
+**The no-op control** (an identical string replacement) was included and
+correctly survived — the evidence that the harness applied its patches and was
+not simply reporting noise.
+
+**The headline finding, demonstrated rather than inferred.** Three confirm-gate
+branches deleted from `turn.py` simultaneously, then real turns driven through
+`run_turn`:
+
+```
+                             armed confirm?   dispatched?  spoken
+BASELINE
+turn off the wifi            True             False        'Are you sure you want to turn off Wi-Fi?'
+copy hello to clipboard      True             False        'Are you sure you want to overwrite your clip'
+close this window            True             False        'Are you sure you want to close the active wi'
+what is in my clipboard      True             False        'Do you want me to read your clipboard aloud?'
+
+WITH THE THREE GATES DELETED
+turn off the wifi            False            True         'Wi-Fi off.'
+close this window            False            True         'Window close.'
+copy hello to clipboard      False            False        "I can't do that yet."
+what is in my clipboard      True             False        'Do you want me to read your clipboard aloud?'
+
+581 passed, 2 warnings in 6.27s
+```
+
+**Invariant #10, deleted, suite green.** `clipboard_read` survives the cull only
+because `tests/test_clipboard_confirm.py` drives `run_turn` end to end and
+asserts `r.pending.tool_id`; the other three have tests only for *resolving* a
+`PendingAction` the test constructs by hand.
+
+And the executor's ban-list call, removed:
+
+```
+$ sed -i 's/assert_not_banned(argv)/pass  # MUTANT/' friday/tools/executor.py
+$ pytest -q tests/test_executor.py tests/test_action_surface.py \
+          tests/test_open_app_scope.py tests/test_adversarial.py tests/test_injection.py
+42 passed in 0.51s
+```
+
+**The structural result, which is worth more than the score.** Mutation score
+tracks almost perfectly with whether a module has a defect number behind it:
+`daemon`, `vad`, `desktop`, `db`, `audit`, affirmation, `client`, `typer`,
+`logging` all score **100 %** and every one has a D-, H- or ADR-number from a
+live failure. `eval_harness` and `speaker` score **0 %**; confirm gates 40 %,
+`grounding` 25 % — none has ever failed in front of a human. **The suite is a
+fossil record of what has already hurt.** Full table: `test-audit-2026-09-03.md`
+§B.
+
+Findings **M1–M19** with effort estimates: `test-audit-2026-09-03.md` §F.
+**Nothing was fixed** — rule 1; the ordering against Phase 3 is **OQ-65**.
+
+### 5. Doc-vs-tree verification, and two drifts fixed
+
+Mechanical check of every `.md` outside the archive against the tree:
+
+```
+defined: 116 ADR, 68 OQ ids, 112 FR
+DANGLING ADR  (0)
+DANGLING OQ   (0)
+DANGLING FR   (0)
+DANGLING FILE (14)  -- all external or deliberate:
+  memory.db, record.sh, docker.service        -> outside the repo, correctly cited as such
+  PREDICTIONS*.md, RESULTS-*.md, bench.py     -> ~/.cache/friday-model-eval/, named as such
+  sweep3.py                                   -> ~/.cache/whisper-bench/
+  config.toml                                 -> spec.md:489 says "NOT IMPLEMENTED"
+  obs/log.py                                  -> threat-model.md:250 "the pre-G0 sketch"
+  gemini-thoughts.md, gpt-thoughts.md         -> the note recording that they never existed
+```
+
+Counts checked against the code, not against the docs:
+
+```
+pytest 581 (claim 581)          eval fixtures 60 (claim 60; wc -l says 61 -- trailing blank line)
+test_egress 8 (claim 8)         injection fixtures 20 (claim 20)
+ADR 116 (was 115 + ADR-116)     PARAM_SCHEMA 25 actions (claim 25)
+test_service_unit 6             app enum 165 = 5 curated + 160 scanned
+```
+
+Two drifts, both fixed in this session:
+
+- **M18** — `progress.md`'s START HERE gate block said `test_service_unit.py
+  # 5 passed`. It is **6**. `CLAUDE.md` said 6 and was right.
+- **M19** — `CLAUDE.md` and `progress.md` pinned **162** app ids in three
+  places. Measured today: **165**. Nothing broke — ADR-097 generates the enum
+  from the machine's XDG desktop entries, so the number moves whenever an
+  application is installed or removed. **Pinning a generated number in prose was
+  the defect**; the docs now state the shape and date the count.
+
+### 6. Gate numbers, all re-run 2026-09-03
+
+```
+$ .venv/bin/python -m pytest -q
+581 passed, 2 warnings in 6.14s
+
+$ .venv/bin/python -m friday.eval_harness
+fixture-set revision: 20dc76e5a18e
+passed 60/60  (100%)
+known-failing: 0
+regressions vs baseline: 0                                     rc=0
+
+$ .venv/bin/python -m friday.selftest
+[PASS] llama-server    Reachable at http://127.0.0.1:8080 (status: ok)
+[PASS] searxng         Reachable at http://127.0.0.1:8888 (HTTP 200)
+[PASS] gpu_arch        NVIDIA GeForce RTX 5070 Laptop GPU (compute 12.0 - sm_120 verified)
+[PASS] llm_on_gpu      llama-server pid 2903 holds 7010 MiB VRAM (GPU offload live)
+[PASS] database        SQLite at ~/.local/state/friday/memory.db (mode 0600, dir 0700, schema v3)
+[PASS] audio_devices   Input: default | Output: default
+[PASS] panic_switch    Disarmed (normal dispatch allowed)
+[PASS] socket_binds    Services bound to 127.0.0.1 loopback only
+[PASS] power_profile   Profile is 'balanced'
+[PASSED] All required system checks passed successfully.       rc=0
+
+$ .venv/bin/python scripts/bootstrap.py --check
+11/11 PASS  [BOOTSTRAP SUCCESS]
+
+$ .venv/bin/python -m pytest -q tests/test_egress.py           -> 8 passed
+$ .venv/bin/python -m pytest -q tests/test_service_unit.py     -> 6 passed
+$ .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/
+grammars UNCHANGED (byte-identical)
+
+$ systemctl --user show friday -p PrivateTmp -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload
+NeedDaemonReload=no   Type=notify   WatchdogUSec=10s   PrivateTmp=no   KillMode=process
+$ ls -d tmp*/ | wc -l   -> 0
+$ ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
+Wed Sep  2 21:43:49 2026        # newest source mtime 21:23:49 -> the daemon IS this code
+```
+
+### Docs updated in this session
+
+`test-audit-2026-09-03.md` (**NEW** — the report, M1–M19), `adr.md`
+(**+ADR-116, ADR-116a**), `open-questions.md` (**+OQ-65, OQ-66, OQ-67**),
+`progress.md` (this block, the new START HERE, the previous one marked
+superseded, M18 and M19 fixed), `CLAUDE.md` (status header, temptation rows,
+doc map, M19), `spec.md` (FR-4 note — the hard cap has no test, M14).
+
+---
+
+## >>> START HERE: NEXT SESSION (written **2026-09-03**, after the test-suite mutation audit) <<<
+
+**Read this whole block before touching anything. Everything below is measured;
+nothing in it is belief.**
+
+### The state in eight lines
+
+- **D30 / ADR-115 is CONFIRMED BY THE OWNER.** *"i check with open brave, and it
+  worked."* The launch bug is closed. The `action_audit` row corroborates it:
+  `2026-09-03 06:56:56 open_app {"app":"browser"} ok **401 ms**` — the healthy
+  signature (the grace timed out, the process was alive at 400 ms) against
+  **49–119 ms** for the life of the project.
+- **ADR-114 (D29) and ADR-113 are still NOT confirmed by a human.** Two items,
+  ninety seconds. They are steps 2 and 3 below.
+- **A full mutation audit of the test suite ran.** 85 injected defects, **56
+  killed, 29 survived, mutation score 66 %**. Report:
+  **`test-audit-2026-09-03.md`**, findings **M1–M19**. Decision: **ADR-116**.
+- **No source file was changed and no test was written.** The tree is exactly
+  as `ef6b8e4` left it plus documentation.
+- **Three of the five confirm gates can be deleted with 581 tests green** —
+  invariant #10, finding M1, demonstrated not inferred.
+- **Three questions are owed to the owner: OQ-65, OQ-66, OQ-67.** OQ-65 blocks
+  the first job of the session; the other two do not block anything.
+- Gates, all re-run 2026-09-03: `pytest` **581 rc=0**, `eval` **60/60,
+  regressions 0**, `selftest` **9/9 rc=0**, `bootstrap --check` **11/11**,
+  `test_egress` **8**, `test_service_unit` **6**, grammars **byte-identical**.
+- Two documentation drifts were found and fixed (**M18, M19**). The mechanical
+  doc-vs-tree check is clean: **0 dangling ADR / OQ / FR ids, 0 dead file
+  citations.**
+
+### THE TODO LIST, in order. Do not reorder 1 → 2 → 3.
+
+```
+[ ] 0.  VERIFY THE GROUND          2 min   commands below, no judgement needed
+[ ] 1.  ASK OQ-65                  1 min   it decides what job 3 even is
+[ ] 2.  TWO MICROPHONE ITEMS       2 min   D29/ADR-114 and ADR-113. Owed since 2026-09-02
+[ ] 3a. TIER-1 TESTS  (if OQ-65=a) ~90 lines across 5 files. M1-M5. Mechanical
+[ ] 3b. PHASE 3       (if OQ-65=b) design-2026-09-02.md §11.1. Contract not optional
+[ ] 4.  RECORD IT                  paste output here per rule 6, then commit
+```
+
+---
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 581 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 60/60 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 9/9 PASS, rc=0
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+.venv/bin/python -m pytest -q tests/test_egress.py       # 8 passed
+.venv/bin/python -m pytest -q tests/test_injection.py    # 1 passed (asserts 20 blocked inside)
+.venv/bin/python -m pytest -q tests/test_service_unit.py # 6 passed  <- SIX. progress.md said 5 until M18
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
+
+# the unit is deployed, not merely committed (this has bitten twice)
+systemctl --user show friday -p PrivateTmp -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload
+#   MUST read: PrivateTmp=no  KillMode=process  Type=notify  WatchdogUSec=10s  NeedDaemonReload=no
+ls -d tmp*/ 2>/dev/null | wc -l          # MUST be 0. 2 per restart means /tmp went read-only again
+
+# the running daemon is this code
+ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
+find friday -name '*.py' -printf '%T+ %p\n' | sort -r | head -1
+#   the daemon must have started AFTER the newest source mtime
+```
+
+### 1. Ask OQ-65 — it decides what job 3 is
+
+**Do not default this one.** Full text and the three options are in
+`open-questions.md`. One-paragraph version to put to the owner:
+
+> The mutation audit found five places where a hard invariant can be deleted
+> with all 581 tests still passing — three confirm gates, the executor's ban-list
+> call, the `rm` denylist entry, the subprocess environment, and the speaker
+> verifier. Nothing is broken today; these are missing tests, about 90 lines
+> across five files. Phase 3 is scheduled to rewrite `executor.py` (F4, F5) and
+> is contractually measured by `just eval` — which is itself 0 % covered. Do the
+> tests first, or Phase 3 first?
+
+**Recommended: tests first.** Cheapest they will ever be, and Phase 3 lands on
+`executor.py`, which is two of the five.
+
+**OQ-66 and OQ-67 block nothing.** Ask them in the same batch (rule 2) but do
+not wait on them.
+
+### 2. Two microphone items — ninety seconds, owed since 2026-09-02
+
+Item 1 of the previous block is **done** — the owner confirmed the browser
+opens. These two are not:
+
+1. **`systemctl --user restart friday` with an app open.** The window must
+   still be there afterwards. **This is D29 / ADR-114** (`KillMode=process`),
+   still unconfirmed by a human.
+2. **Watch for one false wake** and the journal line
+   `capture abandoned: no speech within 5.0s`. **This is ADR-113.** No false
+   wake has occurred since the change, so it has never fired live.
+
+Record the result here either way. A negative result is worth more than
+anything in Phase 3.
+
+### 3a. The tier-1 tests — if OQ-65 says tests first
+
+Five findings, ~90 lines, all mechanical. **Full detail with the exact mutation
+each one must kill is in `test-audit-2026-09-03.md` §D.** Verify each new test
+by applying the mutation and watching it turn red — a test that cannot fail is
+worthless, and that is the rule this whole audit exists to enforce.
+
+```
+[ ] M1  tests/test_confirm_arming.py  (new, ~40 lines)
+        THE PATTERN ALREADY EXISTS: copy tests/test_clipboard_confirm.py.
+        Drive run_turn with a StubClient for each of the three plans and assert
+        `isinstance(r.pending, PendingAction)`, `not r.dispatched`,
+        `r.pending.tool_id == ...`:
+          system_wifi{state:off} · clipboard_set{text:...} · hypr_window{action:close}
+        MUST KILL:  turn.py `if plan.name == "system_wifi" and params.get("state") == "off":` -> `if False:`
+                    ... and the clipboard_set and hypr_window branches likewise
+
+[ ] M2  tests/test_executor.py  (+~15 lines)
+        Assert the EXECUTOR consults the ban list, not just that the ban list works.
+        Build a ToolSpec whose build_argv returns a banned argv; assert Outcome.DENIED.
+        MUST KILL:  executor.py `assert_not_banned(argv)` -> `pass`
+        (today that mutation leaves 42 security tests green, injection suite included)
+
+[ ] M3  tests/test_action_surface.py  (+~2 lines)
+        Add an argv that ONLY the binary rule can reject:  ["rm", "/tmp/x"]
+        The existing ["rm","-rf","/"] is ALSO caught by the "rm -" substring rule,
+        so it proves nothing about BANNED_BINARIES.
+        MUST KILL:  ban.py  "rm", "rmdir",  ->  "rmdir",
+
+[ ] M4  tests/test_executor.py  (+~15 lines)
+        Capture the env passed to create_subprocess_exec (monkeypatch it) and assert
+        it equals spec.env exactly — FR-32's "minimal explicit env".
+        MUST KILL:  executor.py `env=dict(spec.env)` -> `env=None`
+        NOTE: F4/F5 (Phase 3) rewrite this exact line. Test first or lose the baseline.
+
+[ ] M5  tests/test_speaker.py  (+~20 lines)
+        CALL SpeakerVerifier.verify(). Today `grep -rn "\.verify(" tests/` returns nothing,
+        and test_speaker_verifier_mock builds a verifier it never uses.
+        Assert both directions: enrolled-owner accepted, impostor rejected.
+        MUST KILL:  speaker.py `return score >= th, score` -> `return True, score`
+                    ... and -> `return score < th, score`
+```
+
+If OQ-65 answers **(c) split**, do **M2, M3 and M6** only — they guard what
+Phase 3 will touch and the gate Phase 3 is judged by (~40 lines). M6 is the
+eval-gate test, `test-audit-2026-09-03.md` §D tier 2.
+
+**Definition of done applies** (CLAUDE.md): eval must not regress, evidence
+pasted here, and a new decision gets an ADR.
+
+### 3b. Phase 3 — if OQ-65 says Phase 3 first
+
+Unchanged from the previous block. Acceptance criteria are
+`design-2026-09-02.md` §11.1 and **they are not optional**. Two are already
+verified true:
+
+```
+[verified 2026-09-02] `just grammar` output is byte-identical to the committed .gbnf
+[verified 2026-09-02] PARAM_SCHEMA has exactly 25 actions (criterion 3.8's table)
+```
+
+**Contract:** if the regenerated grammars move, or `just eval` drops below
+**60/60 with 0 regressions**, the refactor changed behaviour and is wrong.
+
+> **Read this before trusting that contract.** Finding **M6**: the eval gate is
+> **0 % covered by mutation**. All four of its exit-condition mutations survive —
+> `just eval` can be made to always exit 0, regressions can stop being detected,
+> the ≥90 % floor can be removed, and no test notices. The contract Phase 3 is
+> measured by is real code that currently works, with nothing pinning it. That is
+> the strongest argument for OQ-65 = (a) or (c).
+
+### What changed in the docs this session, and why
+
+Nothing in `friday/` was touched. Documentation only:
+
+| file | change | why |
+| :-- | :-- | :-- |
+| **`test-audit-2026-09-03.md`** | NEW. Findings M1–M19, §B the module table, §E what is strong, §F the index with effort estimates, §H what was not done | The report. Shaped like `audit-2026-09-02.md` so it reads the same way |
+| `adr.md` | **+ADR-116** and ADR-116a | Rule 4. The method was a decision and it was executed; the *fixes* were not, so they are OQs instead |
+| `open-questions.md` | **+OQ-65, OQ-66, OQ-67** | Rule 1 — ordering, live-system tests and gate policy are the owner's calls, not defaults |
+| `progress.md` | this block; previous START HERE marked superseded; **M18** (`test_service_unit` 5 → 6); **M19** (app-id count unpinned) | Rule 5 — drift found by checking docs against the tree |
+| `CLAUDE.md` | status header, five new temptation rows, doc map entry, M19 fix | It is the file the next session reads first |
+| `spec.md` | FR-4 note: the hard cap has no test (**M14**) | A spec'd bound with no acceptance test should say so |
+
+**Decisions taken and why** (the audit's own §G):
+
+- **Mutation testing, not coverage or assertion-counting** — both score this
+  suite as healthy. 526 test functions, 3 assertion-free, all three false
+  positives; coverage credits `test_speaker_verifier_mock` for importing a class
+  it never calls. Breaking the source is the only measurement that answers
+  *"would anything notice?"*. **ADR-116.**
+- **Mutations hand-picked against the ten invariants, not random** — the
+  question was "can a hard invariant be removed silently", not "what fraction of
+  lines are touched". **Consequence: 66 % is NOT comparable to a `mutmut` score
+  and must never be quoted as one.**
+- **A no-op control mutation was included** and correctly survived. Without it a
+  harness that silently failed to apply its patches would report a perfect score
+  and look like good news.
+- **No test was written and no source line changed** — rule 1. The ordering
+  against Phase 3 changes what ships next, so it is OQ-65 rather than a default.
+- **The harness was deliberately not committed.** ~40 lines, reproducible from
+  ADR-116 in less time than maintaining it costs, and a committed harness with a
+  stale mutation list is one more thing that can be green while being wrong.
+
+### New rules this session paid for
+
+1. **A test that passes through two rules proves one of them at most.** The ban
+   test feeds `["rm","-rf","/"]`, which the *substring* rule also catches — so
+   the binary-denylist entry for the single most dangerous binary is the one
+   entry that test cannot protect (M3). A denylist entry needs an argv that
+   **only that rule** rejects.
+2. **Testing the unit is not testing the wiring.** `assert_not_banned` is
+   thoroughly tested. `executor.execute` is thoroughly tested. Nothing crosses
+   between them, so the call joining them can be deleted (M2). When two modules
+   both have good tests, ask what tests the *edge*.
+3. **A fix without a FAIL-path test has a countdown on it.** F23 and F20 were
+   both genuinely fixed in code. F23's fix has no test at all (M6); F20's WARN
+   half is tested and its FAIL half is not (M7). Both can regress in silence.
+4. **A mutation surviving is a question, not a verdict.** Four of the five
+   surviving constants are *correct* to leave free — the logic consuming them is
+   fully tested, and pinning a tuning knob converts every future tuning run into
+   a test edit. `MAX_CAPTURE_S` is the exception because FR-4 calls it a *hard
+   cap*. Ask what the constant is for (ADR-116a).
+5. **Do not pin a generated number in prose.** The app enum is built from the
+   machine's XDG entries, so "162 app ids" was true on 2026-09-02 and is 165
+   today. Nothing broke; the docs were just wrong on a schedule (M19).
+
+### Environment gotchas — each has cost a session, all still true
+
+1. **`uv` is not on PATH here.** Use `.venv/bin/python`. A `uv run …` in a
+   background command exits **0** while doing nothing, so it looks like a pass.
+2. **Editing a systemd unit is not deploying it.** The installed unit is a
+   symlink to `deploy/systemd/`, so `diff` says IDENTICAL while systemd runs the
+   old config. After ANY unit edit:
+   `systemctl --user daemon-reload && systemctl --user restart friday`, then
+   confirm with `systemctl --user show friday -p <directive>`.
+   **`tests/test_service_unit.py` cannot catch this** — it reads the repo file,
+   not `systemctl` (M16, OQ-66).
+3. **A committed fix is not a running fix.** Compare
+   `ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)` against
+   the source mtimes. Two whole phases had never executed.
+4. **`FRIDAY_DEBUG=1` shows nothing under systemd.** Use
+   `env -u JOURNAL_STREAM FRIDAY_DEBUG=1 just voice`, and
+   `systemctl --user stop friday` first — two daemons fight over the mic and the
+   PTT socket.
+5. **A single sample is not an observation.** The ORT telemetry socket takes
+   **15–45 s** to appear; three checks at 12 s produced a confident wrong cause.
+6. **A capture's real length is in the `faster_whisper` line**, not the log gap.
+7. **The executor throws `stderr` away** (`DEVNULL` on both pipes). Any "it
+   launched and nothing happened" investigation starts by spawning the app by
+   hand with the daemon's exact `_APP_ENV` and keeping stderr.
+8. **`pgrep -f foo` matches its own command line.** Bracket it: `pgrep -f "[f]oo"`.
+   Exit 144 twice already.
+
+### Questions owed. Do not re-ask what is answered.
+
+**Open:** **OQ-65** (tier-1 tests before Phase 3? — blocks job 3) · **OQ-66**
+(may the suite ask the running system?) · **OQ-67** (mutation sweep in the
+definition of done?) · **OQ-57** · **OQ-59** · **OQ-60** · **OQ-61** ·
+**OQ-63** · **OQ-30**, **OQ-32**, **OQ-33** unchanged.
+
+**CLOSED 2026-09-02 night: OQ-39** (live hands-free capture) and **OQ-64** (the
+pause budget → ADR-113). **CLOSED 2026-09-02 evening: OQ-62.** **Do not re-ask
+D-1…D-8** — design §0, ADR-098…107.
+
+### Still owed, cheap, and not done
+
+- **OQ-57** — record the G12 vocabulary clips into `~/.cache/whisper-bench/clips`
+  with `record.sh`, to test whether the widened `STT_HOTWORDS` actually helps.
+- **D17** — re-run `just bench-stt` in `balanced` more than once. STT p95 spans
+  713–804 ms against an 800 ms gate; one run cannot settle it.
+
+---
+
+## >>> (superseded 2026-09-03 by the block above) START HERE: NEXT SESSION (written **2026-09-02 night, last**, after the launch-bug session) <<<
 
 **Read this whole block before touching anything. It is four minutes of reading
 and it will save you the session I just spent.**
@@ -4387,7 +4937,7 @@ them:**
 | `NoNewPrivileges=yes` | bisected on its own; produces a window |
 | `ProtectSystem=strict` **as such** | bisected on its own; produces a window. **But it is why `/tmp` needed adding to `ReadWritePaths=`** — it mounts everything not listed read-only. If `/tmp` ever leaves that list, this row stops being true |
 | the GUI env (`DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, `HYPRLAND_INSTANCE_SIGNATURE`, `LANG`) | read straight out of `/proc/<daemon pid>/environ`; all present |
-| `PATH` / a missing binary | all **162** app ids resolve under the daemon's own narrower `PATH` |
+| `PATH` / a missing binary | **every** app id resolves under the daemon's own narrower `PATH` (162 of them on 2026-09-02; **165** on 2026-09-03 — the enum is generated from the machine's XDG entries per ADR-097, so the count moves with what is installed. Do not pin it, M19) |
 | `KillMode` | fixed (ADR-114) and separately proven; it kills apps LATER, it does not stop them opening |
 
 **Start instead by reading `stderr`.** `executor.py` sends it to `DEVNULL`,
@@ -4455,7 +5005,7 @@ was using: `_LAUNCH_GRACE_S` is 0.4 s and a GUI app does not exit, so
 .venv/bin/python -m friday.selftest      # 9/9 PASS, rc=0
 .venv/bin/python -m pytest -q tests/test_injection.py   # 20/20 blocked
 .venv/bin/python -m pytest -q tests/test_egress.py      # 8 passed
-.venv/bin/python -m pytest -q tests/test_service_unit.py # 5 passed -- the unit directives
+.venv/bin/python -m pytest -q tests/test_service_unit.py # 6 passed -- the unit directives
 .venv/bin/python scripts/bootstrap.py --check           # 11/11 PASS
 .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
 ```
