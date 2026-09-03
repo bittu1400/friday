@@ -29,10 +29,10 @@ project, all at 402-412 ms (the healthy signature). `firefox` resolved to
 `firefox`, **not `browser`** — the owner's exact complaint, spoken, fixed. But
 "LibreWolf" reached the planner as `wolf_studio` and "Zen Browser" as
 `jin_browser`, **both already in the hotwords**, both correctly rejected:
-**single-word names 4/4, two-word 0/2 — that is D32, new and open.** One thing
-must be ASKED not investigated: four of the five apps were gone eight minutes
-later while Discord was still up, and nobody knows if the owner closed them.
-<<<**
+**single-word names 4/4, two-word 0/2 — that is D32, new and open.** The four
+apps that were gone eight minutes later were **closed by the owner** — asked,
+not guessed. **D31 is CLOSED, and D29/ADR-114 is now the ONLY item this project
+owes a microphone.** <<<**
 
 **>>> 2026-09-03 (last, 2): D31 — ONLY FIVE APPS HAD EVER LAUNCHED, a month
 after ADR-097 widened the enum to every installed desktop entry. `action_audit`
@@ -5281,16 +5281,29 @@ The fail-closed path worked exactly as designed **and said so in the log** —
 `E_TOOL_NOTFOUND` names the id it rejected, which is the only reason this took
 minutes instead of a session.
 
-### The one thing that is NOT resolved, and must not be guessed
+### The one thing the rows could not settle — and it was ASKED, not guessed
 
 At 11:35, eight minutes after launch, `discord` was running and **`firefox`,
 `obsidian`, `kitty` and `vlc` were not.** All five had recorded `ok` at ~400 ms.
 
-**Two readings, and the evidence cannot separate them:** the owner closed four
+Two readings, and the evidence could not separate them: the owner closed four
 test launches and kept the app they actually use, or four apps outlived the
-400 ms grace and died after it — a longer-timescale D30. **Asking is the whole
-job**; guessing here is precisely how ADR-114 shipped a real mechanism as the
-wrong cause. It is question 1 of the next session and it takes one sentence.
+400 ms grace and died after it — a longer-timescale D30, which would have been a
+serious new defect and would have made the `ok` row lie a second way.
+
+**RESOLVED by asking, 2026-09-03:** *"Yes, I closed them."* Test launches,
+tidied up. **No defect.** `discord` stayed because it is an app the owner
+actually uses. D31 is proven end to end for single-word names, and the only
+residue is D32.
+
+The asking took one sentence and it was the right call: the rows could not
+separate "the owner closed four windows" from "a launch dies after the grace",
+and the second reading would have been a serious new defect. **ADR-114 is what
+happens when you pick instead of ask.**
+
+**D31 is CLOSED.** The prompt half is proven live by voice, the twenty hotwords
+carry single-word names 4 of 4, and the four apps that "vanished" were closed by
+hand. What is left is **D32** — compound names — and it is a different defect.
 
 ### And a third thing the audit table could not have told us
 
@@ -5351,19 +5364,19 @@ nothing in it is belief.**
 
 ### The state in seven lines
 
-- **D31's planner half is PROVEN LIVE BY VOICE** (2026-09-03 11:26-11:28, eleven
+- **D31 is CLOSED — PROVEN LIVE BY VOICE** (2026-09-03 11:26-11:28, eleven
   turns, all voice). `firefox` → `firefox` not `browser`, `kitty` → `kitty` not
-  `foot`; four scanned ids dispatched, the first ever. **ADR-118.**
+  `foot`; four scanned ids dispatched, the first ever, all at 402-412 ms.
+  **ADR-118.** The four apps that were gone eight minutes later were **closed by
+  the owner** — asked, not guessed (*"Yes, I closed them."*). No defect there.
 - **D32 is NEW and OPEN**: two-word app names die in STT. "LibreWolf" became
   `wolf_studio`, "Zen Browser" became `jin_browser`, **both already in the
   hotwords**, both correctly rejected by the enum. Single-word 4/4, two-word 0/2.
-- **One question must be ASKED, not investigated** — see job 1. Four apps that
-  launched `ok` were gone eight minutes later; a fifth was still running. Nobody
-  knows whether the owner closed them.
-- **ADR-114 / D29 needs one VOICE launch of the right app.** The daemon has run
-  since 11:26:11 with `NRestarts=0`, but **Discord escaped into its own systemd
-  scope** and is not a valid subject — measured, see job 2. Launch `kitty` or a
-  terminal by voice, confirm the PID is in `cgroup.procs`, then restart.
+- **D29 / ADR-114 is the ONLY item this project still owes a microphone.** Owed
+  since 2026-09-02, defeated four sessions running by ordering. Sixty seconds.
+- **Discord is NOT a valid subject for D29** — it escaped into its own systemd
+  scope (measured; see job 1). Launch `kitty` or a terminal by voice, confirm
+  the PID is in the unit's `cgroup.procs`, then restart.
 - Gates: `pytest` **608 rc=0**, `eval` **64/64, regressions 0**, `selftest`
   **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**.
 - The mutation audit's **tier 1 and tier 2 are closed** (M1-M7). What is left is
@@ -5375,12 +5388,15 @@ nothing in it is belief.**
 
 ```
 [ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed
-[ ] 1.  ASK ONE QUESTION        10 s    did the owner close those four apps?
-[ ] 2.  D29 / ADR-114           60 s    launch-then-restart. Already set up
-[ ] 3.  D32 — TWO-WORD NAMES    open    what to do about "Zen Browser"
-[ ] 4.  PHASE 3                 design-2026-09-02.md 11.1. Contract not optional
-[ ] 5.  RECORD IT               paste output here per rule 6, then commit
+[ ] 1.  D29 / ADR-114           60 s    launch-then-restart. LAST live item owed
+[ ] 2.  D32 — TWO-WORD NAMES    open    what to do about "Zen Browser"
+[ ] 3.  PHASE 3                 design-2026-09-02.md 11.1. Contract not optional
+[ ] 4.  RECORD IT               paste output here per rule 6, then commit
 ```
+
+**D29/ADR-114 is the last thing in this project owed to a microphone.** Owed
+since 2026-09-02, four sessions running, every time defeated by ordering. It
+costs sixty seconds.
 
 ### 0. Verify the ground — two minutes, no judgement required
 
@@ -5413,28 +5429,7 @@ before restarting, because a restart costs the owner their session:
 # selftest -> False (not in the graph).  llm.prompt and config -> True (they are).
 ```
 
-### 1. Ask one question — ten seconds, and it is the highest-value thing here
-
-At 11:35 on 2026-09-03, `discord` (launched by Friday at 11:27:06) was running
-and **`firefox`, `obsidian`, `kitty` and `vlc` were not** — all four had recorded
-`ok` at ~400 ms minutes earlier.
-
-**Ask the owner: "did you close firefox, obsidian, kitty and vlc after
-testing?"**
-
-- **Yes** → nothing to chase. D31 is fully proven and job 2 is next.
-- **No** → a **new defect**, and a serious one: a launch that outlives the 400 ms
-  grace and dies after it. That is D30's shape at a longer timescale, and the
-  400 ms `ok` row would then be lying a second way. **Do not start from the
-  sandbox** (`ProtectSystem`, `NoNewPrivileges`, `KillMode` are all measured
-  innocent, `PrivateTmp` is gone). Spawn the app by hand with the daemon's exact
-  `_APP_ENV` and **keep stderr** — the executor sends it to `DEVNULL`, which is
-  what made D30 cost a whole session.
-
-**This is an ASK, not an investigation.** Guessing which reading is right is
-exactly how ADR-114 shipped a real mechanism as the wrong cause.
-
-### 2. D29 / ADR-114 — sixty seconds, and it is finally set up
+### 1. D29 / ADR-114 — sixty seconds, the last live item owed
 
 An app Friday launched must survive a daemon restart. Children inherit
 `friday.service`'s cgroup and the default `KillMode=control-group` SIGKILLed them
@@ -5476,7 +5471,7 @@ systemctl --user restart friday
 hyprctl clients | grep -c "^Window"                  # same count
 ```
 
-### 3. D32 — two-word app names do not survive STT
+### 2. D32 — two-word app names do not survive STT
 
 Measured live, n=6: **single-word app names 4 of 4, two-word 0 of 2.**
 
@@ -5501,7 +5496,7 @@ between a spoken-alias map, a normalisation step, or leaving it. **Three of thos
 six are ids that already exist under a different spelling**, which is a hint
 about where the cheap fix is.
 
-### 4. Phase 3 — `design-2026-09-02.md` §11.1
+### 3. Phase 3 — `design-2026-09-02.md` §11.1
 
 Acceptance criteria are §11.1 and **they are not optional**. Two are verified:
 

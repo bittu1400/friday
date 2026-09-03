@@ -211,13 +211,15 @@ prompt taught the canonical five to swallow their own categories, and
       0/2. A hotword biases decoding toward a token sequence; it does not repair
       one the acoustic model split in the wrong place. **Do not open this by
       adding the other ~145 names** — they would not have changed either turn.
-- [ ] **UN-TICKED and it is a QUESTION, not an investigation.** At 11:35,
-      `discord` was running and `firefox`, `obsidian`, `kitty` and `vlc` were
-      not, eight minutes after all five recorded `ok` at ~400 ms. **Ask the
-      owner whether they closed them.** If they did, this row ticks. If they did
-      not, it is a new defect — a launch that outlives the 400 ms grace and dies
-      after it, i.e. D30's shape at a longer timescale. Guessing between the two
-      is how ADR-114 shipped a real mechanism as the wrong cause.
+- [x] **TICKED 2026-09-03 by ASKING.** At 11:35, `discord` was running and
+      `firefox`, `obsidian`, `kitty` and `vlc` were not, eight minutes after all
+      five recorded `ok` at ~400 ms. The owner: *"Yes, I closed them."* Test
+      launches, tidied up; `discord` stayed because it is an app they use.
+      **No defect.** The alternative reading — a launch that outlives the 400 ms
+      grace and dies after it — would have been D30's shape at a longer
+      timescale, and the rows could not tell the two apart. **One sentence
+      could.** Guessing between them is how ADR-114 shipped a real mechanism as
+      the wrong cause.
 - [ ] **Read `duration_ms`, not Friday.** ~400 ms means the launch grace timed
       out, i.e. the process was still alive at 400 ms. **Under ~120 ms means it
       died** — that was D30's whole signature.

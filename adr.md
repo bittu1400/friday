@@ -5401,10 +5401,17 @@ is a different experiment. ADR-114 was proven with `foot`; use `foot` or
 radius was never uniform** — plain apps died on every restart, Electron ones did
 not, and nobody had looked.
 
-**Not known:** `firefox`, `obsidian`, `kitty` and `vlc` were not running at
-11:35, eight minutes after launch, while `discord` was. Whether the owner closed
-them or they exited is **unresolved and must not be guessed** — that is how
-ADR-114 shipped the wrong cause. It is the first question of the next session.
+**Asked, not guessed.** `firefox`, `obsidian`, `kitty` and `vlc` were not
+running at 11:35, eight minutes after launch, while `discord` was — all five
+having recorded `ok` at ~400 ms. **RESOLVED by asking, 2026-09-03:** *"Yes, I closed them."* Test launches,
+tidied up. **No defect.** `discord` stayed because it is an app the owner
+actually uses. D31 is proven end to end for single-word names, and the only
+residue is D32.
+
+The asking took one sentence and it was the right call: the rows could not
+separate "the owner closed four windows" from "a launch dies after the grace",
+and the second reading would have been a serious new defect. **ADR-114 is what
+happens when you pick instead of ask.**
 
 ### Rejected
 
