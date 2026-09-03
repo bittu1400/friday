@@ -847,6 +847,32 @@ out of.
 
 ## Kept Open (Long-Term / Optional)
 
+### OQ-68 — Do the remaining ~145 application names join `STT_HOTWORDS`?
+**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (raised 2026-09-03 by
+D31 / ADR-118)
+
+ADR-097 widened the app enum from 5 ids to every installed desktop entry and
+left `STT_HOTWORDS` at the same five apps. Twenty names went in on 2026-09-03 —
+the owner's call, *"for now let's go twenty, we can put all 165 apps later"* —
+and they cost nothing measurable: **p95 651 ms, miss 4/20** on the 20-clip DMIC
+corpus in `balanced`, against a 713-804 ms range and an 800 ms gate (D17).
+
+What is not known is whether a 165-name list behaves the same. The list is a
+biasing prompt to Whisper, not a lookup, so its cost is not obviously linear and
+its *benefit* has never been proven at all — D26's own widening still has
+unproven efficacy (**OQ-57**), and the twenty added here have not yet been
+spoken at a microphone either.
+
+**What answers it:** say six or eight of the twenty out loud and read the
+`action_audit` rows. If the twenty are landing, add the rest and re-bench; if
+they are not, the problem is not list length and adding 145 more will not fix
+it. **Do not widen this list on the theory that more is better** — that is the
+reasoning D26 already paid for once, in the opposite direction.
+
+`tests/test_stt_hotwords.py` asserts a floor of 20 app names, not a specific
+list, so answering this question does not require editing a test.
+
+
 ### OQ-28 — Should a meta-question about capability route to chat, not web_search?
 **Decider:** USER · **Blocks:** nothing · **Status:** OPEN (live-review 2026-08-23)
 

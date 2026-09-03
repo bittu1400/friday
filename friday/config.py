@@ -105,6 +105,20 @@ DEBUG: bool = bool(os.environ.get("FRIDAY_DEBUG"))
 # "way" and "life"** across four consecutive turns, each one planned as `none`
 # or `chat`, before the fifth attempt was heard correctly. A word the user must
 # say to reach a capability belongs here (D26, ADR-091).
+#
+# It happened AGAIN: ADR-097 widened the app enum from 5 ids to every installed
+# desktop entry and left this list at the same five apps, so for a month the
+# only application names Whisper was biased toward were the only five that had
+# ever been dispatched. `action_audit` recorded it — in the whole life of the
+# project `open_app` has run with browser, terminal, editor, video and vlc, and
+# nothing else (D31, ADR-118).
+#
+# TWENTY names, not 165: the owner's call 2026-09-03 — a small step first,
+# because widening this list is not free. STT p95 already spans 713-804 ms
+# against an 800 ms gate (D17) and D26's own widening has never had its efficacy
+# proven (OQ-57). The remaining ~145 go in once these twenty are proven at a
+# microphone; that is OQ-68. Measured cost of these twenty: p95 651 ms,
+# miss 4/20 — no regression (2026-09-03, balanced).
 STT_HOTWORDS: str = os.environ.get(
     "FRIDAY_STT_HOTWORDS",
     # Phase 1: the five apps, youtube, preference subjects.
@@ -113,7 +127,12 @@ STT_HOTWORDS: str = os.environ.get(
     # Phase 2 (G11/G12) control vocabulary — every word that selects an action.
     "Wi-Fi, wifi, volume, mute, unmute, brightness, workspace, fullscreen, "
     "clipboard, dictation, notes, timer, reminder, quiet mode, media, "
-    "pause, resume, next track, previous track",
+    "pause, resume, next track, previous track, "
+    # ADR-097's applications, twenty of them (D31/ADR-118). Chosen from what is
+    # installed AND running on this machine, not from a popularity list.
+    "Firefox, Zen Browser, LibreWolf, Discord, Spotify, Obsidian, Anytype, "
+    "Claude, Thunar, Kitty, PyCharm, WebStorm, IntelliJ IDEA, Android Studio, "
+    "Zed, Todoist, Thunderbird, btop, Heroic, Timeshift",
 )
 
 # PTT control socket (FR-3). A unix socket in the per-user runtime dir (0700

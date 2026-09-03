@@ -5202,3 +5202,128 @@ the live system, and that ratio is worth keeping.
 **Rejected: writing the tier-1 tests after Phase 3.** They would then be written
 against new code with no baseline — the audit's own finding is that this
 project's strong tests are the ones written *before* the next thing moved.
+
+---
+
+## ADR-118 — A named program wins over its category; the hotword list follows the app enum
+
+**Date:** 2026-09-03
+**Status:** Accepted
+**Fixes:** D31
+**Raises:** OQ-68
+**Amends:** ADR-097 (which widened the app enum and left two Phase-1 artifacts
+behind it)
+
+### Context
+
+The owner: *"Only the pre-configured five apps opened, launched. Anything else,
+didn't. Maybe I don't know their name which might be different than what the
+launcher name them. Like firefox didn't open, and all."*
+
+The audit table settled the first half in one query. Across the entire life of
+the project, `open_app` has been dispatched with **five app ids and no others**:
+
+```
+browser 26   terminal 5   editor 5   video 2   vlc 1
+```
+
+ADR-097 widened the enum from those five to every installed desktop entry on
+2026-09-02 and **not one of the other 160 has ever run.** The executor is not
+implicated: all 165 registry entries resolve to a real executable, and none of
+them was ever reached.
+
+Two separate Phase-1 artifacts were left behind by ADR-097, and each one is
+sufficient on its own to produce the reported symptom.
+
+**1. The prompt taught the collapse it was meant to prevent.** The `open_app`
+line read *"Five ids are canonical and always correct: … a spoken brand name
+maps to its id and is just as valid."* That clause exists so "Brave" resolves to
+`browser` and "Code" to `editor`. The model generalised it to the whole
+category. Measured against the live planner, 22 utterances:
+
+```
+'open firefox'      -> open_app browser     Brave opened. Not firefox
+'open neovim'       -> open_app editor      VS Code opened
+'open vim'          -> open_app editor      VS Code opened
+'open zen browser'  -> app='zen'            not in the enum -> fails closed, nothing opens
+'open timeshift'    -> none                 refusal
+discord, spotify, obsidian, kitty, thunar, htop, pycharm, zed, calibre  -> correct
+```
+
+**The five canonical ids were eating their own categories.** Nineteen of 23 were
+right, and every one of the four failures was a program that competes with a
+canonical id or an id the model shortened.
+
+**2. `STT_HOTWORDS` still listed the same five apps.** It carried Brave, foot,
+terminal, Visual Studio Code, VLC, mpv and nothing else from the enum. This is
+**D26's exact shape** — that entry was written because "wifi" came back as wife
+/ weapon / way / life once G12 shipped vocabulary the list did not know — and it
+is the fourth Phase-1 artifact found by the same method, after the eval fixtures
+(D16), the chat persona (D24/F2) and the G12 control words (D26).
+
+**And the eval gate could not see any of it.** E51–E60, the scanned-app tail
+Phase 1 added, picked `btop`, `calibre`, `anytype`, `ark`, `thunar`, `baobab`,
+`obsidian`, `spotify`, `discord`, `blueman_manager` — **ten apps whose names are
+their own ids and which compete with no canonical id.** 60/60 while three of the
+five canonical categories ate their competitors. Same shape as D16, where a
+28-fixture gate could not see the 20 actions it did not cover.
+
+### Decision
+
+**A named program wins over its category.** The prompt now says a canonical id
+is for the generic word ("a browser", "the editor") or for that exact program
+("Brave" → browser), and that naming a *different* program means emitting that
+program's own id — with `firefox` → `firefox` (NOT `browser`), `kitty` →
+`kitty`, `neovim` → `neovim` as explicit counter-examples, plus "never shorten
+an id" and `"zen browser"` → `zen_browser`.
+
+Measured after: **22 of 23**, and the eval gate is **64/64, 0 regressions**,
+stable over two runs.
+
+**Twenty application names go into `STT_HOTWORDS`, not all 165** — the owner's
+call. Widening that list is not free: STT p95 already spans 713–804 ms against
+an 800 ms gate (D17) and D26's own widening has never had its efficacy proven
+(OQ-57). Measured with the twenty in place, on the 20-clip DMIC corpus in
+`balanced`: **p95 651 ms, miss 4/20, PASS** — no regression. The remaining ~145
+are **OQ-68**, gated on these twenty being proven at a microphone.
+
+**`browser` stays Brave.** The owner: *"Generic browser. But when I say the name
+of the browser. It should open that."* That is exactly what the prompt change
+produces, and it needed no registry change.
+
+**E23 and E24 become action-only fixtures.** Both assert `open_app` with no
+params now, and the note in each says why. `foot` is reachable as `terminal` and
+as `foot` with **byte-identical argv**, and `mpv` as `video` and as `mpv` — the
+first is `mpv --idle=yes --force-window=yes`, the second
+`--player-operation-mode=pseudo-gui`, and **both hold a window open** (measured,
+both alive at 1.2 s). The planner flips between the two ids run to run, so
+asserting either one tests a coin toss between two correct answers. E21/E22 and
+the new E61–E64 carry the id assertions, on programs that have only one id.
+
+**Four fixtures are added — E61 `firefox`, E62 `neovim`, E63 `kitty`, E64
+`zen_browser`** — one per failure mode the owner hit, plus a guard on the
+terminal category. `tests/test_stt_hotwords.py` is new: it asserts at least 20
+hotwords name an app in the enum, so a revert to Phase 1 fails, without pinning
+which apps the owner chose.
+
+### Rejected
+
+**Deduplicating the app enum by binary.** The obvious cleanup — one id per
+program, curated wins — resolves the `foot`/`terminal` and `mpv`/`video` coin
+flip at the source. It was measured and abandoned: **19 scanned ids share
+`argv[0]` with a curated entry, and 15 of them are different programs** —
+`btop`, `htop`, `neovim`, `nvim`, `vim`, `micro`, `nvtop`, `jshell`,
+`distrobox`, `debian_box`, `foot_server` and the rest are `foot -e <something>`
+wrappers. Deduplicating on `argv[0]` would have deleted them all. Deduplicating
+on the full argv removes only four (`brave`, `code`, `foot`,
+`visual_studio_code`) and leaves the `mpv` case, so it buys a partial fix for a
+non-symptom: both ids launch the app correctly. The user-visible defect is the
+prompt, and it is fixed there.
+
+**A fuzzy matcher over app names.** Permanently rejected, and this is the second
+time: a substring match resolves `"browser; rm -rf ~"` to `browser` and AS-8
+must reject. The enum stays closed.
+
+**Pushing harder on the canonical ids in the prompt.** That is the phrasing that
+caused D31. Re-teaching the category collapse to keep two fixtures green would
+trade the owner's actual complaint for a green number.

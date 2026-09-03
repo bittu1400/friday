@@ -22,6 +22,15 @@ that morning** — a marginal wake (0.543) opened a speechless capture,
 `capture abandoned: no speech within 5.0s` at +4.985 s, and no STT line and no
 TTFA after it. <<<**
 
+**>>> 2026-09-03 (last, 2): D31 — ONLY FIVE APPS HAD EVER LAUNCHED, a month
+after ADR-097 widened the enum to 165. `action_audit` proved it in one query.
+Not an executor bug: the requests never reached it. ADR-097 widened one list and
+left TWO at Phase 1 — the planner prompt (so `firefox` resolved to `browser` and
+Brave opened) and `STT_HOTWORDS` (so Whisper was never biased toward an app name
+past the five). Both fixed, **ADR-118**; `eval` 60 → 64 fixtures, `pytest`
+606 → 608, `bench-stt` p95 651 ms with the twenty new hotwords in. **Unproven by
+voice — that is job 1.** <<<**
+
 **>>> 2026-09-03 (last): TIER 2 IS CLOSED TOO — M6 AND M7. `pytest` 596 → 606,
 `friday/` unchanged. The eval gate could be made to always exit 0 and the
 self-test's FAIL path could stop producing exit 1; neither can now. Both proven
@@ -69,17 +78,17 @@ onnxruntime phones home to `*.events.data.microsoft.com` on import, on every
 daemon start, and had been doing so for the life of the project — ADR-112, fixed
 and verified live.** `just bootstrap --check` **11/11**, `just stats` **active**.
 
-`uv run pytest` is now **606 passed** (596 with ADR-117's tier-1 tests → 602
+`uv run pytest` is now **608 passed** (596 with ADR-117's tier-1 tests → 602
 with M6's `tests/test_eval_gate.py` → 606 with M7's four rows on
-`run_selftest()`). Historically: 568 → 573 with ADR-113's tests → 575
+`run_selftest()` → **608** with ADR-118's `tests/test_stt_hotwords.py`). Historically: 568 → 573 with ADR-113's tests → 575
 with ADR-114a's → 581 with `tests/test_service_unit.py`, which is **6 checks,
 not 5** — the START HERE block said 5 until 2026-09-03, finding M18 — → **596**
 with ADR-117's tier-1 tests, M1-M5 plus the eight FAIL/WARN paths of the new
 `unit_deployed` check). Note `uv`
 is not on PATH in this environment; use `.venv/bin/python -m pytest -q`.
 
-**Every gate re-run 2026-09-03 (last), pasted below in the session block:**
-`pytest` **606 rc=0**, `eval` **60/60 (100%), regressions 0**, `selftest`
+**Every gate re-run 2026-09-03 (last, 2), pasted below in the session block:**
+`pytest` **608 rc=0**, `eval` **60/60 (100%), regressions 0**, `selftest`
 **10/10 rc=0** (the tenth is `unit_deployed`, ADR-117/OQ-66),
 `bootstrap --check` **11/11**, `test_egress` **8**, `test_service_unit` **6**,
 grammars **byte-identical**. The mechanical doc-vs-tree check is clean: **0
@@ -5047,7 +5056,296 @@ an app **by voice**, then `systemctl --user restart friday`, then
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-03, last**, after M6 and M7 closed) <<<
+## 2026-09-03 (last, 2) — **D31: ONLY FIVE APPS HAD EVER LAUNCHED.** ADR-097 widened one list and left two at Phase 1 (ADR-118).
+
+**The owner:** *"Only the pre-configured five apps opened, launched. Anything
+else, didn't. Maybe I don't know their name which might be different than what
+the launcher name them. Like firefox didn't open, and all."*
+
+**They were right, and the audit table proved it in one query.** Every
+`open_app` row in the life of the project:
+
+```
+browser 26   terminal 5   editor 5   video 2   vlc 1
+```
+
+ADR-097 widened the enum from those five to **165** on 2026-09-02. **Not one of
+the other 160 has ever run.**
+
+**The executor is innocent and that was checked first**, because ADR-114 taught
+this project what it costs to ship the wrong cause:
+
+```
+entries whose argv[0] does not resolve: 0    (all 165)
+```
+
+The requests never reached it.
+
+### Two Phase-1 artifacts, each sufficient alone
+
+**1. The prompt taught the collapse.** The `open_app` line read *"Five ids are
+canonical and always correct: … a spoken brand name maps to its id and is just
+as valid."* That clause exists so "Brave" → `browser`. The model generalised it
+to the category. Measured against the live planner, 23 utterances:
+
+```
+'open firefox'      -> open_app browser     Brave opened. NOT firefox
+'open neovim'       -> open_app editor      VS Code opened
+'open vim'          -> open_app editor      VS Code opened
+'open zen browser'  -> app='zen'            not in enum -> fails closed, nothing opens
+'open timeshift'    -> none                 refusal
+discord spotify obsidian kitty thunar htop pycharm zed calibre  -> correct
+19/23
+```
+
+**The five canonical ids were eating their own categories.** Every failure was
+either a competitor of a canonical id or an id the model shortened.
+
+**2. `STT_HOTWORDS` still named the same five apps** — Brave, foot, terminal,
+Visual Studio Code, VLC, mpv, and nothing else from the enum. **D26's exact
+shape.** That entry exists because "wifi" came back as wife / weapon / way /
+life once G12 shipped words the list did not know. This is the **fourth**
+Phase-1 artifact found by the same method, after the eval fixtures (D16), the
+chat persona (D24/F2) and the G12 control vocabulary (D26).
+
+### And the gate could not see any of it
+
+E51–E60, the scanned-app tail Phase 1 added, are `btop`, `calibre`, `anytype`,
+`ark`, `thunar`, `baobab`, `obsidian`, `spotify`, `discord`, `blueman_manager` —
+**ten apps whose names are their own ids and which compete with no canonical
+id.** Not one browser, editor or terminal. **60/60 while three of the five
+canonical categories ate their competitors.** Same shape as D16.
+
+### The fix, and what it measured
+
+Prompt: a canonical id is for the generic word or that exact program; naming a
+*different* program means emitting that program's own id, with `firefox`,
+`kitty`, `neovim` as explicit counter-examples, "never shorten an id", and
+`"zen browser"` → `zen_browser`.
+
+```
+probe   19/23 -> 22/23      (only 'open vim' -> neovim remains, and it opens an editor)
+eval    64/64 (100%), regressions 0, twice
+pytest  608 passed, rc=0
+```
+
+Hotwords: **twenty** application names, the owner's call — *"for now let's go
+twenty, we can put all 165 apps later"*. Benched on the 20 real DMIC clips in
+`balanced` with them in place:
+
+```
+n=20 p50=611ms p95=651ms max=651ms  RTF=0.126  miss=4/20  [PASS vs 800ms]
+```
+
+**No cost** — against a 713-804 ms range (D17) and the same 4/20 miss. The
+remaining ~145 are **OQ-68**, gated on these twenty being heard at a microphone.
+
+`browser` stays Brave. The owner: *"Generic browser. But when I say the name of
+the browser. It should open that."* That is what the prompt change produces; no
+registry change was needed.
+
+### E23 and E24 became action-only, and the reason is worth keeping
+
+The owner chose "update the fixtures". The first update did not hold:
+
+```
+run 1   E23 'open foot' -> foot        run 2   -> foot        run 3   -> terminal
+```
+
+`foot` is reachable as `terminal` and as `foot` with **byte-identical argv**;
+`mpv` as `video` (`--idle=yes --force-window=yes`) and as `mpv`
+(`--player-operation-mode=pseudo-gui`) — and **both hold a window open**,
+measured, both alive at 1.2 s. **Asserting either id tests a coin toss between
+two correct answers.** Both fixtures now assert the action name only, with the
+reason in the note. E21/E22 and the new E61–E64 carry the id assertions, on
+programs that have exactly one id.
+
+**Deduplicating the enum by binary was measured and rejected.** 19 scanned ids
+share `argv[0]` with a curated entry and **15 of them are different programs** —
+`btop`, `htop`, `neovim`, `nvim`, `vim`, `micro`, `nvtop`, `jshell`,
+`distrobox`, `debian_box` are all `foot -e <something>`. Deduplicating on
+`argv[0]` deletes them all. On the full argv it removes four and leaves the
+`mpv` case. A partial fix for a non-symptom: both ids launch the app correctly.
+
+### New tests
+
+- **E61 `firefox`, E62 `neovim`, E63 `kitty`, E64 `zen_browser`** — one per
+  failure mode the owner hit, plus a terminal-category guard. Baseline re-recorded.
+- **`tests/test_stt_hotwords.py`** — asserts at least 20 hotwords name an app in
+  the enum, and that the G12 control words are still there. It pins the *floor*,
+  not the owner's list, so answering OQ-68 needs no test edit. Proven by removing
+  the twenty and watching it go red.
+
+### One method note, paid for in this session
+
+**`git checkout -- <file>` is the wrong way to revert a mutation on a file whose
+real change is uncommitted.** Reverting the M6-style mutation on `config.py`
+silently took the hotword widening with it, and the next full-suite run failed a
+test that had passed standalone sixty seconds earlier. Copy the file aside and
+copy it back, or commit first.
+
+### Final state
+
+```
+pytest              608 passed, rc=0
+eval                64/64 (100%), regressions 0, baseline re-recorded
+bench-stt           p95 651 ms, miss 4/20, PASS (balanced)
+grammars            byte-identical
+```
+
+### Still owed
+
+**Nobody has retested this by voice.** The mechanism is measured at the planner
+and at the bench; the owner's complaint was spoken. **ADR-114/D29 is still owed
+too** — it has been since 2026-09-02.
+
+---
+
+## >>> START HERE: NEXT SESSION (written **2026-09-03, last-2**, after D31) <<<
+
+**Read this whole block before touching anything. Everything below is measured;
+nothing in it is belief.**
+
+### The state in six lines
+
+- **D31 is fixed in code and UNPROVEN BY VOICE.** Only five apps had ever
+  launched in the life of the project; the planner prompt and `STT_HOTWORDS`
+  had both been left at Phase 1 by ADR-097. **ADR-118.** Job 1 is saying app
+  names out loud.
+- **ADR-114 / D29 is still owed at a microphone too.** Owed since 2026-09-02.
+  It costs sixty seconds and it needs a human.
+- The mutation audit's **tier 1 and tier 2 are closed** (M1-M7). What is left is
+  tier 3 (M8-M11), which is depth behind walls that still stand.
+- Gates: `pytest` **608 rc=0**, `eval` **64/64, regressions 0**, `selftest`
+  **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**,
+  `bench-stt` **p95 651 ms, miss 4/20**.
+- **`friday/` changed in exactly two files** this session — `llm/prompt.py` (the
+  `open_app` paragraph) and `config.py` (twenty hotwords). Nothing else.
+- **OQ-68 is open**: the remaining ~145 app names. It is gated on job 1, not on
+  an opinion.
+
+### THE TODO LIST, in order
+
+```
+[ ] 0.  VERIFY THE GROUND       2 min    commands below, no judgement needed
+[ ] 1.  SAY APP NAMES OUT LOUD  2 min    D31/ADR-118. Unproven by voice. Answers OQ-68 too
+[ ] 2.  ONE MICROPHONE ITEM     60 s     D29/ADR-114. Owed since 2026-09-02
+[ ] 3.  PHASE 3                 design-2026-09-02.md 11.1. Contract not optional
+[ ] 4.  RECORD IT               paste output here per rule 6, then commit
+```
+
+Jobs 1 and 2 are one microphone session and should be done together.
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 608 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 64/64 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # must stay clean
+ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
+```
+
+**The daemon must be restarted before job 1.** Unlike the last session's change,
+this one IS in the daemon's import graph — `friday/llm/prompt.py` and
+`friday/config.py` are both loaded by `voice_main`. A daemon started before this
+commit is running the old prompt and the old hotwords, and job 1 would measure
+nothing:
+
+```bash
+ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
+git log -1 --format=%ci -- friday/llm/prompt.py friday/config.py
+# daemon older than the commit -> systemctl --user restart friday
+```
+
+Do that restart FIRST, before job 2 launches anything, or job 2 is void.
+
+### 1. Say app names out loud — D31 / ADR-118, unproven by voice
+
+The fix is measured at the planner (19/23 → 22/23 on typed text) and at the
+bench (p95 651 ms with the twenty hotwords in). **Neither is a spoken test.**
+The owner's complaint was spoken, and STT sits in front of everything above.
+
+Say these, then read the system — never Friday:
+
+```
+"open firefox"        -> a FIREFOX window, not Brave
+"open discord"        -> Discord
+"open obsidian"       -> Obsidian
+"open kitty"          -> kitty, not foot
+"open zen browser"    -> Zen, not a refusal
+"open spotify"        -> Spotify
+```
+
+```bash
+sqlite3 ~/.local/state/friday/memory.db \
+  "select datetime(created_at,'unixepoch','localtime'), args_redacted, outcome, duration_ms
+   from action_audit where tool_id='open_app' order by created_at desc limit 10"
+hyprctl clients | grep class
+```
+
+**Read `duration_ms`.** ~400 ms means the launch grace timed out, i.e. the
+process was still alive. **Under ~120 ms means it died** — that was D30's whole
+signature, and it is the number to check before believing any launch.
+
+**What each outcome means:**
+
+- **All six land** → D31 is proven and **OQ-68 is answerable**: the twenty
+  hotwords work, so add the remaining ~145 and re-run `just bench-stt`.
+- **The row shows the WRONG id** (e.g. `browser` for firefox) → the prompt fix
+  did not survive the daemon. Check the restart first.
+- **No row at all, or `none`** → STT never delivered the word. That is the
+  hotword half, and it means twenty was not enough for *those* words — record
+  which ones, because that is worth more than adding 145 blind.
+
+### 2. One microphone item — D29 / ADR-114, owed since 2026-09-02
+
+An app Friday launched must survive a daemon restart. Children inherit
+`friday.service`'s cgroup and the default `KillMode=control-group` SIGKILLed
+them all on stop or restart, with `Restart=always` behind it.
+
+```bash
+# 1. have the DAEMON launch it, by VOICE. A text-mode launch is a DIFFERENT
+#    CGROUP and a different experiment. Job 1's launches count.
+hyprctl clients | grep -c class                 # window count before
+systemctl --user status friday | tail -5        # the app must appear in friday.service's cgroup
+
+# 2. restart
+systemctl --user restart friday
+
+# 3. the window must still be there
+hyprctl clients | grep -c class                 # same count
+```
+
+**Why four sessions have not settled it:** every time, the restart came before
+the launches. The order IS the experiment — launch first, restart second. Doing
+job 1 first sets this up for free.
+
+### 3. Phase 3 — `design-2026-09-02.md` §11.1
+
+Acceptance criteria are §11.1 and **they are not optional**. Two are verified:
+
+```
+[verified 2026-09-02] `just grammar` output is byte-identical to the committed .gbnf
+[verified 2026-09-02] PARAM_SCHEMA has exactly 25 actions (criterion 3.8's table)
+```
+
+**Contract:** if the regenerated grammars move, or `just eval` drops below
+**64/64 with 0 regressions** (it was 60/60 until ADR-118 added E61-E64), the
+refactor changed behaviour and is wrong. **That contract has a test under it** —
+`tests/test_eval_gate.py`, which is what M6 bought.
+
+F4 and F5 both land on `executor.py`, and **both of those lines have a test
+under them** — `test_subprocess_gets_the_minimal_explicit_env_only` and
+`test_banned_argv_is_denied_at_dispatch` (OQ-65 = a).
+
+---
+
+## >>> (superseded 2026-09-03, last-2, by the block above) START HERE: NEXT SESSION (written **2026-09-03, last**, after M6 and M7 closed) <<<
 
 **Read this whole block before touching anything. Everything below is measured;
 nothing in it is belief.**

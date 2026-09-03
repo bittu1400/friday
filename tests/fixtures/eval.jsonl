@@ -20,8 +20,8 @@
 {"id":"E20","utt":"look up whether it will rain tomorrow","expect":{"name":"web_search","params":{"query":"rain"}},"note":"homophone whether/weather must not derail action selection"}
 {"id":"E21","utt":"open Brave","expect":{"name":"open_app","params":{"app":"browser"}},"note":"bare brand name must map to the browser id (live G6 miss)"}
 {"id":"E22","utt":"open Code","expect":{"name":"open_app","params":{"app":"editor"}},"note":"Code -> editor"}
-{"id":"E23","utt":"open foot","expect":{"name":"open_app","params":{"app":"terminal"}},"note":"foot -> terminal"}
-{"id":"E24","utt":"open mpv","expect":{"name":"open_app","params":{"app":"video"}},"note":"mpv -> video"}
+{"id":"E23","utt":"open foot","expect":{"name":"open_app"},"note":"ACTION ONLY, deliberately. foot is reachable as both 'terminal' and 'foot' with BYTE-IDENTICAL argv, and the planner flips between them run to run — measured 2026-09-03. Asserting either id tests a coin toss between two correct answers. E21/E22 and E61-E64 carry the id assertions, on programs with only one id"}
+{"id":"E24","utt":"open mpv","expect":{"name":"open_app"},"note":"as E23. 'video' is mpv --idle --force-window, 'mpv' is --player-operation-mode=pseudo-gui; both hold a window open (measured 2026-09-03), so both answers are right"}
 {"id":"E25","utt":"who are you","expect":{"name":"chat"}}
 {"id":"E26","utt":"what can you do","expect":{"name":"chat"}}
 {"id":"E27","utt":"tell me a joke","expect":{"name":"chat"}}
@@ -58,4 +58,7 @@
 {"id":"E58","utt":"open obsidian","expect":{"name":"open_app","params":{"app":"obsidian"}}}
 {"id":"E59","utt":"open spotify","expect":{"name":"open_app","params":{"app":"spotify"}}}
 {"id":"E60","utt":"open discord","expect":{"name":"open_app","params":{"app":"discord"}}}
-
+{"id":"E61","utt":"open firefox","expect":{"name":"open_app","params":{"app":"firefox"}},"note":"D31: this emitted browser, so Brave opened and firefox did not. The owner's report, 2026-09-03"}
+{"id":"E62","utt":"open neovim","expect":{"name":"open_app","params":{"app":"neovim"}},"note":"D31: emitted editor. The editor category ate its competitor"}
+{"id":"E63","utt":"open kitty","expect":{"name":"open_app","params":{"app":"kitty"}},"note":"D31 guard: the terminal category must not eat kitty"}
+{"id":"E64","utt":"open zen browser","expect":{"name":"open_app","params":{"app":"zen_browser"}},"note":"D31: emitted the shortened id 'zen', which is not in the enum, so it failed closed and nothing opened"}

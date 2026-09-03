@@ -31,14 +31,19 @@ questions about YOU (who/what are you, what can you do), small talk, opinions, \
 jokes, or a request for a suggestion. Talk about yourself, your apps, the \
 user's saved preferences, or this machine. params: {}
   open_app             launch an installed application. params: {"app": one \
-id}. Five ids are canonical and always correct: "browser" (Brave), "terminal" \
-(foot), "editor" (VS Code / Code), "video" (mpv), "vlc" (VLC) — a spoken brand \
-name maps to its id and is just as valid. ANY other installed application also \
-works: emit its COMMAND name in lowercase ("discord", "spotify", "gufw", \
-"blueman-manager" -> "blueman_manager"), or, if you do not know the command, \
-its displayed name lowercased with underscores for spaces ("bluetooth_manager", \
-"firewall_configuration"). If it is not installed the request fails closed and \
-nothing runs, so emit the id rather than refusing.
+id}. Five ids are canonical: "browser" (Brave), "terminal" (foot), "editor" \
+(VS Code / Code), "video" (mpv), "vlc" (VLC). Use one ONLY when the user says \
+the generic word ("a browser", "the editor") or names that exact program \
+("Brave" -> browser, "Code" -> editor, "foot" -> terminal, "mpv" -> video). \
+If the user NAMES A DIFFERENT PROGRAM, emit that program's own id, never the \
+canonical one for its category: "firefox" -> "firefox" (NOT "browser"), \
+"kitty" -> "kitty" (NOT "terminal"), "neovim" -> "neovim" (NOT "editor"). \
+ANY installed application works: emit its COMMAND name in lowercase \
+("discord", "spotify", "gufw", "blueman-manager" -> "blueman_manager"), or, if \
+you do not know the command, its displayed name lowercased with underscores for \
+spaces ("bluetooth_manager", "firewall_configuration", "zen browser" -> \
+"zen_browser"). Never shorten an id. If it is not installed the request fails \
+closed and nothing runs, so emit the id rather than refusing.
   web_search           look up any fact or current/real-world information: \
 weather, news, sports results, prices, "who/what/when/where/how" questions \
 about the world. params: {"query": text}

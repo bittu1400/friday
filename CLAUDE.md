@@ -29,6 +29,16 @@ reverting — which is now line six of the definition of done. Report:
 **`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
 Decisions: **ADR-117**.
 
+**>>> 2026-09-03 (last, 2): D31 — "ONLY THE FIVE PRE-CONFIGURED APPS EVER
+OPENED." The owner was right and the audit table proved it in one query:
+`open_app` has run with browser/terminal/editor/video/vlc and NOTHING ELSE, a
+month after ADR-097 widened the enum to 165. Not an executor bug — the requests
+never reached it. ADR-097 widened one list and left TWO at Phase 1: the planner
+prompt (so `firefox` resolved to `browser` and Brave opened) and `STT_HOTWORDS`
+(so Whisper was never biased toward any app name past the five). Both fixed,
+**ADR-118**. `eval` 60 → 64 fixtures, `pytest` 606 → 608. **The owner has not
+retested by voice yet.** <<<**
+
 **>>> 2026-09-03 (last): TIER 2 IS CLOSED TOO. M6 and M7.** The eval gate could
 be made to always exit 0 and the self-test's FAIL path could stop producing
 exit 1 — the two gates every session is told to trust. `tests/test_eval_gate.py`
@@ -161,6 +171,7 @@ below and one live measurement.**
 | **D28** | **NEW, FIXED 2026-09-02** — `pytest -q` crashed at session finish; `Daemon.close()` leaked a PortAudio stream (**ADR-111**) |
 | **D29** | **NEW, FIXED 2026-09-02** — every app Friday launched died with the daemon. Children inherit `friday.service`'s cgroup and `KillMode` defaulted to `control-group`, so a stop/restart SIGKILLed the lot — with `Restart=always` + `WatchdogSec=10s` behind it. `KillMode=process` (**ADR-114**). Real, proven, **and NOT the defect the owner reported.** Also fixed: embedded XDG field codes reached the binary (`--uri=%u`), **ADR-114a** |
 | **D30** | **NEW, FIXED 2026-09-02 — THIS is "Friday says launching X and nothing opens."** `PrivateTmp=yes` gave the daemon an empty `/tmp`. Chromium keeps its singleton SOCKET in `/tmp` and only a SYMLINK to it under `$HOME`, so a Friday-launched Brave saw the shared lock, could not reach the socket, and exited **0 in ~50 ms** with no window — announced as a successful launch. Directive removed **and `/tmp` added to `ReadWritePaths=`** — removing it alone leaves `/tmp` visible but READ-ONLY under `ProtectSystem=strict`, which still breaks the socket connect and sent `tempfile` into the repo (**ADR-115**). **FIXED, AND CONFIRMED BY THE OWNER 2026-09-03** — *"i check with open brave, and it worked."* The `action_audit` row corroborates: post-fix `open_app{browser}` is **401 ms** (the 400 ms grace timed out, so the process was alive) against **49-119 ms** for the life of the project. **D30 is CLOSED** |
+| **D31** | **NEW, FIXED 2026-09-03** — *"only the pre-configured five apps opened… firefox didn't open."* **True, and the audit table proved it in one query: in the life of the project `open_app` has run with browser(26), terminal(5), editor(5), video(2), vlc(1) and NOTHING ELSE**, a month after ADR-097 widened the enum to 165. The executor is innocent — all 165 argv[0]s resolve and none was ever reached. **Two Phase-1 artifacts ADR-097 left behind, each sufficient alone.** (1) The prompt's *"a spoken brand name maps to its id"* — written so "Brave"→`browser` — generalised to the whole category: `firefox`→**browser**, `neovim`/`vim`→**editor**, and `"zen browser"`→`'zen'`, not in the enum, fails closed, nothing opens. **The five canonical ids were eating their own categories.** (2) `STT_HOTWORDS` still named the same five apps — **D26's exact shape, fourth Phase-1 artifact** after the eval fixtures (D16), the chat persona (D24/F2) and the G12 control words (D26). Fixed: a named program now wins over its category (19/23 → 22/23), twenty app names added to the hotwords (**p95 651 ms, miss 4/20 — no cost**), E61-E64 added, E23/E24 made action-only. **ADR-118.** Owner has not retested by voice yet |
 
 **What is fixed, and what that does NOT mean.** `is_affirmation` normalises STT
 punctuation, head-matches with a negative-word veto, and a `_DECLINE` set
@@ -218,7 +229,7 @@ Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
 **Gate numbers, all re-run 2026-09-03 (last) after M6 and M7 landed:**
-`uv run pytest` **606 passed, rc=0**, `just eval` **60/60 (100%), regressions 0**,
+`uv run pytest` **608 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
@@ -1011,11 +1022,11 @@ just grammar            # regenerate plan.gbnf/final.gbnf from friday/llm/schema
                         # Output MUST stay byte-identical -- Phase 3's safety net
 just run                # orchestrator, text mode
 just voice              # voice-in daemon (PTT + wake); --dry-run / --no-voice / --no-wake
-just eval               # eval fixtures -> pass count (currently 60; gate is >=90%
+just eval               # eval fixtures -> pass count (currently 64; gate is >=90%
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 606
+just test               # full unit + adversarial + injection suite (pytest -q). 608
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -1092,6 +1103,10 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The last session's block says that was already fixed" | It says `just enroll` was corrected in the docstrings; it corrected one file and missed `daemon.py`, in the one warning that fires when speaker verification is failing OPEN. A find-and-replace reported as done. Diff the claim against the tree — `just --list`, `grep`, run it — before believing it. |
 | "The GUI env is settled, ADR-043 and ADR-074 already fixed it" | A third variable was missing: `LANG`. A console app inherits the "C" locale, btop exits 1, `foot` exits with its child, and the detached launch reports ok with no window — measured 2026-09-02. Three vars, three separate live discoveries (`DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`, `LANG`). When a launch reports ok and nothing opens, suspect the env before the code. |
 | "Widen the app list with a fuzzy matcher, it's friendlier" | It converts an adversarial fixture into a launch: a substring match resolves `"browser; rm -rf ~"` to `browser`, and AS-8 must reject. The enum stayed CLOSED and was generated instead — and it was free, because the GBNF grammar never enumerated param values (ADR-097). |
+| "The enum has 165 apps, so 165 apps can be opened" | **Five could.** A month after ADR-097 widened it, `action_audit` had `open_app` rows for browser, terminal, editor, video and vlc and **no others, ever**. The enum is one of THREE lists that have to agree — the enum, the planner prompt, and `STT_HOTWORDS` — and ADR-097 widened one and left two at Phase 1. The prompt's "a spoken brand name maps to its id" made `firefox` resolve to `browser`, so **Brave opened and the owner watched Friday get it wrong**; the hotword list meant Whisper was never biased toward any app name past the five (D31). Widening a capability means widening every list that names it. |
+| "The gate covers scanned apps — E51-E60 exist" | It covered `btop`, `calibre`, `anytype`, `ark`, `thunar`, `baobab`, `obsidian`, `spotify`, `discord`, `blueman_manager` — **ten apps whose names ARE their ids and which compete with no canonical id.** Not one browser, editor or terminal among them. 60/60 while three of the five canonical categories ate their competitors. **A fixture set drawn from the easy end of the enum measures the easy end of the enum** — same shape as D16, where 28 fixtures could not see the 20 actions they did not cover. |
+| "Two ids for one program is harmless, they both work" | They do — and the planner then flips between them run to run, so a fixture asserting either one tests a coin toss. `foot`/`terminal` have byte-identical argv; `mpv`/`video` differ in flags and **both hold a window open** (measured). E23 passed, failed, and passed again across three runs of an unchanged system. Assert the ACTION where the ids are equivalent, and keep id assertions for programs that have only one (ADR-118). |
+| "Dedupe the enum by binary, one id per program" | **19 scanned ids share `argv[0]` with a curated entry and 15 of them are different programs** — `btop`, `htop`, `neovim`, `vim`, `micro`, `nvtop`, `jshell`, `distrobox` are all `foot -e <something>`, so argv[0] is `foot`. Deduplicating on argv[0] deletes them all. On the full argv it removes four and leaves the `mpv` case, i.e. a partial fix for a non-symptom. Measure what a cleanup deletes before running it (ADR-118). |
 | "Escalation is already banned, `sudo` is in the list" | `.desktop` files escalate through **`pkexec`**, which was not. Found by a scanner test, fixed in `ban.py` so the executor gets it too. A denylist written against one attack shape does not cover the next one that arrives through a different file format. |
 | "I removed PrivateTmp, /tmp works now" | Half a fix. `ProtectSystem=strict` mounts everything not in `ReadWritePaths=` read-only, and `PrivateTmp` had been supplying the only WRITABLE `/tmp`. Remove it alone and `/tmp` is visible and read-only — which still breaks the Chromium handoff, because connecting to a unix socket needs write access to it. It also pushes `tempfile.gettempdir()` past `/tmp` and `/var/tmp` to the **WorkingDirectory**, so the daemon drops two `tmp*/libespeak-ng.so` dirs into the repo per start. That litter in `git status` is the only reason it was caught — no test or selftest check saw it (ADR-115). |
 | "The service is hardened, that's good" | `PrivateTmp=yes` broke **every browser launch for the life of the project**. A GUI app's session IPC lives in `/tmp`: Chromium keeps its singleton SOCKET there and only a SYMLINK to it under `$HOME`. The lock is visible, the socket is not, so Brave saw another instance, failed the handoff and exited **0 in ~50 ms** — inside the 400 ms grace, recorded `ok`, no window. It also hid `/tmp/.X11-unix`, so ADR-043's `DISPLAY=:0` could never have worked. The daemon runs as the user launching the user's own apps; the directive isolated the user from themselves (D30, ADR-115). |
