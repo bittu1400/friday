@@ -138,7 +138,7 @@ dispatch an action (ADR-008).
 | :-- | :-- | :-- |
 | Logging | Structured JSON lines to `friday.log`, `10 MB x 5` rotation, `/home/` redacted. `no_disk` records (transcripts, raw model output) are dropped from the log file **and from stderr when stderr is journald** — under systemd `FRIDAY_DEBUG` shows nothing, by design (H8) | ADR-051, FR-43, **FR-57b** |
 | Systemd Units | `friday-llm.service`, `friday.service`, `friday-searxng.service` | ADR-051, architecture §8 |
-| Self-Test | `just selftest` / `friday --selftest` (8 checks: LLM, search, GPU arch, **LLM actually on GPU**, DB perms/schema incl. WAL sidecars, audio, panic, binds) | ADR-051 |
+| Self-Test | `just selftest` / `friday --selftest` (**10 checks**: LLM, search, GPU arch, **LLM actually on GPU**, DB perms/schema incl. WAL sidecars, audio, panic, binds, power profile (ADR-107/F28), **running unit vs committed unit** (ADR-117)). Exit 0 / 1 FAIL / 2 WARN `[DEGRADED]` (ADR-108) | ADR-051, ADR-107, ADR-108, ADR-117 |
 
 ---
 

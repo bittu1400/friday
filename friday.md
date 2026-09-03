@@ -756,7 +756,11 @@ Ordering with a tolerant health ping — the orchestrator must survive
 
 `friday --selftest` checks: llama-server reachability, SearXNG reachability, GPU
 arch (sm_120), LLM on GPU (VRAM hold), DB schema & permissions `0600`/`0700`, audio
-devices, panic file state, loopback socket binds, and power profile (9 checks).
+devices, panic file state, loopback socket binds, power profile, and whether the
+unit systemd is RUNNING matches the one committed (10 checks; the tenth is
+`check_unit_deployed`, ADR-117 -- it asks `systemctl show`, because the installed
+unit is a symlink to the repo file and a file comparison cannot disagree with
+itself).
 Non-zero exit (1 on fail, 2 on warn/degraded) on any non-pass (ADR-108, ADR-109).
 
 Log rotation 10 MB x 5. Graceful shutdown unloads the model.

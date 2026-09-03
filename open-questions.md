@@ -1263,7 +1263,7 @@ months.)_
   worthless, which is the rule that file exists for.
 
   **Rejected: (b), a pytest that shells out.** Same coverage, plus a skip line
-  in every environment without a user bus. One of 81 test files talks to the
+  in every environment without a user bus. One of the 79 test files talks to the
   live system and that ratio is worth keeping.
 
 - **OQ-67 — Does a mutation sweep join the definition of done?**
@@ -1305,10 +1305,12 @@ months.)_
   3.0 s + ~600 ms, about 1.4 s worse in the bad case, for 2.0 s more thinking
   time in the good one.
 
-  **Not yet proven live.** The OQ-39 session produced five real wakes and zero
-  false ones, so the abandon path has not been exercised at a microphone since
-  the change. `capture abandoned: no speech within 5.0s` in the journal is what
-  confirms it. The original write-up follows.
+  **PROVEN LIVE 2026-09-03 08:23.** A wake at score **0.543** (threshold 0.50 —
+  a marginal fire, exactly the case this was written for) opened a speechless
+  capture; the journal reads `capture abandoned: no speech within 5.0s` at
+  **+4.985 s**, and after it there is **no `Processing audio with duration`, no
+  `stage_timings` and no TTFA** — so the skip-STT-and-the-turn half is proven
+  too, not just the timer. The original write-up follows.
 
 
   **Decider:** USER · **Blocks:** nothing — hands-free works; this is comfort ·

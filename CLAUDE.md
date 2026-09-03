@@ -47,10 +47,13 @@ is a fossil record of what has already hurt** — which is why its regressions a
 genuinely pinned, and why it cannot tell you what will hurt next.
 
 **Phase 1 and Phase 2 remain DONE, 7 of 7.** D3 was proven live and OQ-39 is
-closed. **Two things are still owed at a microphone and they take ninety seconds
-between them:** ADR-114 (restart with an app open — the window must survive) and
-ADR-113 (watch for a false wake and the line `capture abandoned: no speech
-within 5.0s`). Neither has been seen by a human.
+closed. **ADR-113 was proven live 2026-09-03 08:23** — a marginal wake
+(score 0.543) opened a speechless capture and the journal reads
+`capture abandoned: no speech within 5.0s` at +4.985 s, with **no
+`Processing audio`, no `stage_timings`, no TTFA**: STT and the turn were skipped,
+which is the half of ADR-113 that pays for the longer wait. **ONE thing is still
+owed at a microphone:** ADR-114 — restart the daemon with a Friday-launched app
+open, and the window must survive.
 
 The 2026-09-02 audit (`audit-2026-09-02.md`, 29 findings F1–F29) and its plan
 (`design-2026-09-02.md`, 8 owner decisions, 12 phases) are still the map. What
@@ -271,7 +274,7 @@ short version, in order:**
 
 ```
 0.  VERIFY THE GROUND          2 min   commands in START HERE, no judgement needed
-1.  TWO MICROPHONE ITEMS       90 s    D29/ADR-114 and ADR-113, owed since 2026-09-02
+1.  ONE MICROPHONE ITEM        60 s    D29/ADR-114. Launch FIRST, then restart
 2.  M6, THE EVAL GATE          ~30 lines. The contract Phase 3 is measured by, 0 % covered
 3.  PHASE 3                    design-2026-09-02.md 11.1. Contract not optional
 4.  RECORD IT                  paste output into progress.md per rule 6, then commit
@@ -281,10 +284,15 @@ short version, in order:**
    window appeared, and the `action_audit` row agrees (**401 ms** post-fix
    against 49-119 ms before). **D30/ADR-115 is CLOSED.**
 2. **`systemctl --user restart friday` with an app open.** The window must still
-   be there. That is D29/ADR-114, still unconfirmed by a human.
-3. **Watch for one false wake** and the line
-   `capture abandoned: no speech within 5.0s`. That is ADR-113, which has never
-   fired live because no false wake has occurred since the change.
+   be there. That is D29/ADR-114, **the one thing still unconfirmed by a human.**
+   **Order matters and it is why 2026-09-03 did not settle it:** the owner's
+   restart was at 08:08:16 and every app Friday launched that day came after it.
+   Launch first (by VOICE — a text-mode launch is a different cgroup), confirm
+   the app is inside `friday.service`'s cgroup with `systemctl --user status
+   friday`, then restart, then `hyprctl clients`.
+3. ~~**Watch for one false wake**~~ **DONE 2026-09-03 08:23** — wake score
+   0.543, `capture abandoned: no speech within 5.0s` at +4.985 s, and no STT
+   line and no TTFA after it. **ADR-113 is proven live.**
 
 **The tier-1 tests are DONE (M1-M5, ADR-117) — do not write them twice.**
 `tests/test_confirm_arming.py` is new; `test_executor.py`, `test_action_surface.py`,
@@ -350,9 +358,10 @@ and returns to IDLE, instead of putting silence through Whisper for a flat
 ~600 ms (F26) to get `""` back. **The re-arm-on-second-wake mechanism the owner
 picked was rejected after reading `_on_frame`** — `_heard_speech` latches on the
 first voiced frame while openWakeWord fires ~0.8 s later at the end of the
-phrase, so the branch could never be reached (ADR-070's shape). **Not proven
-live: no false wake has occurred since. Watch for `capture abandoned: no speech
-within 5.0s`.**
+phrase, so the branch could never be reached (ADR-070's shape). **PROVEN LIVE 2026-09-03 08:23:** wake score 0.543, then
+`capture abandoned: no speech within 5.0s` at +4.985 s — and no
+`Processing audio with duration`, no `stage_timings`, no TTFA after it, so the
+skip-the-turn half is proven too, not just the timer.**
 
 The microphone session of 2026-08-30 evening already proved D1 and D2 and ticked
 every `C?` affirm row; that work is done and is recorded below.
@@ -1057,7 +1066,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "Add streaming TTS now, it's an easy win" | ADR-020. Measure at G6 first. |
 | "Speaker verify is on, so impostors are blocked" | Only if a voiceprint is enrolled — it fails OPEN otherwise, and it is OFF by default (`FRIDAY_SPEAKER_VERIFY_ENABLE`). Enroll with `just enroll-voice` first. |
 | "Make the timer recurring by default / it fired twice so it loops" | Timers are strictly one-shot (marked `fired`). A repeated toast in tests means `notify-send` wasn't stubbed, not a reminder bug. |
-| "A green test suite proves the feature works" | Seven times now, tests passed while the real path was broken (G13 enroll, `clipboard_set`, `file_open`, the CPU-only LLM, 328 green tests over a text UI whose every action confirm crashed, and **both Hyprland tools, whose argv test asserted exactly the string the compositor rejected**). Exercise the actual path; see `docs/reality-check.md`. |
+| "A green test suite proves the feature works" | **Nine times now** — the canonical list is in ADR-116's Context: G13 enroll dead on import, `clipboard_set` speaking success while doing nothing, `file_open` opening the wrong file, the CPU-only LLM, 328 green tests over a text UI whose every action confirm crashed, **both Hyprland tools whose argv test asserted exactly the string the compositor rejected**, a `test-egress` that could not observe a connection while passing, a watchdog that had never fired while its unit was committed and documented, and two whole phases of fixes that had never executed. Exercise the actual path; see `docs/reality-check.md`. **And the 2026-09-03 mutation audit is the generalisation of all nine:** the suite tested functions, not wiring. |
 | "The health check is green, so the system is healthy" | `gpu_arch` passed through an entire GPU outage — it asked "does a GPU exist", not "is the LLM using it". A check that cannot fail is worthless; write the FAIL-path test. |
 | "I grepped the config, it isn't there" | Grepping a config is not asking the system. The PTT bind was "missing" by `grep` and plainly present in `hyprctl binds` (it routes via Lua). Ask the running system. |
 | "The prompt says the values are `up`/`down`, so they are" | A prompt is not a control (ADR-008) — that is the same reasoning that rejects prompt-based injection defence. Closed sets belong in `PARAM_SCHEMA` as enums, enforced by the validator. |
@@ -1145,10 +1154,10 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The docs say that area is fixed, so start somewhere else" | The 2026-09-02 audit was told to ignore the docs and read the code cold. It found three defects the docs would have talked it out of — F2, F3 and F21 — because a doc records the FIX and not the REGRESSION. Read the code first; read the docs to write them up. |
 | "The number is close enough to write down" | v1 of that audit published "6 of 20" (it was 7, and one value was lost in sorting), "8 paths" (10), "700 ms" (816), and a 1.5 s target derived from an STT assumption a five-minute measurement disproved. Measure, THEN write the number down — and when you re-check, re-check your own work first. |
 | "The suite is green, so the invariant holds" | Measured 2026-09-03, before the fix: three of the five confirm gates could have their branch DELETED from `turn.py` with all **581 tests still passing** — `system_wifi{off}` dispatched and dropped the network, `hypr_window{close}` closed the window, neither asked (M1) — and `assert_not_banned(argv)` could be removed from the executor with the adversarial and injection suites green (M2). Invariant #10 was enforced by code nothing was watching. **Fixed the same day (ADR-117), and the point survives the fix:** break the line and see if anything turns red. That is the only version of this question with an answer, and it is now line six of the definition of done. |
-| "Both modules have good tests, so the feature is tested" | That is exactly how M2 survives. `assert_not_banned` is thoroughly unit-tested. `executor.execute` is thoroughly unit-tested. **Nothing crosses between them**, so the one line joining them can be deleted silently. When two well-tested modules meet, ask what tests the EDGE — the suite tests functions, not wiring, and that single sentence explains every hole the mutation audit found. |
-| "The test feeds the dangerous input, so the rule is covered" | `test_hard_ban_rejects_dangerous_commands` feeds `["rm","-rf","/"]` — and that argv is caught by the `"rm -"` SUBSTRING rule as well as the binary denylist, so two rules fire and the assertion cannot tell which. Drop `"rm"` from `BANNED_BINARIES` and the suite stays green while `rm /home/bittusah/notes.db` sails through (M3). **A denylist entry needs an argv only that rule rejects.** A test that passes through two rules proves one of them at most. |
+| "Both modules have good tests, so the feature is tested" | That is exactly how M2 survived. `assert_not_banned` was thoroughly unit-tested. `executor.execute` was thoroughly unit-tested. **Nothing crossed between them**, so the one line joining them could be deleted silently. **Closed 2026-09-03** — `tests/test_executor.py::test_banned_argv_is_denied_at_dispatch` (ADR-117). When two well-tested modules meet, ask what tests the EDGE — the suite tested functions, not wiring, and that single sentence explains every hole the mutation audit found. |
+| "The test feeds the dangerous input, so the rule is covered" | `test_hard_ban_rejects_dangerous_commands` feeds `["rm","-rf","/"]` — and that argv is caught by the `"rm -"` SUBSTRING rule as well as the binary denylist, so two rules fire and the assertion cannot tell which. Dropping `"rm"` from `BANNED_BINARIES` left the suite green while `rm /home/bittusah/notes.db` sailed through (M3). **Closed 2026-09-03** — the same test now also feeds `["rm","/home/bittusah/notes.db"]` and `["dd","of=/dev/nvme0n1"]`, which no substring rule touches (ADR-117). **A denylist entry needs an argv only that rule rejects.** A test that passes through two rules proves one of them at most. |
 | "The fix landed, so that defect is dead" | F23 and F20 were both genuinely fixed in code. F23's fix has **no test at all** — all four mutations of the eval gate survive, so `just eval` can be made to always exit 0 (M6). F20's fix is half-tested: `has_warn = True -> False` is KILLED, `has_fail = True -> False` **SURVIVES** (M7). A fix without a FAIL-path test has a countdown on it, and the gates that guard the gates are the worst place to leave one. |
-| "The test is named after the thing, so it tests the thing" | `test_speaker_verifier_mock` constructs a `SpeakerVerifier` and **never calls it** — the local is assigned and unused, and the assertions run `cosine_similarity()`, which the test twenty lines above already covers. `grep -rn "\.verify(" tests/` returns nothing: the entire G13 accept/reject decision is executed by no test, and both mutations of its return statement survive (M5). Coverage would still credit the import. |
+| "The test is named after the thing, so it tests the thing" | `test_speaker_verifier_mock` constructed a `SpeakerVerifier` and **never called it** — the local was assigned and unused, and its assertions ran `cosine_similarity()`, which the test twenty lines above already covered. `grep -rn "\.verify(" tests/` returned nothing: the entire G13 accept/reject decision was executed by no test, and both mutations of its return statement survived (M5). Coverage would still have credited the import. **Closed 2026-09-03** — that test is DELETED and replaced by `test_verify_accepts_the_owner_and_rejects_an_impostor`, which calls `verify()` in both directions (ADR-117). |
 | "A mutation survived, so that is a defect" | Four of the five surviving constants are CORRECT to leave free: the logic consuming `VAD_END_SILENCE_S`, `RETENTION_DAYS` and the wake threshold/refractory is fully tested — every wake-gating, VAD and retention mutation was killed — so only the default floats, and pinning a tuning knob converts every future tuning run into a test edit. `MAX_CAPTURE_S` is the exception because **FR-4 calls it a hard cap**. Ask what the constant is FOR before freezing it (ADR-116a). |
-| "The unit test reads the service file, so the unit is verified" | It verifies the FILE. The installed unit is a **symlink** to that file, so it always matches — which is why `tests/test_service_unit.py` would have passed throughout the weeks when `systemctl show` said `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes` and the watchdog had never fired (M16). Of 81 test files, only `test_egress.py` shells out to the live system. Deployment is a live question; ask `systemctl`. |
+| "The unit test reads the service file, so the unit is verified" | It verifies the FILE. The installed unit is a **symlink** to that file, so it always matches — which is why `tests/test_service_unit.py` would have passed throughout the weeks when `systemctl show` said `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes` and the watchdog had never fired (M16). Of 79 test files, only `test_egress.py` shells out to the live system. Deployment is a live question; ask `systemctl`. **Answered 2026-09-03 (OQ-66 = c, ADR-117): the live question went to `friday/selftest.py::check_unit_deployed`, not into the suite** — `selftest` is the tool built for live questions and the 6.7 s suite stays hermetic. The file test still exists and still only proves the file. |
 | "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02 and is **165** today, because ADR-097 generates the enum from the machine's XDG desktop entries — it moves whenever an application is installed. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose.** State the shape, and date the observation. |

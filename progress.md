@@ -17,8 +17,11 @@ QUESTIONS ARE ANSWERED (ADR-117). `pytest` 581 → 596, `selftest` 9/9 → 10/10
 `eval` still 60/60 with 0 regressions. `friday/` is unchanged apart from
 `selftest.py` — the findings were missing tests, not defects. Every one was
 proven by applying its mutation and watching the suite turn RED, which is now
-line six of the definition of done. Still owed: the two microphone items
-(ADR-114, ADR-113) and **M6, the eval gate, still 0 % covered**. <<<**
+line six of the definition of done. **ADR-113 also proved itself live at 08:23
+that morning** — a marginal wake (0.543) opened a speechless capture,
+`capture abandoned: no speech within 5.0s` at +4.985 s, and no STT line and no
+TTFA after it. Still owed: **ADR-114 alone** (restart with a Friday-launched app
+open) and **M6, the eval gate, still 0 % covered**. <<<**
 
 **>>> 2026-09-03: THE LAUNCH BUG IS CONFIRMED CLOSED, AND THE TEST SUITE WAS
 AUDITED BY MUTATION.**
@@ -28,7 +31,8 @@ worked."* The `action_audit` row corroborates: `2026-09-03 06:56:56 open_app
 {"app":"browser"} ok **401 ms**`, the healthy signature (grace timed out, process
 alive at 400 ms) against **49–119 ms** for the life of the project. **ADR-114
 (D29) and ADR-113 remain unconfirmed by a human** — two items, ninety seconds,
-steps 2 and 3 of the START HERE block.
+steps 2 and 3 of the START HERE block. *(Superseded by the block above:
+**ADR-113 was proven live 2026-09-03 08:23**; only ADR-114 is still owed.)*
 
 **Then the tests were attacked.** 85 defects injected into the source one at a
 time, full suite run against each: **56 killed, 29 survived, mutation score
@@ -72,10 +76,50 @@ is not on PATH in this environment; use `.venv/bin/python -m pytest -q`.
 **10/10 rc=0** (the tenth is `unit_deployed`, ADR-117/OQ-66),
 `bootstrap --check` **11/11**, `test_egress` **8**, `test_service_unit` **6**,
 grammars **byte-identical**. The mechanical doc-vs-tree check is clean: **0
-dangling ADR / OQ / FR ids, 0 dead file citations** (14 flagged paths are all
-either outside the repo — `memory.db`, `record.sh`, `docker.service`,
-`~/.cache/friday-model-eval/*` — or deliberate historical notes about filenames
-that never existed).
+dangling ADR / OQ / FR ids, 0 dead file citations, 0 unresolved test names, 0
+unknown `just` recipes.**
+
+**The known-good exception list, so the next run of that check does not
+re-investigate them** (every one is deliberate, and each is explained where it
+appears):
+
+| flagged | why it is fine |
+| :-- | :-- |
+| `record.sh`, `memory.db`, `docker.service`, `~/.cache/friday-model-eval/*`, `bench.py`, `sweep3.py`, `PREDICTIONS*.md`, `RESULTS-*.md` | **outside the repo** — the mic corpus lives in `~/.cache/whisper-bench/`, the model-eval scratch in `~/.cache/friday-accel-eval/` |
+| `gemini-thoughts.md`, `gpt-thoughts.md` | **filenames that have never existed** in this repo or its history — CLAUDE.md names them precisely to record that the doc map cited them for weeks (the real files are `docs/archive/review-*.md`) |
+| `config.toml` | **NOT IMPLEMENTED**, and `spec.md` says so in the row that cites it |
+| `just enroll`, `just test-grammar-lock` | recipes that never existed / were renamed; both are cited *as* the mistake, with `git log -S` evidence |
+| `just approvals`, `just recipes` | **PLANNED, Phase 7** (FR-122, ADR-103) |
+| `test_speaker_verifier_mock`, `test_not_yet_wired_action_is_not_dispatched` | **deleted tests**, cited in the entries that record their deletion (M5/ADR-117 and the `NOT_YET_WIRED` change) |
+
+The check itself, kept runnable — it resolves every backticked file path, every
+`test_*` name and every `` `just <recipe>` `` in every non-archive `.md` against
+the tree:
+
+```bash
+.venv/bin/python - <<'EOF'
+import re, pathlib
+docs = [p for p in pathlib.Path('.').rglob('*.md')
+        if '.git/' not in str(p) and 'docs/archive' not in str(p) and '.venv' not in str(p)]
+adr = set(re.findall(r'^## (ADR-\d+)', pathlib.Path('adr.md').read_text(), re.M))
+oq  = set(re.findall(r'(OQ-\d+)', pathlib.Path('open-questions.md').read_text()))
+fr  = set(re.findall(r'(FR-\d+)', pathlib.Path('spec.md').read_text()))
+src = "\n".join(p.read_text() for p in list(pathlib.Path('tests').rglob('*.py'))
+                 + list(pathlib.Path('friday').rglob('*.py'))
+                 + list(pathlib.Path('scripts').rglob('*.py')))
+rec = set(re.findall(r'^([a-z][a-z0-9-]*)(?:\s+[^:\n]*)?:(?!=)',
+                     pathlib.Path('justfile').read_text(), re.M))
+for p in docs:
+    t = p.read_text(); hits = []
+    for kind, known in (("ADR", adr), ("OQ", oq), ("FR", fr)):
+        hits += [m for m in set(re.findall(rf'\b{kind}-\d+', t)) if m not in known]
+    for m in set(re.findall(r'`(test_[a-z0-9_]+)`', t)) | set(re.findall(r'::(test_[a-z0-9_]+)', t)):
+        if f"def {m}" not in src and not pathlib.Path(f"tests/{m}.py").exists():
+            hits.append("TEST:" + m)
+    hits += ["JUST:" + m for m in set(re.findall(r'`just ([a-z][a-z0-9-]*)', t)) if m not in rec]
+    if hits: print(p, sorted(hits))
+EOF
+```
 
 **Fixed 2026-08-29 (Steps 1–7):** the CRITICAL text-mode confirm break (C1) and
 **all eight HIGHs** — unaudited dispatches and searches (H1), the orphaned
@@ -4756,15 +4800,148 @@ $ .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/
 were missing tests, not defects — the code under them was correct, and it still
 is. `git diff` on `turn.py`, `executor.py`, `ban.py` and `speaker.py` is empty.
 
-### 5. Still owed, and deliberately
+### 5. ADR-113 PROVED ITSELF LIVE while this session was writing docs
 
-- **The two microphone items.** D29/ADR-114 (restart with an app open) and
-  ADR-113 (`capture abandoned: no speech within 5.0s`). Ninety seconds, unmoved
-  from the previous block, and they need the owner at the machine because the
-  test only means anything when the **daemon** is the process that launched the
-  app — a text-mode launch is a different cgroup and a different experiment.
+Not staged, not asked for — read off the journal at the end of the session. The
+owner had restarted the daemon at 08:08:16 and was using it by voice. At 08:23 a
+**marginal wake fired at score 0.543 against the 0.50 threshold** — precisely the
+false wake ADR-113 was written for, and the thing that had not happened once
+since the change:
+
+```
+$ journalctl --user -u friday --since "2026-09-03 08:23:00" --until "08:24:00"
+08:23:09,836 INFO [friday.audio.wake] wake fired score=0.543 threshold=0.50
+08:23:09,845 INFO [friday.daemon]     capture start source=wake
+08:23:14,830 INFO [friday.audio.wake] capture abandoned: no speech within 5.0s
+```
+
+**4.985 s** from `capture start` to the bail-out — the 5.0 s budget, measured.
+
+**And the half that actually matters is what is NOT in those three lines.** No
+`Processing audio with duration`, no `stage_timings`, no `TTFA`. Every other
+capture in the same journal has all three. **STT and the turn were skipped
+entirely**, which is the whole of ADR-113's argument: the ADR-066 bail-out used
+to route to `on_speech_end`, the ordinary finish path, so a false wake spent a
+flat ~600 ms (F26 — Whisper's cost does not scale with audio length) turning
+silence into `""` while FR-5 held the assistant deaf. That surcharge is what
+paid for 3.0 → 5.0 s, and it is now measured rather than argued.
+
+**ADR-113 is proven live. One microphone item remains: ADR-114.**
+
+### 6. Still owed, and deliberately
+
+- **ADR-114 / D29 — a launched app must survive a daemon restart.** Still
+  unconfirmed by a human, and today's session did NOT prove it: the owner's
+  restart was at **08:08:16** and every app Friday launched today came after it
+  (`open_app{browser}` 08:08:30, `open_app{terminal}` 08:09:58, both `ok` at
+  401-402 ms — the healthy signature). `systemctl --user status friday` shows
+  only the daemon in its cgroup now, and the Brave running as of this writing
+  started at 08:14:42 in an `app-org.chromium.Chromium-*.scope`, i.e. launched
+  from the desktop, not by Friday. **The test needs the DAEMON to be the process
+  that launched the app** — a text-mode launch lands in a different cgroup and
+  is a different experiment.
 - **M6 — the `just eval` gate is 0 % covered.** All four exit-condition
   mutations survive. It is the contract Phase 3 is measured by.
+
+### 7. One ground-check nuance the next session needs
+
+The running daemon started at **08:08:16**; the last commit touching
+`friday/*.py` is **08:19:37** (this session's, `friday/selftest.py`). The
+START HERE check as written would flag that — and here it is benign, because
+**the daemon does not import `selftest`**: only `friday/__main__.py` does, for
+the `--selftest` CLI flag. Verified rather than assumed:
+
+```
+$ .venv/bin/python -c "import friday.voice_main, sys; print('friday.selftest' in sys.modules)"
+False
+```
+
+So the running daemon is behaviourally identical to `HEAD`, and it was left
+running rather than restarted — restarting it would have interrupted the owner
+mid-session and proved nothing about D29, since no Friday-launched app was open.
+**The rule stands and only its wording is sharpened:** compare the daemon's
+start time against the last commit touching the files the daemon actually
+imports.
+
+---
+
+### 8. The doc-readiness pass — every document checked against the tree
+
+Rule 5, run mechanically rather than by reading. Ground truth first, then every
+document that claims a number was made to agree with it:
+
+```
+pytest                596 passed rc=0        tests/*.py            80 (79 test_*.py + conftest.py)
+test functions        536 (526 at ef6b8e4)   ADRs                  117
+selftest checks       10                     FRs in spec.md        137
+eval fixtures         60                     PARAM_SCHEMA actions  25
+app ids               165 (generated - do not pin it, M19)
+LOC                   tests 9413 / friday 9338
+```
+
+**Eight documents carried a stale number and now do not:** `README.md` (581→596,
+79→80 files, selftest 9/9→10/10, "8 health checks"→10, "28 planner
+fixtures"→60, **"adr.md 83 decisions"→117**, and the intro still said "a small
+fixed set of applications" three weeks after ADR-097 made it every installed
+one), `architecture.md` ("563 unit tests across 44 test files" → read them with
+pytest; the §7 health paragraph listed six checks of ten), `tech-stack.md`
+(8 checks → 10), `friday.md` (9 → 10), `spec.md` (FR-81 "8 subsystem checks",
+FR-63a "12 tests" — it was **14** at `ef6b8e4`, 19 functions / 22 collected
+now), `audit-2026-09-02.md` (its own stale-baseline note), `justfile`, and
+`CLAUDE.md`.
+
+**Two errors were found in documents written yesterday, and both were mine to
+inherit rather than to repeat:**
+
+1. **`test-audit-2026-09-03.md` said "all 81 files in `tests/`". It was 79.**
+   `git ls-tree -r --name-only ef6b8e4 tests/` counts 79 `.py` (83 including the
+   four fixture files); 81 matches neither. The LOC figures in the same sentence
+   are exactly right, which is what made it credible. Corrected in the audit and
+   in the three places that had already repeated it (`adr.md`,
+   `open-questions.md`, `CLAUDE.md`).
+2. **The "a green suite is not a working feature" count disagreed with itself:**
+   `CLAUDE.md`'s prose said **nine**, its own temptation row said **seven**, and
+   `docs/reality-check.md` still said **four**. ADR-116's Context has the
+   canonical nine-item list; all three now cite it and say nine.
+
+**Decisions taken in this pass, and why:**
+
+- **The daemon was NOT restarted.** It started 08:08:16; this session's commit
+  (08:19:37) touched `friday/selftest.py`, so the START HERE ground check would
+  flag it. Checked instead of assumed: `friday.selftest` is **not in the
+  daemon's import graph** (only `friday/__main__.py` imports it, for the
+  `--selftest` flag), so the running daemon is behaviourally identical to HEAD.
+  Restarting would have interrupted the owner mid-session and proved nothing
+  about D29, because no Friday-launched app was open. **The ground check's
+  wording was sharpened rather than the system disturbed.**
+- **`F4` and `F5` in `audit-2026-09-02.md` were annotated, not closed.** Both
+  are still open and still Phase 3's job. What changed is that the executor's
+  `env=` and its `assert_not_banned` call now have tests under them, so the
+  Phase 3 rewrite lands on a baseline. Marking them closed would have been the
+  "the fix landed, so the defect is dead" error this repo has a row about.
+- **`design-2026-09-02.md` §11.1 gained a warning rather than a new criterion.**
+  Criterion 3.4 stopped pinning a test count (520 → 568 → 596 in three months);
+  3.5 now names `tests/test_confirm_arming.py` as the regression net for the
+  derived confirm tier. The contract itself is unchanged — **and the note says
+  plainly that the gate it is written in terms of is still 0 % covered (M6).**
+- **`threat-model.md` got two dated phase-gate rows.** A control listed in that
+  file is only as real as the test that fails when it is removed; three of T4's
+  confirm gates and T2's ban-list call had no such test. That is a threat-model
+  fact, not just a testing one.
+- **`docs/reality-check.md` got a caveat, not a promotion.** The confirm rows
+  now have arming tests; the note says explicitly that **a test is a regression
+  net, never a tick in that file** — its `C?` rows still mean a human said "yes"
+  out loud and the system was read back.
+- **A known-good exception list was written down** (above), with the citation
+  checker that produces it. Eight flagged items, every one deliberate: files
+  outside the repo, two filenames that never existed, `config.toml` (marked NOT
+  IMPLEMENTED), two Phase-7 recipes, and two deleted tests cited in the entries
+  that record their deletion. The next mechanical run should print exactly that
+  list and stop.
+
+Final state, re-run after every edit: `pytest` **596 rc=0**, `eval` **60/60,
+regressions 0**, `selftest` **10/10 rc=0**, `bootstrap --check` **11/11**,
+grammars **byte-identical**, and the citation check clean against the list above.
 
 ---
 
@@ -4773,7 +4950,7 @@ is. `git diff` on `turn.py`, `executor.py`, `ban.py` and `speaker.py` is empty.
 **Read this whole block before touching anything. Everything below is measured;
 nothing in it is belief.**
 
-### The state in six lines
+### The state in seven lines
 
 - **The five tier-1 test gaps are CLOSED** (M1-M5, ADR-117), each proven by
   applying its mutation and watching the suite turn red. **Do not write them
@@ -4783,19 +4960,23 @@ nothing in it is belief.**
   touching a hard invariant ships with a mutation of that line demonstrated to
   turn the suite red* is now **line six of the definition of done**.
 - **`friday/` is unchanged apart from `selftest.py`.** The tier-1 findings were
-  missing tests, not defects.
+  missing tests, not defects; `git diff` on `turn.py`, `executor.py`, `ban.py`
+  and `speaker.py` is empty.
 - Gates: `pytest` **596 rc=0**, `eval` **60/60, regressions 0**, `selftest`
   **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**.
-- **ADR-114 and ADR-113 are still unconfirmed by a human.** Ninety seconds. They
-  have been owed since 2026-09-02 and they are job 1.
-- **M6 is the only tier-1-shaped thing left**: `just eval` can be made to always
+- **ADR-113 IS PROVEN LIVE** (2026-09-03 08:23, wake score 0.543 →
+  `capture abandoned: no speech within 5.0s` at +4.985 s, and no STT line and no
+  TTFA after it). **D30/ADR-115 is confirmed by the owner.**
+- **ADR-114 / D29 is the ONE thing still owed at a microphone.** Ninety seconds.
+  Owed since 2026-09-02. It is job 1.
+- **M6 is the only tier-1-shaped hole left**: `just eval` can be made to always
   exit 0 and no test notices — and it is Phase 3's acceptance contract.
 
 ### THE TODO LIST, in order
 
 ```
 [ ] 0.  VERIFY THE GROUND       2 min    commands below, no judgement needed
-[ ] 1.  TWO MICROPHONE ITEMS    90 s     D29/ADR-114 and ADR-113. Owed since 2026-09-02
+[ ] 1.  ONE MICROPHONE ITEM     60 s     D29/ADR-114. Owed since 2026-09-02
 [ ] 2.  M6 — THE EVAL GATE      ~30 lines. The contract Phase 3 is judged by, 0 % covered
 [ ] 3.  PHASE 3                 design-2026-09-02.md 11.1. Contract not optional
 [ ] 4.  RECORD IT               paste output here per rule 6, then commit
@@ -4816,10 +4997,10 @@ cd /home/bittusah/Projects/Personal/Intern/friday
 
 `check_unit_deployed` now does the systemd half of this check for you: if
 `selftest` is 10/10 then `NeedDaemonReload`, `Type`, `WatchdogUSec`,
-`PrivateTmp` and `KillMode` are all what the repo says they are. It does NOT
-answer "is the running daemon this code" — for that, compare the daemon's start
-time against the last **commit** that touched `friday/*.py`, not against file
-mtimes (a mutation run rewrites those):
+`PrivateTmp` and `KillMode` are all what the repo says they are, read off
+`systemctl show` rather than off the file.
+
+It does NOT answer *"is the running daemon this code"*. For that:
 
 ```bash
 ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
@@ -4827,17 +5008,55 @@ git log -1 --format=%ci -- 'friday/*.py'
 ls -d tmp*/ 2>/dev/null | wc -l          # MUST be 0. 2 per restart means /tmp went read-only
 ```
 
-### 1. Two microphone items — ninety seconds, owed since 2026-09-02
+**Two traps in that comparison, both hit on 2026-09-03:**
 
-Both need the **daemon** to be the acting process; a text-mode launch is a
-different cgroup and a different experiment.
+1. **Compare COMMIT times, not file mtimes.** A mutation run rewrites mtimes
+   without changing content, so `find friday -name '*.py' -printf '%T+'` reported
+   `daemon.py` hours "newer" than a daemon that was in fact running that exact
+   code. `git status` clean plus the last commit time is the honest pair.
+2. **A newer commit is not automatically a stale daemon.** This session's commit
+   touched only `friday/selftest.py`, which **the daemon never imports** — only
+   `friday/__main__.py` does, for the `--selftest` flag. Verify before restarting
+   anything:
 
-1. **`systemctl --user restart friday` with an app open.** Say "open the
-   browser", confirm the window, restart, and check the window is still there
-   (`hyprctl clients`). **D29 / ADR-114** (`KillMode=process`).
-2. **Watch for one false wake** and the journal line
-   `capture abandoned: no speech within 5.0s`. **ADR-113.** It has never fired
-   live because no false wake has occurred since the change.
+   ```bash
+   .venv/bin/python -c "import friday.voice_main, sys; print('friday.selftest' in sys.modules)"
+   # False -> selftest is not in the daemon's import graph
+   ```
+
+   Restarting the daemon to "be safe" costs the owner their session and, if no
+   Friday-launched app is open, proves nothing about D29 either.
+
+### 1. One microphone item — sixty seconds, owed since 2026-09-02
+
+**ADR-113 is DONE** — it fired on its own on 2026-09-03 at 08:23 (wake score
+0.543, `capture abandoned: no speech within 5.0s` at +4.985 s, no STT line and
+no TTFA after it). Do not go looking for it again.
+
+What is left is **D29 / ADR-114** (`KillMode=process`): an app Friday launched
+must survive a daemon restart. Children inherit `friday.service`'s cgroup, and
+the default `KillMode=control-group` SIGKILLed every one of them on stop or
+restart — with `Restart=always` + `WatchdogSec=10s` behind it, so it happened
+unasked.
+
+```bash
+# 1. have the DAEMON launch it — say "open the browser" (or any app).
+#    A text-mode launch is a DIFFERENT CGROUP and a different experiment.
+hyprctl clients | grep -c class                 # window count before
+systemctl --user status friday | tail -5        # the app should appear in friday.service's cgroup
+
+# 2. restart
+systemctl --user restart friday
+
+# 3. the window must still be there
+hyprctl clients | grep -c class                 # same count
+```
+
+**Why 2026-09-03's session did not settle it:** the owner's restart was at
+**08:08:16** and every app Friday launched that day came *after* it
+(`open_app{browser}` 08:08:30, `open_app{terminal}` 08:09:58 — both `ok` at
+401-402 ms, the healthy signature). The order matters: launch first, restart
+second.
 
 Record the result here either way. A negative result is worth more than
 anything in Phase 3.
@@ -4887,7 +5106,8 @@ nothing in it is belief.**
   signature (the grace timed out, the process was alive at 400 ms) against
   **49–119 ms** for the life of the project.
 - **ADR-114 (D29) and ADR-113 are still NOT confirmed by a human.** Two items,
-  ninety seconds. They are steps 2 and 3 below.
+  ninety seconds. They are steps 2 and 3 below. *(ADR-113 was proven live on
+  2026-09-03 at 08:23 — see the block above. Only ADR-114 is still owed.)*
 - **A full mutation audit of the test suite ran.** 85 injected defects, **56
   killed, 29 survived, mutation score 66 %**. Report:
   **`test-audit-2026-09-03.md`**, findings **M1–M19**. Decision: **ADR-116**.

@@ -4781,11 +4781,22 @@ that anything could reach it. Reported back to the owner rather than built.
 - `tests/test_wake.py::test_silent_capture_is_abandoned_early` asserted the old
   callback and was updated; it keeps the timing contract and defers the routing
   contract to the new file.
-- **Not measured live.** The daemon was restarted onto this code and the unit is
-  healthy, but no false wake has been observed since — the OQ-39 session
-  produced five real wakes and zero false ones, so the path this ADR optimises
-  has not been exercised at a microphone. `capture abandoned: no speech within
-  5.0s` in the journal is what confirms it.
+- **PROVEN LIVE 2026-09-03 08:23.** A marginal wake — score **0.543** against
+  the 0.50 threshold, i.e. exactly the false wake this ADR was written for —
+  opened a capture with no speech in it:
+
+  ```
+  08:23:09,836 [friday.audio.wake] wake fired score=0.543 threshold=0.50
+  08:23:09,845 [friday.daemon]     capture start source=wake
+  08:23:14,830 [friday.audio.wake] capture abandoned: no speech within 5.0s
+  ```
+
+  **4.985 s** from `capture start` to the bail-out, and the half that actually
+  matters is what is ABSENT after it: no `Processing audio with duration`, no
+  `stage_timings`, no TTFA. **STT and the turn were skipped**, which is what
+  pays for the longer wait — the old `on_speech_end` route would have spent a
+  flat ~600 ms (F26) turning silence into `""` while FR-5 held the assistant
+  deaf. Both halves of this ADR are now measured, not argued.
 
 ---
 
@@ -4991,6 +5002,10 @@ launched. A cheaper substitute is not a control, it is a different experiment.
 
 **Status:** Accepted (2026-09-03). Establishes the method used in
 `test-audit-2026-09-03.md`. Does not change any source file.
+**Amended by ADR-117** (same day): the three questions this ADR deliberately
+left to the owner — OQ-65, OQ-66, OQ-67 — were answered, and findings **M1-M5
+and M16 are CLOSED**. The tense in the sections below is that of the audit, when
+they were all still open; **M6 is the one tier-1-shaped finding that is not.**
 
 **Context.** This project has been bitten nine times by a green suite sitting on
 a live defect — G13 enrollment dead on import, `clipboard_set` speaking success
@@ -5181,8 +5196,8 @@ directive now costs two edits, which is the correct price.
 
 **Rejected: OQ-66 (b), a pytest that shells out to `systemctl`.** It buys the
 same coverage and costs a skip line in every environment without a user bus.
-Of 81 test files exactly one (`tests/test_egress.py`) talks to the live system,
-and that ratio is worth keeping.
+Of the 79 test files at `ef6b8e4` exactly one (`tests/test_egress.py`) talks to
+the live system, and that ratio is worth keeping.
 
 **Rejected: writing the tier-1 tests after Phase 3.** They would then be written
 against new code with no baseline — the audit's own finding is that this

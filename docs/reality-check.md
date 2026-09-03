@@ -3,10 +3,18 @@
 **Purpose.** A single, systematic list of *everything Friday should be able to
 do* and *everything it must refuse or cannot do*, so a session can verify the
 real system against it — feature by feature — instead of trusting a green test
-suite. Four times now, tests passed while the real path was broken (G13
+suite. **Nine times now**, tests passed while the real path was broken — G13
 enrollment dead on import; `clipboard_set` a no-op that spoke success;
 `file_open` opening the wrong file; llama-server serving from CPU while every
-health check said PASS). This file exists so that never slips through again.
+health check said PASS; 328 green tests over a TUI whose every action confirm
+crashed; both Hyprland tools, whose argv test asserted exactly the string the
+compositor rejected; a `test-egress` that could not observe a connection while
+passing; a watchdog that had never fired while its unit was committed and
+documented; and two whole phases of fixes that had never executed because the
+daemon predated them by three hours. The canonical list lives in **ADR-116**'s
+Context section; keep the two in step. This file exists so that never slips
+through again — and the 2026-09-03 mutation audit is the same lesson stated
+generally: **the suite tested functions, not wiring.**
 
 **How to use it.** Work top to bottom. For each row, actually trigger it (speak
 it, or type it in `just run`) and confirm the *Expect* column. Tick the box.
@@ -36,6 +44,18 @@ verified (no mic, tool missing) is marked `SKIP (reason)`, never silently ticked
 > 2.337 / 2.363 s, none reaching the cap. The A15 rows un-ticked on 2026-08-29
 > are re-ticked below. PTT still works.
 >
+> **2026-09-03 — the confirm rows now have ARMING TESTS, and that changes
+> nothing about this file.** A mutation audit found that three of the five
+> confirm gates could have their branch deleted from `turn.py` with all 581
+> tests passing; `tests/test_confirm_arming.py` closed that (ADR-117, M1). It
+> pins that a turn ARMS a `PendingAction` instead of dispatching. It does not
+> and cannot tell you that a human said "yes" out loud and the network actually
+> dropped — which is what the `C?` rows in section F record, and why they were
+> worth a microphone session. **A test is a regression net, never a tick in this
+> file.** Same for `SpeakerVerifier.verify()` (M5): it is now tested in both
+> directions, and speaker verification is still OFF and still fails OPEN with no
+> voiceprint enrolled, exactly as before.
+>
 > **Third, for whoever runs this next:** `FRIDAY_DEBUG=1` in the foreground is
 > NOT enough. A terminal in a systemd-started Hyprland session inherits
 > `JOURNAL_STREAM`, so H8's guard drops every `heard=` line and you run blind.
@@ -54,7 +74,7 @@ F-prev keep the earlier evidence.
 
 ```
 systemctl --user start friday-llm friday-searxng     # LLM + search backends
-just selftest                                         # expect: all 8 checks PASS
+just selftest                                         # expect: all 10 checks PASS
 ```
 
 **`llm_on_gpu` must PASS before you trust a single timing in this file.** On
@@ -401,14 +421,20 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
       3.093 / 2.337 / 2.363 s** and none reached the cap. Read off
       `faster_whisper`'s `Processing audio with duration`, which is the capture
       itself — a gap between daemon log lines also contains STT and planning.
-- [ ] A capture nobody speaks into is abandoned after ~3 s (ADR-066).
-      **STILL UNPROVEN, but no longer failing.** It was un-ticked on 2026-08-29
+- [x] A capture nobody speaks into is abandoned after **5 s** (ADR-066, budget
+      raised by ADR-113). **TICKED 2026-09-03 08:23**, read off the journal:
+      `wake fired score=0.543 threshold=0.50` → `capture start source=wake` →
+      `capture abandoned: no speech within 5.0s`, 4.985 s apart, with **no STT
+      line and no TTFA after it** — the turn was skipped, not just shortened.
+      *History below, written 2026-09-02 and kept because it is why this row
+      was hard to tick:* **STILL UNPROVEN, but no longer failing.** It was un-ticked on 2026-08-29
       when one capture contained **zero** speech by Silero's reckoning
       (`VAD filter removed 00:14.995 of 14.995`) and still ran to the cap — the
       cause was `webrtcvad` calling this room voiced continuously, fixed by
       ADR-095. In the 2026-09-02 live session all five wakes were real, so
-      `capture abandoned:` was never exercised and this row stays unticked for
-      want of a false wake, not for want of a fix. The same session raised
+      `capture abandoned:` was never exercised and this row stayed unticked
+      for want of a false wake, not for want of a fix — until one finally
+      occurred on 2026-09-03. The same session raised
       **OQ-64**: the 3 s budget is measured from `capture start` to the first
       voiced frame, and the owner finds it short.
 - [ ] Barge-in by KEY PRESS over Friday's speech cuts it and re-captures (FR-7)
@@ -749,6 +775,18 @@ alone is the open half of **OQ-56**.
   capture after the question, not a `ptt-barge` during it), so the row stands
   untested. The observed cancel was correct behaviour.
 - **FR-7 key barge-in** over a reply.
+- **D29 / ADR-114 — a launched app must survive a daemon restart.** `KillMode`
+  defaulted to `control-group`, so every app Friday launched was SIGKILLed when
+  the service stopped or restarted — and `Restart=always` + `WatchdogSec=10s`
+  mean that happens unasked. Fixed and proven at the mechanism level (a `foot`
+  window alive with the parent, gone one second after `systemctl stop`), **never
+  confirmed by a human.** To check: have Friday open an app, `systemctl --user
+  restart friday`, and confirm the window is still in `hyprctl clients`. It must
+  be an app the DAEMON launched — a text-mode launch is a different cgroup and a
+  different experiment.
+- ~~**ADR-113 — an abandoned capture**~~ — **TICKED 2026-09-03 08:23.** A wake
+  at score 0.543 opened a speechless capture and it was abandoned at +4.985 s
+  with no STT line and no TTFA after it. See the A15 row above.
 - ~~Dictation actually typing into a focused window~~ — **CONFIRMED by the
   user** (2026-08-29, re-confirmed 2026-08-30): it typed, verdict "it was
   amazing". What remains open is only whether `new line` / `period` become

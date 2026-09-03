@@ -173,7 +173,9 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        eval.jsonl           60 fixtures (ADR-030, ADR-089)
        adversarial.jsonl    AS-1..12 (+ youtube AS-13..16 in test_youtube)
        injection.jsonl      20 hostile search results (FR-63)
-     test_*.py              563 unit tests across 44 test files
+     test_*.py              79 files + conftest.py; 596 collected tests.
+                            Counts move -- read them with
+                            `.venv/bin/python -m pytest -q`, never from prose
 
    diagrams/                ASCII, authoritative, updated with code
 ```
@@ -404,9 +406,19 @@ sample) is logged as `[debug] vN TTFA … ms` when `FRIDAY_DEBUG` is set
 (`daemon._ttfa_logger`); wake/VAD latency has its own harness, `just
 wake-bench`. No metrics server, no Prometheus. One user, one machine.
 
-Health: `friday --selftest` checks llama-server reachability, GPU arch,
-DB schema version, DB permissions, audio devices, and the panic file, and
-exits non-zero on any failure. Run it at every gate.
+Health: `friday --selftest` runs **10 checks** — llama-server reachability,
+SearXNG reachability, GPU arch, that the LLM is actually resident on the GPU,
+DB schema version and permissions (incl. the `-wal`/`-shm` sidecars, read
+BEFORE the DB is opened), audio devices, the panic file, the loopback bind
+audit, the power profile, and **that the unit systemd is running matches the
+one committed** (`check_unit_deployed`, ADR-117 — asked of `systemctl show`,
+since the installed unit is a symlink to the repo file and the file test can
+never disagree with itself). Exit 0 all PASS / 1 any FAIL / 2 any WARN, printed
+as `[DEGRADED]` (ADR-108). Run it at every gate.
+
+Every check must be able to FAIL — `tests/test_selftest_fail_paths.py` drives
+one FAIL path per check, 19 test functions / 22 collected. `gpu_arch` once
+PASSed through an entire GPU outage; that file exists because of it.
 
 ---
 
@@ -436,7 +448,21 @@ exits non-zero on any failure. Run it at every gate.
 ```
 
 Hardening on the orchestrator unit: `NoNewPrivileges=yes`,
-`ProtectSystem=strict`, `ReadWritePaths=%h/.local/state/friday`, and `KillMode=process` (ADR-114). **`PrivateTmp` is deliberately NOT set** (ADR-115): a GUI app's session IPC lives in `/tmp` — Chromium keeps its singleton socket there and only a symlink to it under `$HOME` — so a private `/tmp` made every browser launch exit 0 in ~50 ms with no window, and hid `/tmp/.X11-unix` besides. `tests/test_service_unit.py` fails if either directive is changed back.
+`ProtectSystem=strict`,
+`ReadWritePaths=%h/.local/state/friday %t/friday %h/.local/share/friday /tmp`,
+and `KillMode=process` (ADR-114). **`PrivateTmp` is deliberately NOT set**
+(ADR-115): a GUI app's session IPC lives in `/tmp` — Chromium keeps its
+singleton socket there and only a symlink to it under `$HOME` — so a private
+`/tmp` made every browser launch exit 0 in ~50 ms with no window, and hid
+`/tmp/.X11-unix` besides. **`/tmp` is in `ReadWritePaths` for the same reason
+and the two are one fix:** `ProtectSystem=strict` mounts everything else
+read-only, connecting to a unix socket needs write access to it, and a
+read-only `/tmp` also sends `tempfile.gettempdir()` down to the
+`WorkingDirectory` (two stray `tmp*/libespeak-ng.so` dirs in the repo per
+daemon start). `tests/test_service_unit.py` fails if either directive is
+changed back — and since ADR-117, `selftest`'s `check_unit_deployed` fails if
+the unit systemd is *running* drifts from the file, which the file test cannot
+see (the installed unit is a symlink to it).
 Note that `open_app` must still reach the Hyprland socket — verify the
 sandbox does not break `hyprctl` before enabling `ProtectSystem`.
 

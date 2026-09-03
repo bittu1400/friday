@@ -1,8 +1,12 @@
 # Friday — Test-Suite Mutation Audit
 
 **Date:** 2026-09-03
-**Scope:** all 81 files in `tests/` (526 test functions, 581 collected tests,
-9 196 LOC against 9 250 LOC of source) measured against `friday/`.
+**Scope:** all 79 `.py` files in `tests/` — 78 `test_*.py` plus `conftest.py`
+(526 test functions, 581 collected tests, 9 196 LOC against 9 250 LOC of
+source) measured against `friday/`. *(Corrected 2026-09-03 later: this line
+said "81 files"; `git ls-tree -r --name-only ef6b8e4 tests/` counts **79**
+`.py`, and 83 including the four fixture files. The LOC figures are right. The
+tree is 80 `.py` today — `tests/test_confirm_arming.py` is new.)*
 **Method:** 85 single-line defects injected into the source one at a time; the
 full suite run against each; the tree reverted with `git checkout -- .` between
 every one. **A mutation that leaves the suite green SURVIVED — that line is
@@ -319,7 +323,7 @@ installed unit is a symlink to the repo file**, so it always matches, while
 documented and **never once executed**. A file-reading test would have passed
 throughout.
 
-Of all 81 test files, **only `tests/test_egress.py` shells out to the live
+Of all 79 test files, **only `tests/test_egress.py` shells out to the live
 system** (`tests/test_egress.py:158,165`). Everything else that touches
 `subprocess` mocks it.
 
