@@ -362,7 +362,7 @@ Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
 **Gate numbers, all re-run 2026-09-04 after Phase 3 closed:**
-`uv run pytest` **685 passed, rc=0** (653 until ADR-127 added +2 D35, +4 D37, +2 stats, +24 doc-path), `just eval` **81/81 (100%), regressions 0**
+`uv run pytest` **687 passed, rc=0** (653 until ADR-127 added +2 D35, +4 D37, +2 stats, +24 doc-path; 687 with ADR-128's +2 enum grammar tests), `just eval` **81/81 (100%), regressions 0**
 (64 until criterion 3.6 added 17 so every capability has >=2 — ADR-125),
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
@@ -432,13 +432,10 @@ short version, in order:**
 1b. FIRST_USE AT A MIC    DONE 2026-09-04 14:31-14:33, decline path included
 2.  A WEEK OF ORDINARY USE  -> OQ-69 (the BURDEN; the mechanism is closed) and
                                OQ-70 (read the new `chat` rows in `just stats`)
-3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   half a day. The audit's top
-                               structural finding: `params ::= {string:string}`,
-                               so every enum value is free text the model must
-                               SPELL. Seven small machine-independent enums --
-                               NOT `open_app.app`, which must keep failing
-                               closed by NAMING the id it could not find
-4.  THE MODEL QUESTION     only after 3 and a week of chat rows. See below
+[x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128) — seven closed
+                                        enums server-side; open_app.app kept free
+                                        to fail closed and preserve machine-independence
+[ ] 4.  THE MODEL QUESTION     only after 3 and a week of chat rows. See below
 5.  PHASE 4a / 4b / 4c     design-2026-09-02.md §11. Phase 3 unblocked them
 6.  RECORD IT              paste output into progress.md per rule 1, then commit
 ```
@@ -998,11 +995,11 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  127 ADRs
-                      (ADR-001..ADR-127; the count was wrong at 74 for weeks,
+   adr.md             decisions + why + what they cost.  128 ADRs
+                      (ADR-001..ADR-128; the count was wrong at 74 for weeks,
                       again at 107, and again at 123 while the file held 126 --
                       verify with `grep -c '^## ADR-' adr.md`, never by reading
-                      this line).
+                      this line). ADR-128 constrains the seven closed enum params.
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
                       ADR-120 records the two Phase 3 policy calls (FIRST_USE on

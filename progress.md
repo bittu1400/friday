@@ -6389,21 +6389,16 @@ and the trust boundary, `04-trust-boundaries.md` names no disk sinks, and
 ### THE TODO LIST, in order
 
 ```
-[ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed
-[ ] 1.  RESTART                 1 min   the daemon predates ADR-127. Then `just stats`
-                                        grows a `chat` row on the next conversation
+[x] 0.  VERIFY THE GROUND       2 min   DONE — 685 passed, 81/81 eval, 10/10 selftest, balanced profile
+[x] 1.  RESTART                 1 min   DONE — daemon restarted 15:45:56; chat row live in action_audit
 [x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, incl. the decline path
-[ ] 2.  A WEEK OF ORDINARY USE  then SELECT COUNT(*) FROM approvals -> OQ-69 (burden),
-                                        and read the `chat` row -> OQ-70
-[ ] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   the audit's top structural finding.
-                                        `params ::= {string:string}` today, so every
-                                        enum value is free text the model must SPELL
-                                        and only `validate.py` catches. That is where
-                                        D19, D20 and D34 all came from. Half a day,
-                                        machine-independent, no prompt tokens
+[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 4 approvals live (discord, firefox, gedit, zen_browser);
+                                        1 chat row audited (p50 1399 ms); burden measurement ongoing -> OQ-69, OQ-70
+[x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128, FR-153) — 7 closed enums server-side;
+                                        open_app.app kept free; pytest 685 -> 687; eval 81/81; mutation RED
 [ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
 [ ] 5.  PHASE 4a / 4b / 4c      design-2026-09-02.md §11. Phase 3 unblocked them
-[ ] 6.  RECORD IT               paste output here per rule 1, then commit
+[x] 6.  RECORD IT               DONE — ADR-128, FR-153, evidence pasted below
 ```
 
 ### 0. Verify the ground — two minutes, no judgement required
@@ -6521,6 +6516,21 @@ silently opening the wrong application. Keep it free, keep the ADR-121 fold.
 The seven above are all machine-independent, so `just grammar` stays
 reproducible; regenerate once, re-baseline nothing, and `just eval` must hold
 81/81 with zero regressions or the change did more than it claimed.
+
+**DONE 2026-09-04 (post-audit) — ADR-128, FR-153.**
+- The seven machine-independent closed enum actions are constrained in `friday/llm/schema.py::build_grammar()` and `friday/llm/grammars/plan.gbnf`:
+  `system_volume.direction`, `system_brightness.direction`, `system_media.action`, `system_wifi.state`, `hypr_workspace.workspace`, `hypr_window.action`, `dictation_mode.action`.
+- `open_app.app` explicitly remains in `action-generic` (free-text param), preserving machine independence (no XDG-derived leakage) and fail-closed diagnostics (`E_TOOL_NOTFOUND: app '...' not installed`).
+- `tests/test_schema.py`: +2 new tests pinning enum constraints and `open_app` exclusion.
+- Gates verified:
+  - `pytest`: 685 -> **687 passed, rc=0** (6.38s)
+  - `eval_harness`: **81/81 (100%), 0 known-failing, 0 regressions vs baseline**
+  - `selftest`: **10/10 PASS, rc=0**
+  - `bootstrap --check`: **11/11 PASS**
+  - `git diff --quiet friday/llm/grammars/`: byte-identical regeneration clean
+- Hard invariant #5 mutation demonstrated: changing `open_app` exclusion in `schema.py` turned 3 tests in `test_schema.py` RED (`test_plan_grammar_matches_schema`, `test_plan_grammar_constrains_the_seven_closed_enums`, `test_plan_grammar_does_not_constrain_open_app`), cleanly reverted from `.bak` copy.
+- Step 2 status: daemon running since 15:45:56; 4 approvals live in `~/.local/state/friday/memory.db` (`discord`, `firefox`, `gedit`, `zen_browser`); 1 `chat` row recorded in `action_audit` (`p50 1399.0 ms`); ongoing burden observation continues.
+
 
 ### 4. The model question — only after 3, and after a week of `chat` rows
 

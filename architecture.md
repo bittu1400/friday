@@ -156,7 +156,7 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        chat.py              stage 2 free-text conversational reply generator
        grounding.py         search grounding turn under final.gbnf
        grammars/
-         plan.gbnf          full action enum
+         plan.gbnf          full action enum; 7 closed enums constrained (ADR-128)
          final.gbnf         action enum = ["none"] ONLY (enforced at G7)
        schema.py            grammar + validator generator. NO LONGER the source of
                             truth: since ADR-123 `PARAM_SCHEMA` is a VIEW over

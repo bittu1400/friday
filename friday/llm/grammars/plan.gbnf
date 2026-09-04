@@ -2,9 +2,31 @@
 # Regenerate with: uv run python -m friday.llm.schema
 
 root ::= "{" ws "\"action\"" ws ":" ws action ws "}" ws
-action ::= "{" ws "\"name\"" ws ":" ws name ws "," ws "\"params\"" ws ":" ws params ws "}"
-name ::= "\"none\"" | "\"chat\"" | "\"open_app\"" | "\"web_search\"" | "\"open_youtube\"" | "\"youtube_search\"" | "\"remember_preference\"" | "\"forget_preference\"" | "\"set_reminder\"" | "\"list_reminders\"" | "\"cancel_reminder\"" | "\"set_dnd\"" | "\"resume_dnd\"" | "\"system_volume\"" | "\"system_brightness\"" | "\"system_media\"" | "\"system_wifi\"" | "\"hypr_workspace\"" | "\"hypr_window\"" | "\"file_open\"" | "\"create_note\"" | "\"read_notes\"" | "\"clipboard_read\"" | "\"clipboard_set\"" | "\"dictation_mode\""
-params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
+action ::= action-system-volume | action-system-brightness | action-system-media | action-system-wifi | action-hypr-workspace | action-hypr-window | action-dictation-mode | action-generic
+action-system-volume ::= "{" ws "\"name\"" ws ":" ws "\"system_volume\"" ws "," ws "\"params\"" ws ":" ws params-system-volume ws "}"
+params-system-volume ::= "{" ws "\"direction\"" ws ":" ws val-system-volume-direction ws "}"
+val-system-volume-direction ::= "\"up\"" | "\"down\"" | "\"mute\"" | "\"unmute\"" | "\"toggle_mute\""
+action-system-brightness ::= "{" ws "\"name\"" ws ":" ws "\"system_brightness\"" ws "," ws "\"params\"" ws ":" ws params-system-brightness ws "}"
+params-system-brightness ::= "{" ws "\"direction\"" ws ":" ws val-system-brightness-direction ws "}"
+val-system-brightness-direction ::= "\"up\"" | "\"down\""
+action-system-media ::= "{" ws "\"name\"" ws ":" ws "\"system_media\"" ws "," ws "\"params\"" ws ":" ws params-system-media ws "}"
+params-system-media ::= "{" ws "\"action\"" ws ":" ws val-system-media-action ws "}"
+val-system-media-action ::= "\"play_pause\"" | "\"play\"" | "\"pause\"" | "\"next\"" | "\"previous\"" | "\"stop\""
+action-system-wifi ::= "{" ws "\"name\"" ws ":" ws "\"system_wifi\"" ws "," ws "\"params\"" ws ":" ws params-system-wifi ws "}"
+params-system-wifi ::= "{" ws "\"state\"" ws ":" ws val-system-wifi-state ws "}"
+val-system-wifi-state ::= "\"on\"" | "\"off\""
+action-hypr-workspace ::= "{" ws "\"name\"" ws ":" ws "\"hypr_workspace\"" ws "," ws "\"params\"" ws ":" ws params-hypr-workspace ws "}"
+params-hypr-workspace ::= "{" ws "\"workspace\"" ws ":" ws val-hypr-workspace-workspace ws "}"
+val-hypr-workspace-workspace ::= "\"1\"" | "\"2\"" | "\"3\"" | "\"4\"" | "\"5\"" | "\"6\"" | "\"7\"" | "\"8\"" | "\"9\"" | "\"10\""
+action-hypr-window ::= "{" ws "\"name\"" ws ":" ws "\"hypr_window\"" ws "," ws "\"params\"" ws ":" ws params-hypr-window ws "}"
+params-hypr-window ::= "{" ws "\"action\"" ws ":" ws val-hypr-window-action ws "}"
+val-hypr-window-action ::= "\"focus_left\"" | "\"focus_right\"" | "\"focus_up\"" | "\"focus_down\"" | "\"fullscreen\"" | "\"close\""
+action-dictation-mode ::= "{" ws "\"name\"" ws ":" ws "\"dictation_mode\"" ws "," ws "\"params\"" ws ":" ws params-dictation-mode ws "}"
+params-dictation-mode ::= "{" ws "\"action\"" ws ":" ws val-dictation-mode-action ws "}"
+val-dictation-mode-action ::= "\"start\"" | "\"stop\""
+action-generic ::= "{" ws "\"name\"" ws ":" ws generic-name ws "," ws "\"params\"" ws ":" ws params-generic ws "}"
+generic-name ::= "\"none\"" | "\"chat\"" | "\"open_app\"" | "\"web_search\"" | "\"open_youtube\"" | "\"youtube_search\"" | "\"remember_preference\"" | "\"forget_preference\"" | "\"set_reminder\"" | "\"list_reminders\"" | "\"cancel_reminder\"" | "\"set_dnd\"" | "\"resume_dnd\"" | "\"file_open\"" | "\"create_note\"" | "\"read_notes\"" | "\"clipboard_read\"" | "\"clipboard_set\""
+params-generic ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
 pair ::= string ws ":" ws string
 string ::= "\"" char* "\""
 char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])

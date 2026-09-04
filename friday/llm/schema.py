@@ -38,9 +38,10 @@ from ..capabilities import (
 )
 
 __all__ = [
-    "ACTIONS", "APP_ENUM", "BRIGHTNESS_ENUM", "DICTATION_ENUM", "FINAL_ACTIONS",
-    "MEDIA_ENUM", "PARAM_SCHEMA", "VOLUME_ENUM", "WIFI_ENUM", "WINDOW_ENUM",
-    "WORKSPACE_ENUM", "build_final_grammar", "build_grammar",
+    "ACTIONS", "APP_ENUM", "BRIGHTNESS_ENUM", "CONSTRAINED_ENUM_ACTIONS",
+    "DICTATION_ENUM", "FINAL_ACTIONS", "GENERIC_ACTIONS", "MEDIA_ENUM",
+    "PARAM_SCHEMA", "VOLUME_ENUM", "WIFI_ENUM", "WINDOW_ENUM", "WORKSPACE_ENUM",
+    "build_final_grammar", "build_grammar",
 ]
 
 # Param kinds:
@@ -83,30 +84,68 @@ def _q(s: str) -> str:
     return '"\\"' + s + '\\""'
 
 
-def _grammar(names: tuple[str, ...]) -> str:
-    name_alt = " | ".join(_q(a) for a in names)
-    return "\n".join(
-        [
-            "# Generated from friday/llm/schema.py — do not edit by hand.",
-            "# Regenerate with: uv run python -m friday.llm.schema",
-            "",
-            'root ::= "{" ws "\\"action\\"" ws ":" ws action ws "}" ws',
-            'action ::= "{" ws "\\"name\\"" ws ":" ws name ws "," ws '
-            '"\\"params\\"" ws ":" ws params ws "}"',
-            f"name ::= {name_alt}",
-            'params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"',
-            'pair ::= string ws ":" ws string',
-            r'string ::= "\"" char* "\""',
-            r'char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])',
-            "ws ::= [ \\t\\n]*",
-            "",
-        ]
-    )
+# Seven machine-independent closed enum actions constrained in plan.gbnf (ADR-128).
+# open_app is explicitly excluded (generated from XDG desktop entries, machine-dependent).
+CONSTRAINED_ENUM_ACTIONS: Final[tuple[str, ...]] = tuple(
+    cid for cid, cap in CAPABILITIES.items()
+    if cid != "open_app" and any(p.get("kind") == "enum" for p in cap.params.values())
+)
+GENERIC_ACTIONS: Final[tuple[str, ...]] = tuple(
+    cid for cid in ACTIONS if cid not in CONSTRAINED_ENUM_ACTIONS
+)
 
 
 def build_grammar() -> str:
-    """The full planning grammar: the whole action enum."""
-    return _grammar(ACTIONS)
+    """The full planning grammar: the whole action enum, with the seven
+    machine-independent closed enums constrained to their exact legal values (ADR-128).
+
+    `open_app.app` is explicitly NOT constrained (kept as free string):
+    the app enum is machine-dependent (generated from XDG entries) so
+    enumerating it would break the byte-identity contract, and a constrained
+    app cannot fail closed (it would force hallucination of a different
+    installed app instead of an informative E_TOOL_NOTFOUND).
+    """
+    action_branches = [
+        f"action-{cid.replace('_', '-')}" for cid in CONSTRAINED_ENUM_ACTIONS
+    ] + ["action-generic"]
+
+    lines = [
+        "# Generated from friday/llm/schema.py — do not edit by hand.",
+        "# Regenerate with: uv run python -m friday.llm.schema",
+        "",
+        'root ::= "{" ws "\\"action\\"" ws ":" ws action ws "}" ws',
+        f"action ::= {' | '.join(action_branches)}",
+    ]
+
+    for cid in CONSTRAINED_ENUM_ACTIONS:
+        cap = CAPABILITIES[cid]
+        cid_slug = cid.replace("_", "-")
+        for param_name, param_spec in cap.params.items():
+            param_slug = param_name.replace("_", "-")
+            val_rule_name = f"val-{cid_slug}-{param_slug}"
+            val_alt = " | ".join(_q(v) for v in param_spec["values"])
+            lines.append(
+                f'action-{cid_slug} ::= "{{" ws {_q("name")} ws ":" ws {_q(cid)} ws "," ws '
+                f'{_q("params")} ws ":" ws params-{cid_slug} ws "}}"'
+            )
+            lines.append(
+                f'params-{cid_slug} ::= "{{" ws {_q(param_name)} ws ":" ws {val_rule_name} ws "}}"'
+            )
+            lines.append(f"{val_rule_name} ::= {val_alt}")
+
+    generic_name_alt = " | ".join(_q(a) for a in GENERIC_ACTIONS)
+    lines.extend([
+        f'action-generic ::= "{{" ws {_q("name")} ws ":" ws generic-name ws "," ws '
+        f'{_q("params")} ws ":" ws params-generic ws "}}"',
+        f"generic-name ::= {generic_name_alt}",
+        'params-generic ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"',
+        'pair ::= string ws ":" ws string',
+        r'string ::= "\"" char* "\""',
+        r'char ::= [^"\\] | "\\" (["\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])',
+        "ws ::= [ \\t\\n]*",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def build_final_grammar() -> str:

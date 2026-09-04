@@ -6434,3 +6434,71 @@ audible. It is the FR-26 control that stops a raw exception reaching the user,
 and loosening it to expose D35-shaped bugs trades a real guarantee for a
 debugging convenience. The durable fix is the one taken: a test per handler
 error path.
+
+---
+
+## ADR-128 — Constraining the seven closed enum parameters in plan.gbnf
+
+**Date:** 2026-09-04 (post-audit) · **Status:** ACCEPTED · **Relates to:** D19, D20, D34, Step 3
+
+### Context
+
+Prior to this decision, `plan.gbnf` constrained the action name (`name ::= ...`) but defined
+`params` generically as arbitrary key-value pairs:
+```gbnf
+params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
+pair   ::= string ws ":" ws string
+```
+Consequently, all parameter keys and values — including closed enum parameters like `direction`,
+`state`, `action`, and `workspace` — were emitted as free text by the LLM and validated only
+post-generation by `validate.py`.
+
+While application-side validation fails closed (invariant #5), free-text generation of closed enums
+was the direct structural cause of three defects:
+- **D19**: The model echoed the prompt's example phrase back as an enum value.
+- **D20**: The model invented extraneous parameters on a parameterless action (`set_dnd`).
+- **D34**: The model guessed a hyphenated spelling (`easy-effects`) where the generator made `easy_effects`.
+
+By constraining closed enum parameters server-side in GBNF, illegal values and parameter hallucinations
+become structurally impossible at decode time, costing zero prompt tokens and shrinking the planner's
+search space to exact valid tokens.
+
+### Decision
+
+1. **Constrain the seven machine-independent closed enum actions in `plan.gbnf`:**
+   - `system_volume`: `params ::= {"direction": "up" | "down" | "mute" | "unmute" | "toggle_mute"}`
+   - `system_brightness`: `params ::= {"direction": "up" | "down"}`
+   - `system_media`: `params ::= {"action": "play_pause" | "play" | "pause" | "next" | "previous" | "stop"}`
+   - `system_wifi`: `params ::= {"state": "on" | "off"}`
+   - `hypr_workspace`: `params ::= {"workspace": "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10"}`
+   - `hypr_window`: `params ::= {"action": "focus_left" | "focus_right" | "focus_up" | "focus_down" | "fullscreen" | "close"}`
+   - `dictation_mode`: `params ::= {"action": "start" | "stop"}`
+
+2. **Explicitly keep `open_app.app` in `action-generic` (NOT constrained in GBNF):**
+   - **Machine-independence**: The app enum is generated from the local system's XDG desktop entries (`APPS`).
+     Constraining it in GBNF would make `plan.gbnf` machine-dependent and break the byte-identity contract
+     that pins repository builds across environments.
+   - **Failing closed**: If `open_app.app` were constrained to valid local apps, an utterance for an uninstalled
+     or misspelled app could never emit the uninstalled name — the GBNF sampler would force the model onto
+     some other syntactically legal app token, silently launching the wrong application. Kept as free text,
+     it fails closed with `E_TOOL_NOTFOUND: app '<name>' not installed` and speaks "I couldn't find <name>".
+
+3. **Derive the rules in `friday/llm/schema.py`:**
+   `CONSTRAINED_ENUM_ACTIONS` is derived from `CAPABILITIES` for all actions with `kind == "enum"` except
+   `open_app`. Rules are generated automatically, keeping single-source-of-truth integrity.
+
+### Consequences
+
+- `friday/llm/grammars/plan.gbnf` updated and pinned by `tests/test_schema.py`.
+- `pytest`: 685 → 687 passed (+2 new tests pinning enum constraints and `open_app` exclusion).
+- `eval_harness`: 81/81 (100%), 0 known-failing, 0 regressions vs baseline.
+- `selftest`: 10/10 PASS; `bootstrap --check`: 11/11 PASS.
+- Token overhead: 0 prompt tokens (GBNF operates entirely server-side in `llama-server`).
+- Compilation overhead: ~0.3 ms grammar compile time during sampler setup.
+- Mutation demonstrated: mutating `open_app` inclusion turned `test_schema.py` RED (3 failures); cleanly reverted.
+
+### Rejected
+
+- **Constraining `open_app.app` in GBNF**: Rejected for the reasons above (machine dependence and loss of fail-closed semantics).
+- **Hardcoding grammar strings in `schema.py`**: Rejected; rules are derived from `CAPABILITIES` records to preserve the single source of truth.
+
