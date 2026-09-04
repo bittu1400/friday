@@ -29,6 +29,31 @@ reverting — which is now line six of the definition of done. Report:
 **`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
 Decisions: **ADR-117**.
 
+**>>> 2026-09-04 (later): PHASE 3 IS COMPLETE — ALL NINE CRITERIA.**
+3.1/3.2/3.8 were ADR-123; **3.3, 3.5, 3.9 are ADR-124** and **3.4, 3.6, 3.7 are
+ADR-125**. **Six of design §1's ten places are gone.** One record —
+`friday/capabilities.py` — now drives `PARAM_SCHEMA`, both grammars, the planner
+prompt's action block, the chat persona's toolset sentence, the confirm
+decision, the panic gate, the fixture obligation and `STT_HOTWORDS`.
+**`SYSTEM_POLICY` is assembled from the record and comes out BYTE-IDENTICAL**
+(5381 chars, **1401 tokens**, pinned against `tests/fixtures/system_policy.txt`).
+`turn.py` is **941 → 246 lines**: the nineteen-branch chain is a lookup into
+`friday/handlers.py::HANDLERS`, and the confirm handshake moved to
+`friday/gate.py`. **`open_app` is FIRST_USE and LIVE** — an unapproved app asks
+once and the grant is keyed to a SHA-256 of the argv, because `app_key`'s
+`setdefault` is first-wins. `eval` **64 → 81 fixtures** (17 added so every
+capability has ≥2, criterion 3.6), **100%, regressions 0**; `pytest` **627 →
+653**; grammars **byte-identical**; `selftest` **10/10**. **Fifteen mutations
+RED and one SURVIVED** — recording a FIRST_USE approval while the panic switch
+is engaged left the whole suite green, which is why
+`test_the_panic_switch_blocks_the_approval_write_not_just_the_launch` exists.
+**Two things are deliberately NOT derived, in writing (ADR-125):**
+`habits.describe_action`'s phrasing chain (the obligation is derived, the prose
+is not) and `summary`'s length (compressing the twelve-line `open_app`
+paragraph that fixed D31 is its own measurable commit).
+**NOTHING HERE HAS BEEN HEARD BY A HUMAN — the daemon predates it, and OQ-69
+needs a restart plus a week of ordinary use.** <<<**
+
 **>>> 2026-09-04 (Phase 3, step 1): THE CAPABILITY RECORD EXISTS.**
 `friday/capabilities.py` holds `Risk` (5 tiers) + `Capability` (frozen, typed)
 and all 25 actions; `PARAM_SCHEMA` is a view over it and `schema.py` drops
@@ -215,7 +240,7 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-123. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
+**Decisions ADR-098…ADR-125. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
 OQ-61, OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
 **ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
 went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
@@ -311,8 +336,9 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-**Gate numbers, all re-run 2026-09-03 (last) after M6 and M7 landed:**
-`uv run pytest` **627 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
+**Gate numbers, all re-run 2026-09-04 after Phase 3 closed:**
+`uv run pytest` **653 passed, rc=0**, `just eval` **81/81 (100%), regressions 0**
+(64 until criterion 3.6 added 17 so every capability has >=2 — ADR-125),
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
@@ -376,9 +402,9 @@ short version, in order:**
 
 ```
 0.  VERIFY THE GROUND      2 min   commands in START HERE, no judgement needed
-1.  PHASE 3, CRITERION 3.3  the prompt regions. Both decisions ALREADY TAKEN
-2.  PHASE 3, 3.9 THEN 3.5   approvals table BEFORE the derived gate. Order matters
-3.  PHASE 3, 3.4 / 3.6 / 3.7
+1.  RESTART, THEN SAY "OPEN DISCORD" TWICE   FIRST_USE has never fired live
+2.  A WEEK OF ORDINARY USE, then SELECT COUNT(*) FROM approvals  -> OQ-69
+3.  PHASE 4a / 4b / 4c     design-2026-09-02.md §11. Phase 3 unblocked them
 4.  RECORD IT              paste output into progress.md per rule 6, then commit
 ```
 
@@ -386,30 +412,20 @@ short version, in order:**
 was ticked 2026-09-04. Everything left at a mic is opportunistic and none of it
 blocks: `docs/reality-check.md` **§G** is that list, six rows.
 
-**Phase 3 is OPEN and three of its nine criteria are done — 3.1, 3.2, 3.8
-(ADR-123). Not done: 3.3, 3.4, 3.5, 3.6, 3.7, 3.9.** Two of the row's five
-items, F4 and F5, shipped standalone ahead of the refactor (ADR-119).
+**Phase 3 is COMPLETE — all nine criteria** (ADR-123, ADR-124, ADR-125). F4 and
+F5 shipped standalone ahead of the refactor (ADR-119). **A new capability is now
+one `Capability(...)` in `friday/capabilities.py`, one handler row in
+`friday/handlers.py`, and ≥2 eval fixtures** — four separate tests fail if you
+forget a piece. What Phase 3 did NOT do, deliberately and in writing (ADR-125):
+rewrite `habits.describe_action`'s phrasing chain, and compress `summary`.
 
-1. **Criterion 3.3 — derive both prompt regions. Do NOT re-ask its two
-   decisions**, both taken 2026-09-04: `summary` holds each capability's text
-   **VERBATIM** so the assembled prompt stays byte-identical (§1's "one line per
-   capability" would rewrite the twelve-line `open_app` paragraph that fixed D31
-   and that E61-E64 test — compression is a separate, measurable commit); and
-   **the token criterion is re-baselined to 1401 ±5%**, not 1298, because the
-   original was measured before ADR-118 grew the prompt and the live value was
-   already 1401 against a 1233-1362 band on the day the phase opened.
-2. **Criterion 3.9 BEFORE 3.5, and the order is load-bearing.** `open_app` is
-   declared `FIRST_USE` in the record and **is not live** — a tier means nothing
-   without a store. Build `004_approvals.sql` with `argv_sha256` first (it is not
-   optional: `app_key`'s `setdefault` is first-wins, so an uninstall-then-install
-   can hand a stored approval to a **different binary**), then derive the confirm
-   decision and the panic gate from `risk`. `tests/test_confirm_arming.py` and
-   `tests/test_panic_gate.py` must pass **untouched** — if they go red the
-   derived tier did not reproduce the hand-coded one, which is what they are for.
-3. **3.4** (`turn.py`'s 19-branch chain → a handler table; it is **941** lines
-   and the criterion is under 400), **3.6** (a capability with empty `examples`
-   fails the suite — prove it with a stub), **3.7** (derive `STT_HOTWORDS` as a
-   superset of today's, and `describe_action` over every capability).
+**The one thing it owes is live and cannot be tested: OQ-69.** `open_app` is
+FIRST_USE for every id and **has never fired at a microphone** — the eval
+fixtures score the planner's *output*, not what the turn does with it, so 81/81
+reads 81/81 whether the confirm handshake works, annoys, or never fires.
+Restart, say *"open discord"* twice, then live with it for a week and read
+`SELECT COUNT(*) FROM approvals`. The fallback if it is intolerable is in
+ADR-120: one edit to `_open_app_risk`.
 
 **THE CONTRACT, and it is the whole safety net:** if `just grammar` stops
 reproducing the committed `.gbnf` byte-for-byte, or `just eval` moves off
@@ -928,7 +944,7 @@ evidence, not defaults. A dependency added without this drill is not done.
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
    adr.md             decisions + why + what they cost.  123 ADRs
-                      (ADR-001..ADR-123; the count was wrong at 74 for weeks and
+                      (ADR-001..ADR-125; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
@@ -937,7 +953,12 @@ evidence, not defaults. A dependency added without this drill is not done.
                       bit-for-bit).  ADR-121 and ADR-122 make an app id
                       reachable by the name a human says (D34, D33).  ADR-123
                       is the capability record -- criteria 3.1/3.2/3.8, and
-                      `PARAM_SCHEMA` is now derived from it.
+                      `PARAM_SCHEMA` is now derived from it.  ADR-124 derives
+                      BOTH PROMPT REGIONS, the confirm decision and the panic
+                      gate, and ships the first-use allowlist (3.3/3.5/3.9).
+                      ADR-125 is the handler table, the fixture obligation and
+                      the derived hotword list (3.4/3.6/3.7) -- and says which
+                      two things were deliberately NOT derived, and why.
                       ADR-118 is D31: a named program wins over its category,
                       and every list naming a capability widens together.
                       ADR-110/111/112 are the 2026-09-02 evening verification
@@ -1341,4 +1362,9 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The basename check catches the binary" | Not when the binary is on the right of an `=`. `flatpak run --command=sh org.x.App` runs a shell and `Path("--command=sh").name` is `"--command=sh"`. **The test found this; the design did not** — the same shape as ADR-114a's `--uri=%u`, which an anchored `^%[a-zA-Z]$` never matched. Split on the first `=` and check both halves. |
 | "Tightening a gate is always safe — worst case it blocks too much" | `desktop.scan` runs every scanned entry through `assert_not_banned`, so a false positive there **deletes an id from the app enum**, and the eval fixtures name scanned ids. A stricter ban list can therefore turn `eval` red by removing an app rather than by rejecting one. Measure the whole table against the new rule BEFORE shipping it: 0 of 165 carried a banned token, enum 165 → 165 (ADR-119). |
 | "The finding says these call sites skip the ban list, so wire them to it" | Two of the five carry free text — a reminder message, a dictated sentence — and `BANNED_SUBSTRINGS` holds `;`, `\|`, `>` and backtick. Wiring them up silently drops a notification whose message contains a semicolon. `argv[0]` there is a `which()` result for a code-owned constant and can never be banned, so the check is dead code that can only false-positive. The substring rules exist for shell-string safety and there is no shell (ADR-119). |
+| "The test patches the function, so the stub is in effect" | Not through a re-export. Criterion 3.4 moved `confirm_preference` to `friday/gate.py` and `friday.turn` re-exports it; `monkeypatch.setattr(turn_mod, "confirm_preference", fake)` rebinds a name **nothing calls**, because `gate.resolve_pending` resolves its own module global. Two tests went green-to-red on the split and told the truth. Patch where the function is DEFINED. |
+| "The suite is green, so the approval flow is right" | Recording a FIRST_USE grant BEFORE the panic check left **all 641 tests passing** — the launch is still blocked by the executor and the line is still "I'm switched off." What changes is that the machine comes back on **having quietly agreed to something**. Design §3.2 says the switch blocks the approval WRITE and nothing was watching that sentence. Found by mutation, 2026-09-04; it is F1's shape one layer in. |
+| "The fixture failed, so tune the prompt" | Or the fixture is wrong. E80 "put my address on the clipboard" returned `none` — **correctly**, because "my address" is a referent Friday does not have. That is E29 exactly, where the incumbent "passed" by overwriting the clipboard with the literal word "that". A fixture encodes a belief; check the belief before scoring anything against it. |
+| "`git checkout -- <file>` reverts my mutation" | Only on a file with no uncommitted work in it — and ADR-116's amendment already said so. On 2026-09-04 it discarded ~700 lines of uncommitted refactor in one command, mid-mutation-run. **Copy the file aside and copy it back.** Reading the warning is not the same as following it. |
+| "Widening the eval set is safe, new fixtures only add coverage" | A NEW fixture that fails is never a regression (F23), so the exit code will not tell you — read `unbaselined failures`. And re-baseline after, or the next session inherits a gate that cannot see the fixtures you just added. |
 | "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02, `165` on 2026-09-03, `167` after ADR-122 added two aliases — and it moves again the next time an application is installed, because ADR-097 generates the enum from the machine's XDG desktop entries. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose** — this row pinned one itself and was stale within a day. State the shape, and date the observation: *"the generated enum, 167 as scanned 2026-09-04"*. |

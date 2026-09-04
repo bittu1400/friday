@@ -12,6 +12,25 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-09-04 (later): PHASE 3 IS COMPLETE — ALL NINE CRITERIA.**
+3.1/3.2/3.8 were ADR-123; **3.3, 3.5 and 3.9 are ADR-124** (both prompt regions
+derived, the confirm decision and the panic gate derived from `risk`, and the
+first-use allowlist live) and **3.4, 3.6 and 3.7 are ADR-125** (the handler
+table, the fixture obligation, the derived hotword list). **Six of design §1's
+ten places are gone.** `SYSTEM_POLICY` is assembled from the record and comes
+out **byte-identical** — 5381 characters, **1401 tokens**, pinned against a
+committed fixture. `turn.py` is **941 → 246 lines**. `open_app` is **FIRST_USE
+and LIVE**: an unapproved app asks once and the grant is keyed to a SHA-256 of
+the argv, because `app_key`'s `setdefault` is first-wins. Gates: `pytest`
+**627 → 653**, `eval` **64 → 81 fixtures, 100%, regressions 0** (17 added so
+every capability has ≥2 — criterion 3.6), grammars **byte-identical**,
+`selftest` **10/10**, `bootstrap --check` **11/11**. **Fifteen mutations
+demonstrated RED, and one SURVIVED its first run** — recording a FIRST_USE
+approval while the panic switch is engaged left the whole suite green, which is
+why `test_the_panic_switch_blocks_the_approval_write_not_just_the_launch`
+exists. **Nothing here is proven at a microphone yet: the daemon predates it,
+and OQ-69 needs a week of ordinary use.** Read the `>>> START HERE <<<` block. <<<**
+
 **>>> 2026-09-04: THIS PROJECT OWES A MICROPHONE NOTHING, AND PHASE 3 IS OPEN.**
 **D29/ADR-114 is ticked** — kitty was confirmed inside `friday.service`'s
 `cgroup.procs` first (the precondition four sessions never checked), then
@@ -5761,6 +5780,237 @@ hotword test.
 
 ---
 
+## 2026-09-04 (Phase 3, steps 2 and 3) — **PHASE 3 IS COMPLETE. ALL NINE CRITERIA.** ADR-124 (3.3, 3.5, 3.9) and ADR-125 (3.4, 3.6, 3.7).
+
+**Six of design §1's ten places are gone.** One record now drives
+`PARAM_SCHEMA`, both grammars, the planner prompt's action block, the chat
+persona's toolset sentence, the confirm decision, the panic gate, the fixture
+obligation and `STT_HOTWORDS`.
+
+### The ground, checked before anything (step 0)
+
+```
+$ .venv/bin/python -m pytest -q                 627 passed, rc=0
+$ .venv/bin/python -m friday.eval_harness       passed 64/64 (100%), regressions 0
+$ .venv/bin/python -m friday.selftest           10/10 PASS, rc=0
+$ .venv/bin/python scripts/bootstrap.py --check 11/11 PASS
+$ .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/
+  grammars CLEAN
+$ ls -d tmp*/ 2>/dev/null | wc -l               0
+$ python -c "from friday.tools.apps import APPS; print(len(APPS))"   APPS 167
+```
+
+### Three decisions were put to the owner before a line was written
+
+Working-agreement rules 1 and 2: batched, up front, each stating what changes on
+the answer. All three answered with the recommended option.
+
+1. **The persona clause is DERIVED, and therefore REWORDED.** `SYSTEM_POLICY`'s
+   action block can be both derived and byte-identical; `CHAT_SYSTEM`'s toolset
+   sentence cannot, because the hand-written prose grouped clauses ("control
+   system volume, brightness, media playback, and Wi-Fi on/off") in an order the
+   record does not have. **Rejected:** keep the prose, strengthen the keyword
+   test — which is what already existed, and F2 is what it missed **twice**.
+2. **`eval.jsonl` stays the source; `examples` points INTO it.** Generating the
+   fixture file would move `just eval` off its baseline inside a
+   behaviour-freeze refactor, making an intended change and a regression
+   indistinguishable.
+3. **Hotwords derive their control words; `open_app` keeps the owner's twenty
+   app names as data.** OQ-68 says in terms not to spend a session choosing a
+   number. Answering it is now editing one field.
+
+### 3.3 — both prompt regions, and the byte-identity is measured not asserted
+
+```
+$ python -c "from friday.llm.prompt import SYSTEM_POLICY; print(SYSTEM_POLICY == open('tests/fixtures/system_policy.txt').read())"
+True
+$ curl -s localhost:8080/tokenize -d "{...SYSTEM_POLICY...}" | jq '.tokens|length'
+1401                       # criterion 3.3's re-baselined figure, exactly
+```
+
+1401 because **nothing changed**: `summary` holds each capability's entry
+verbatim and `prompt.py` renders `f"  {id:<21}{summary}"`. The name column
+width is load-bearing and has its own mutation.
+
+The persona reads, derived, in record order:
+
+```
+you CAN: open installed applications (Brave the browser, a terminal, VS Code,
+mpv, VLC, and other installed desktop apps), search the web for real-world
+facts, open YouTube, search or play things on YouTube, remember a preference,
+forget a preference, set a timer or reminder, list active timers, cancel a
+timer, enter quiet mode, leave quiet mode, change the volume, change screen
+brightness, control media playback, turn Wi-Fi on or off, switch workspaces,
+manage windows (focus, fullscreen, close), open a registered file, take a note,
+read your notes, read the clipboard, copy text to the clipboard, and type
+dictation.
+```
+
+`persona` has **no default**, like `risk`: a capability that forgets its clause
+does not construct. 23 of the 25 have one — `none` and `chat` never reach the
+executor.
+
+### 3.5 — the gate, and the four frozen questions reproduced live
+
+Five `if plan.name == ...` confirm branches and eight `config.is_disabled()`
+blocks became one `_confirm_question` and one `_panic_blocked`, both reading
+`risk_for(params)`. Driven through `run_turn`, not read off the source:
+
+```
+'Are you sure you want to turn off Wi-Fi?'                | pending: 'turn off Wi-Fi'
+'Are you sure you want to overwrite your clipboard?'      | pending: 'overwrite clipboard'
+'Do you want me to read your clipboard aloud?'            | pending: 'read the clipboard aloud'
+'Are you sure you want to close the active window?'       | pending: 'close active window'
+'Do you want me to open AppImageLauncher Settings?'       | pending: 'open AppImageLauncher Settings'
+```
+
+Byte-for-byte, and **`tests/test_confirm_arming.py` passes UNTOUCHED** — it is
+not in the commit's diff, which is the whole point of ADR-120(b).
+
+`ask` is a field rather than a tier template because those five are not one
+sentence shape: `clipboard_read` asks *"Do you want me to…"* and the other three
+ask *"Are you sure you want to…"*.
+
+The panic gate covers **every tier above NONE**, so `set_dnd`, `resume_dnd` and
+`dictation_mode` are newly gated — F1's fix finished, not a new policy.
+Read-only capabilities stay ungated: refusing to read back what the user already
+stored is not what "switched off" means.
+
+### 3.9 — the allowlist, and FIRST_USE is live
+
+`004_approvals.sql` + `friday/store/approvals.py`. Schema version 3 → 4.
+`open_app`'s declared FIRST_USE (ADR-120) now has a store, so it is live: an
+unapproved app asks once, the handshake records the grant, the next turn
+dispatches. The grant is keyed to a **SHA-256 of the argv**, not the id alone,
+because `desktop.app_key`'s `setdefault` is first-wins and an
+uninstall-then-install can rebind an id to a different binary.
+
+### 3.4 — the chain is a table
+
+```
+$ wc -l friday/turn.py     941 -> 246        # criterion is < 400
+```
+
+`friday/gate.py` (449) holds the confirm handshake and the derived gate;
+`friday/handlers.py` (446) holds one function per capability and `HANDLERS`.
+Subprocess capabilities are deliberately NOT in the table — they share one body
+and the lookup **missing** is what selects it.
+
+~300 lines of handler bodies moved **verbatim**; the table holds a one-line
+adapter per row. A behaviour-freeze refactor is the worst place to retype
+working code.
+
+### 3.6 — the fixture obligation, and a fixture that was wrong
+
+Fourteen capabilities had exactly one fixture. Seventeen were added:
+
+```
+$ .venv/bin/python -m friday.eval_harness
+fixture-set revision: 3caeb92212e1
+passed 81/81  (100%)
+known-failing: 0
+regressions vs baseline: 0
+```
+
+**One draft fixture was wrong and the planner was right.** E80 *"put my address
+on the clipboard"* returned `none` — correctly, because "my address" is a
+referent Friday does not have. That is **E29's shape exactly**: a fixture
+encoding a belief nobody checked. The fixture was fixed, not the model, and the
+note in `eval.jsonl` says so.
+
+`examples` **defaults to `()` on purpose**, unlike `risk`/`summary`/`persona`:
+forgetting it has to be possible for the test to be the thing that catches it.
+
+### 3.7 — hotwords derived; `describe_action` pinned, not rewritten
+
+`config.STT_HOTWORDS` is `capabilities.stt_hotwords()` — 53 words, the union of
+each capability's `hotwords` in record order, asserted to be a **superset** of
+the hand-written string as it stood at `cb5836f`. The bias did not move in the
+commit that derived it.
+
+**`describe_action` was NOT rewritten and that is deliberate and in writing.**
+The chain already covers every capability (Phase 1 swept F21). Turning a hundred
+lines of tuned, per-param phrasing into record callables would change what
+Friday *says*, inside the one commit whose contract is that behaviour did not,
+and no gate can see spoken habit text. What is derived is the **obligation**:
+`test_describe_action_covers_every_capability` enumerates the record.
+
+### Fifteen mutations, and the one that SURVIVED
+
+| # | mutation | result |
+| :-- | :-- | :-- |
+| a | `_NAME_COLUMN` 21 → 20 | **RED** (3 tests) |
+| b | drop the D31 sentence from `open_app`'s summary | **RED** |
+| c | `system_wifi.persona = None` (F2's exact shape) | **RED** (2) |
+| d | toolset clause joined sorted instead of record order | **RED** |
+| e | the confirm gate never fires (invariant #10) | **RED** (9) |
+| f | the panic gate never blocks (F1) | **RED** (8) |
+| g | FIRST_USE ignores the argv fingerprint (3.9) | **RED** (2) |
+| h | `system_wifi` gates unconditionally, not on `off` | **RED** (3) |
+| i | **the approval is written while the switch is engaged** | **SURVIVED** |
+| j | a handler row dropped from the table | **RED** |
+| k | a capability's `examples` emptied | **RED** |
+| l | an example that matches no eval fixture | **RED** |
+| m | a capability's hotwords dropped | **RED** (2) |
+| n | `config` falls back to a hand-written hotword string | **RED** (3) |
+| o | `turn.py` grows a per-capability branch back | **RED** |
+
+**(i) is the finding.** Recording a FIRST_USE grant *before* the panic check
+leaves the whole suite green: the launch is still blocked by the executor and
+the spoken line is still *"I'm switched off."* What changes is that the machine
+comes back on **having quietly agreed to something**. Design §3.2 says the
+switch blocks the approval WRITE and nothing was watching that sentence.
+`test_the_panic_switch_blocks_the_approval_write_not_just_the_launch` now is,
+and the mutation was re-run RED after it existed.
+
+### The cost, stated
+
+- **Six of `tests/test_panic_gate.py`'s ten were rewritten** to drive
+  `run_turn`/`resolve_pending` instead of calling `_do_web_search`, `_do_forget`,
+  `_do_set_reminder`, `_do_cancel_reminder`, `_do_create_note` and
+  `confirm_preference` directly. Those handlers no longer carry the check, so a
+  handler-level test cannot see it — and a handler-level test could never have
+  caught F1 anyway, which was a gate missing from ten paths. Still 10/10.
+- **Five test files gained an `approved_apps` fixture**, because a turn that
+  means to exercise an audit row or a spoken template now stops at the confirm.
+- **Two tests were patching a re-export and it silently stopped working.**
+  `monkeypatch.setattr(turn_mod, "confirm_preference", …)` does not reach
+  `gate.resolve_pending`'s caller. They patch `friday.gate` now. This is the
+  one seam a module split will always break, and it fails loudly enough.
+
+### The trap, walked into with the warning already written down
+
+Reverting mutation (o) with `git checkout -- friday/turn.py` **discarded the
+entire uncommitted 3.4 rewrite** — ~700 lines. ADR-116's amendment says this in
+terms: *"`git checkout -- <file>` puts the mutation back — only on a file with
+no uncommitted work in it."* It was rebuilt from the same script and came back
+identical (246 lines, 653 passed), and (o) was redone with the file copied
+aside. **Copy the file aside. Every time.**
+
+### Every gate, re-run at the end
+
+```
+$ .venv/bin/python -m pytest -q                 653 passed, rc=0        (was 627)
+$ .venv/bin/python -m friday.eval_harness       81/81 (100%), regressions 0
+$ .venv/bin/python -m friday.selftest           10/10 PASS, rc=0
+$ .venv/bin/python scripts/bootstrap.py --check 11/11 PASS
+$ .venv/bin/python -m friday.llm.schema; git diff --quiet friday/llm/grammars/   CLEAN
+$ pytest -q tests/test_injection.py             1 passed        (20/20 blocked)
+$ pytest -q tests/test_egress.py                8 passed
+$ SYSTEM_POLICY                                 1401 tokens, byte-identical
+$ wc -l friday/turn.py                          246
+$ ls -d tmp*/ | wc -l                           0
+```
+
+### What Phase 3 does NOT prove, and it is the honest half
+
+**`open_app` FIRST_USE has never fired at a microphone.** The daemon predates
+this code, and the eval fixtures score the planner's *output*, not what the turn
+does with it — 81/81 reads 81/81 whether the handshake works, annoys, or never
+fires. **That is OQ-69**, and it is answered by a restart, a week of ordinary
+use, and `SELECT COUNT(*) FROM approvals`. Nothing in this session was heard by
+a human.
+
 ## 2026-09-04 (Phase 3, step 1) — **THE CAPABILITY RECORD EXISTS AND `PARAM_SCHEMA` IS DERIVED FROM IT.** Criteria 3.1, 3.2, 3.8 (ADR-123).
 
 **D33 was proven live first**, and D34 was not — being precise about which:
@@ -5835,7 +6085,125 @@ That last one is the contract for the whole phase, working.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-04**, mid-Phase-3) <<<
+## >>> START HERE: NEXT SESSION (written **2026-09-04**, after Phase 3 closed) <<<
+
+**Read this whole block before touching anything. Everything in it is measured.**
+
+### The state in seven lines
+
+- **PHASE 3 IS COMPLETE — all nine criteria.** 3.1/3.2/3.8 (ADR-123),
+  3.3/3.5/3.9 (ADR-124), 3.4/3.6/3.7 (ADR-125). F4 and F5 shipped standalone
+  ahead of it (ADR-119).
+- **Six of design §1's ten places are gone.** `friday/capabilities.py` now
+  drives `PARAM_SCHEMA`, both grammars, the planner prompt's action block, the
+  chat persona's toolset sentence, the confirm decision, the panic gate, the
+  fixture obligation and `STT_HOTWORDS`.
+- **One behaviour change shipped on purpose:** `open_app` is FIRST_USE for
+  every id and it is LIVE. An app never approved asks once, the handshake
+  records the grant keyed to the argv's SHA-256, the next turn dispatches.
+  **That is OQ-69 and the eval gate structurally cannot see it.**
+- **Two things are deliberately NOT derived, both in ADR-125:**
+  `habits.describe_action`'s phrasing chain (the obligation is derived, the
+  hundred lines of tuned prose are not) and `summary`'s length (compressing the
+  twelve-line `open_app` paragraph that fixed D31 is its own commit).
+- Gates: `pytest` **653 rc=0**, `eval` **81/81 regressions 0**, `selftest`
+  **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**,
+  `SYSTEM_POLICY` **1401 tokens**, `turn.py` **246 lines**, app enum **167 as
+  scanned 2026-09-04** (generated — do not pin it).
+- **The daemon has NOT been restarted onto this code.** Everything above is
+  measured on disk. The first job is the ground check, then a restart.
+- Mutation tiers 1 and 2 are closed (M1-M7). **Tier 3 is M8-M11** and is still
+  ranked below live work.
+
+### THE TODO LIST, in order
+
+```
+[ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed
+[ ] 1.  RESTART AND SAY "OPEN X"  OQ-69 cannot start until FIRST_USE is live
+[ ] 2.  A WEEK OF ORDINARY USE  then SELECT COUNT(*) FROM approvals -> OQ-69
+[ ] 3.  PHASE 4a / 4b / 4c      design-2026-09-02.md §11. Phase 3 unblocked them
+[ ] 4.  RECORD IT               paste output here per rule 6, then commit
+```
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 653 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 81/81 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # MUST stay clean
+ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
+.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"      # generated; 167 on 2026-09-04
+wc -l friday/turn.py                                     # 246; criterion 3.4 is <400
+```
+
+### 1. The one live thing Phase 3 owes: FIRST_USE at a microphone
+
+`open_app` asks once per application now, and **the running daemon predates
+it**. Restart, then say *"open discord"* twice:
+
+```bash
+systemctl --user restart friday
+# say: "open discord"  -> expect "Do you want me to open Discord? I'll remember."
+# say: "yes"           -> it opens
+# say: "open discord"  -> expect NO question
+sqlite3 ~/.local/share/friday/memory.db 'SELECT kind, subject, approved_at FROM approvals;'
+```
+
+If the second ask still happens, the store is not reaching the turn: check
+`daemon.py`'s `self._approvals` is not None (it is built from the same `db` the
+scheduler uses, so a daemon with no audit AND no prefs has none — and then
+FIRST_USE degrades to asking every time, on purpose).
+
+### 2. OQ-69 — is asking once per application tolerable?
+
+**No test can answer this and none will.** The eval fixtures score the
+planner's output, not what the turn does with it, so 81/81 reads 81/81 whether
+the confirm handshake works, annoys, or never fires. The measurement is a week
+of ordinary use plus `SELECT COUNT(*) FROM approvals`. If it is intolerable the
+fallback is in ADR-120: the safer plumbing-only option, one edit to
+`_open_app_risk`.
+
+### 3. After that, Phase 4
+
+`design-2026-09-02.md` §11: **4a** cheap width (`system_status`, `local_time`,
+window/workspace targeting), **4b** the filesystem work, **4c** multi-action.
+Phase 3 existed to make those cost one edit each instead of ten. **A new
+capability is now: one `Capability(...)` in `friday/capabilities.py`, one
+handler row in `friday/handlers.py`, and >=2 eval fixtures.** Everything else
+follows, and four separate tests fail if you forget a piece.
+
+### What Phase 3 changed that a reader will trip over
+
+- `friday/turn.py` no longer holds the confirm handshake or the handlers. They
+  are `friday/gate.py` and `friday/handlers.py`. `friday.turn` re-exports every
+  moved name, so imports still work — **but `monkeypatch.setattr(turn_mod, ...)`
+  does NOT**, because patching a re-export does not reach the caller. Patch
+  where the function is defined. Two tests learned this the hard way.
+- Six of the ten `tests/test_panic_gate.py` cases now drive `run_turn` rather
+  than the handler, because the handlers no longer carry the panic check.
+- `tests/fixtures/system_policy.txt` is the byte-for-byte baseline of
+  `SYSTEM_POLICY`. Regenerate it ONLY with an ADR saying what changed, and
+  re-run `just eval` in the same commit.
+
+### The trap this session walked into, so the next one does not
+
+`git checkout -- friday/turn.py` to revert a mutation **discarded the entire
+uncommitted 3.4 rewrite** — 700 lines of restructuring — because that file had
+uncommitted work in it. ADR-116's amendment says exactly this and it happened
+anyway. **Copy the file aside and copy it back.** It cost a full rebuild.
+
+---
+
+## >>> (superseded 2026-09-04 by the block above) START HERE: NEXT SESSION (written **2026-09-04**, mid-Phase-3) <<<
+
+> **DO NOT ACT ON THIS BLOCK.** Phase 3 closed on 2026-09-04; every criterion
+> this block lists as open is done. Kept for its ground-check commands.
+
 
 **Read this whole block before touching anything. Everything in it is measured.**
 
