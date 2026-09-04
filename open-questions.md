@@ -1777,3 +1777,64 @@ correct behaviour that nobody would tolerate.
 field on the capability record, and a control that was never switched on is a
 control nobody has tested — ADR-058's dictation wake-pause (D14) and the systemd
 watchdog are both this project's own evidence for that.
+
+**UPDATE 2026-09-04 (later) — the MECHANISM half is closed, live and by voice.**
+The audit table was read during the ADR-127 audit and §G1's four steps had
+already been run at 14:31-14:33, the daemon having been restarted at 14:31:30:
+
+```
+14:31:55  open_app {"app":"discord"}  declined  declined    0 ms   <- asked, said no
+14:32:24  open_app {"app":"discord"}  allowed   ok        404 ms   <- asked, said yes
+14:32:53  open_app {"app":"discord"}  allowed   ok        402 ms   <- NO question
+14:33:12  open_app {"app":"firefox"}  allowed   ok        403 ms   <- asked, said yes
+approvals: ('app','discord',b6f5764d…,14:32:24)  ('app','firefox',1a5511df…,14:33:12)
+```
+
+That is ask → decline (nothing recorded) → ask → approve (one row) → **remembered**
+→ a second application asking on its own. `docs/reality-check.md` §G1 said "has
+never fired at a microphone" and was stale by half an hour; it now carries this
+table. **The decline path was not even in §G1's script** and it worked.
+
+**What is still open is only the BURDEN**, which is what the question actually
+asks: does the count of `approvals` settle at roughly the number of applications
+the owner uses, or does it keep climbing? Two rows is not a week. Unchanged:
+`SELECT COUNT(*) FROM approvals` — at
+`~/.local/state/friday/memory.db`, **`state`, not `share`** (D36; a wrong path
+CREATES an empty database and then reports `no such table`, which reads exactly
+like a FIRST_USE that never fired — pinned now by `tests/test_doc_paths.py`).
+
+
+---
+
+### OQ-70 — Should `none`, `read_notes`, `list_reminders` and `resume_dnd` write audit rows too?
+**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (raised 2026-09-04 by
+ADR-127)
+
+D37 gave `chat` an audit row because it is the slowest turn class in the system
+and was completely invisible to `just stats`. Four capabilities still write no
+row: `none`, `read_notes`, `list_reminders`, `resume_dnd`.
+
+**The case for leaving them.** Three are `Risk.NONE` read-only and `none` is not
+an action at all. None has chat's property — an expensive turn nobody can see —
+so adding rows is churn in a table that two consumers read: `mine_habits`
+(filters `outcome='ok'`, and `describe_action` returns `None` for an unknown
+tool_id, so a new row type is silently dropped rather than becoming a habit) and
+`just stats`.
+
+**The case for adding them.** "Every resolved turn writes exactly one row" is a
+simpler contract than "every resolved turn except these four", and D23 is this
+project's own evidence for what an instrument with a blind spot costs: seven
+turn types completed writing no row, and *"be quiet for a while does nothing"*
+was diagnosed straight off that gap while DND had worked correctly the whole
+time. `none` in particular is the row that would say **how often Friday refuses**
+— arguably the single most interesting number about a planner, and currently
+unmeasurable.
+
+**What would answer it:** a week of the new `chat` rows. If `just stats` reads
+usefully with chat in it, the same argument extends to `none`; if the table is
+already noisy, it does not.
+
+**Default if the owner declines to decide:** leave them unaudited. It is the
+current behaviour, it is reversible in four lines, and ADR-127 declined to
+default it silently — a judgement call recorded as a question is the working
+agreement's rule 1.

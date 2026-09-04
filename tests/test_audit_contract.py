@@ -354,3 +354,104 @@ def test_cancel_reminder_with_nothing_active_says_so(store):
     assert not r.dispatched
     assert r.spoken == "No active timer to cancel."
     assert _rows(db) == []
+
+
+# --- chat: the most expensive turn class, and it wrote no row at all (D37) --
+
+
+class _ChatClient:
+    """One client, two calls: the grammar-locked planner, then free-text chat.
+
+    `grammar` tells them apart — the planner passes `plan.gbnf`, `chat.py`
+    passes `""` (ADR-048). `fail=True` makes the CHAT call raise, which
+    `generate_reply` swallows into `CHAT_FALLBACK` (FR-26), so it is the only
+    way to reach the outcome the row has to distinguish.
+    """
+
+    def __init__(self, reply: str = "Doing well, thanks.", fail: bool = False):
+        self.reply, self.fail = reply, fail
+
+    def complete(self, *, system, user, grammar="", **kw):
+        if grammar:
+            return _plan_json("chat", {})
+        if self.fail:
+            raise RuntimeError("llama-server is down")
+        return self.reply
+
+    def health(self) -> bool:
+        return True
+
+
+def _chat_turn(audit, client=None, utterance="how are you"):
+    return asyncio.run(run_turn(
+        utterance, client or _ChatClient(), request_id="chat-1", audit=audit,
+    ))
+
+
+def test_chat_writes_exactly_one_audit_row(store):
+    """D37. `chat` is the most expensive turn class in the system — TTFA p50
+    7177 ms before ADR-094 capped the reply, against 1858-2466 ms for a direct
+    action — and it was the ONLY turn class writing no row at all. `just stats`
+    reads `action_audit`, so the slow half of Friday was invisible to the tool
+    built to measure latency, and the chat:action ratio was unknowable."""
+    db, audit, _ = store
+    r = _chat_turn(audit)
+    assert r.plan_name == "chat" and not r.dispatched
+    rows = db.query(
+        "SELECT tool_id, policy_decision, outcome, duration_ms FROM action_audit"
+    )
+    assert len(rows) == 1
+    assert rows[0]["tool_id"] == "chat"
+    assert rows[0]["policy_decision"] == "allowed"
+    assert rows[0]["outcome"] == "ok"
+
+
+def test_the_chat_row_carries_no_utterance_and_no_reply(store):
+    """Invariant #7, and the whole reason this row is `params={}`.
+
+    Both halves of a chat turn are exactly what may never reach disk: the
+    utterance is a raw transcript (FR-26) and the reply is raw model output
+    (FR-57). The row exists to say a chat turn happened and how long it took.
+    """
+    db, audit, _ = store
+    _chat_turn(
+        audit,
+        client=_ChatClient(reply="Your password is hunter2, obviously."),
+        utterance="tell me my password",
+    )
+    args = db.query("SELECT args_redacted FROM action_audit")[0]["args_redacted"]
+    assert "hunter2" not in args, "the model's reply reached disk"
+    assert "password" not in args, "the user's utterance reached disk"
+    assert args == "{}", f"the chat row must carry nothing at all, got {args!r}"
+
+
+def test_a_failed_generation_is_recorded_as_an_error_not_a_success(store):
+    """`generate_reply` catches every exception and returns `CHAT_FALLBACK`, so
+    without this the row would report a healthy chat turn while llama-server
+    was down — a check that cannot fail, in the row added to make chat
+    measurable."""
+    db, audit, _ = store
+    r = _chat_turn(audit, client=_ChatClient(fail=True))
+    from friday.llm.chat import CHAT_FALLBACK
+
+    assert r.spoken == CHAT_FALLBACK
+    rows = db.query("SELECT tool_id, outcome FROM action_audit")
+    assert [(x["tool_id"], x["outcome"]) for x in rows] == [("chat", "error")]
+
+
+def test_a_chat_row_never_becomes_a_habit(store):
+    """Same rule as the declined row (ADR-072), for the opposite reason: chat
+    rows are `outcome='ok'` and so DO reach `mine_habits`. They are excluded
+    because `describe_action` returns None for an unknown tool_id — which is
+    load-bearing behaviour, not an accident, so it is pinned here. "After
+    chatting, you often chat" is not a habit."""
+    from friday.store.habits import describe_action, mine_habits
+
+    db, audit, _ = store
+    for i in range(5):  # well past min_count
+        asyncio.run(run_turn(
+            "hey", _ChatClient(), request_id=f"chat-{i}", audit=audit,
+        ))
+    assert len(_rows(db)) == 5
+    assert describe_action("chat", "{}") is None
+    assert mine_habits(db) == []

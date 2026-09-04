@@ -29,6 +29,28 @@ reverting — which is now line six of the definition of done. Report:
 **`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
 Decisions: **ADR-117**.
 
+**>>> 2026-09-04 (LAST): A COLD AUDIT FOUND THREE DEFECTS UNDER A FULLY GREEN
+GATE. ALL FIXED — ADR-127.** `pytest` was 653, `eval` 81/81, `selftest` 10/10 and
+the grammars byte-identical when it started. **D35** a handler caught
+`SchemaError` without importing it (so a malformed preference raised `NameError`
+instead of failing closed, invisible because `daemon.py` catches `Exception` and
+speaks one line for every failure); **D36** the `sqlite3` command that proves
+FIRST_USE fired named a database that does not exist, and `sqlite3` CREATES an
+empty one at a missing path then reports `no such table` — the failure is
+indistinguishable from the thing it was written to disprove; **D37** `chat`, the
+slowest turn class, wrote **no audit row at all**, so `just stats` was blind to
+it and 0 of 192 live rows were chat. Reading the CONSUMER found two more: `just
+stats` would have raised `KeyError` on the first chat row, and `file_open` has
+had no latency class since G12. `pytest` **653 → 685**, `eval` **81/81
+regressions 0**, six mutations RED. **The same audit closed OQ-69's mechanism
+half off the live tables** — FIRST_USE asked, was declined with no approval
+written, asked again, was approved, then dispatched with NO question, and a
+second app asked on its own (14:31-14:33). What OQ-69 owes is the BURDEN.
+**The audit's top structural finding is not a defect and is the next job:**
+`plan.gbnf` constrains the action NAME only — `params ::= {string:string}` — so
+every enum value is free text the model must SPELL, which is where D19, D20 and
+D34 all came from. See NEXT SESSION. <<<**
+
 **>>> 2026-09-04 (later): PHASE 3 IS COMPLETE — ALL NINE CRITERIA.**
 3.1/3.2/3.8 were ADR-123; **3.3, 3.5, 3.9 are ADR-124** and **3.4, 3.6, 3.7 are
 ADR-125**. **Six of design §1's ten places are gone.** One record —
@@ -240,7 +262,7 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-125. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
+**Decisions ADR-098…ADR-127. Questions still owed: OQ-70, OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
 OQ-61, OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
 **ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
 went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
@@ -280,6 +302,9 @@ below and one live measurement.**
 | **D32** | **REFUTED 2026-09-04 at the microphone. NOT a defect.** The claim was *"a two-word app name does not survive STT"*, from n=2. Re-run with eight names, four in `STT_HOTWORDS` and four not: **"Zen Browser" → `zen_browser` (409 ms) and "LibreWolf" → `librewolf` (404 ms) both worked** — the exact two utterances D32 was written from — as did `github_desktop` and `proton_vpn`, **neither of which is in the hotwords**. STT delivered every one correctly. The 2026-09-03 `jin_browser` / `wolf_studio` were flakiness at n=2, not a systematic split. **What the session DID find is two enum defects that a "blame STT" reading would have hidden: D33 and D34.** Do not re-open D32; re-read this row first |
 | **D33** | **NEW, FIXED 2026-09-04** — **a generated app id is not a name anyone says.** The id was `android_studio_panda_4_2025_3_4_patch_1`, straight from `Name=Android Studio Panda 4 2025.3.4 Patch 1`; the planner emitted `android_studio` ×3 and `android_studio_panda_4` ×1 and every one failed closed. **An id has two possible sources and neither is reliable:** the `.desktop` Name carries releases and codenames (10 of 165 ids do), and the binary-basename alias is an abbreviation as often as not (IntelliJ IDEA's binary is `idea`, Android Studio's is `studio`). **Four of those names were already in `STT_HOTWORDS`** — Whisper biased toward apps the enum could not serve, FR-139's coupling failing in the opposite direction from D31 — and the hotword test could not see it, because it counts resolving hotwords against a floor of 20 and the count cleared 20 either way. **ADR-122:** a vendor path shaped `.../<app-name>/bin/<exe>` supplies the known name; filesystem furniture (`usr`, `lib`, `jvm`…) is excluded and an alias claimed by two entries (`java_26_openjdk` ← jshell AND jconsole) is **dropped, not resolved** — taking the first would be the `setdefault` collision `argv_sha256` exists to catch. Enum **165 → 167**. A dotted-version strip was measured (5 ids, 0 collisions) and **rejected**: it yields `android_studio_panda_4`, still not what the owner asked for. `pytest` 618 → 621 |
 | **D34** | **NEW, FIXED 2026-09-04** — **a hyphen where the id generator makes an underscore.** `E_TOOL_NOTFOUND: app 'easy-effects' not installed`, while `easy_effects` sat in the enum. `app_key` is `[^a-z0-9]+ → "_"` after casefold, so a hyphen can never be an id — and the planner must **guess** the spelling, because the GBNF grammar has never enumerated param values (ADR-097) and the prompt lists only the common ids. A real installed application was unreachable by one character. **ADR-121:** a miss on `open_app.app` retries once through `desktop.app_key` — the same function that generated every id — and accepts only an exact member. **This is not the fuzzy matcher that is permanently rejected:** `app_key` is a WHITELIST, so `"browser; rm -rf ~"` → `browser_rm_rf`, `"/bin/sh"` → `bin_sh`, Cyrillic `"brаve"` → `br_ve`, and a prefix like `"brow"` stays `"brow"` — none is an id, all still reject (AS-7/8/9, each a test). `pytest` 616 → 618 |
+| **D35** | **NEW, FIXED 2026-09-04 (last)** — **a handler caught a name it never imported.** `handlers.py:138` has `except (SchemaError, KeyError)`; criterion 3.4 moved that body out of `turn.py`, which imports `SchemaError`, into `handlers.py`, which did not. Evaluating the except clause raised `NameError` **from inside the handler** on both reachable triggers — a whitespace preference value (`resolve` raises) and a key that slugs to empty (`canonical_key` raises) — and both reach it, because `validate.py` rejects only an **EMPTY** text param. **653 tests were green over it**: `daemon.py:510` catches `Exception` and speaks "Something went wrong.", so a broken handler is indistinguishable from any other failure from the outside. **The generalisation: a broad `except Exception` at the top of a turn converts every handler defect into one spoken line, so a handler's own error path needs its own test or nothing is watching it.** Fixed by the import; `tests/test_memory_turn.py::test_a_malformed_preference_fails_closed_instead_of_raising` drives `run_turn`, not `_plan_remember`, because the wiring is what broke (M2). **ADR-127**, FR-25 amended |
+| **D36** | **NEW, FIXED 2026-09-04 (last)** — **the check that proves FIRST_USE fired named a database that does not exist.** `docs/reality-check.md` §G1 step 5 and `progress.md`'s START HERE both said `~/.local/` **`share`** `/friday/memory.db` — note the segment; `config.MEMORY_DB` is under **`state`**, and `share` is where the MODELS live. **The failure is silent and inverted: `sqlite3` CREATES an empty database at a missing path** and then answers `no such table: approvals` — which reads exactly like a FIRST_USE that never fired, in the one command written to prove it did. That is **M-L4's shape** (a DB check that created the database it then reported on) having moved out of the code and **into the instructions**, where no test was looking. It cost a session and left a stray zero-byte file behind (`rm ~/.local/share/friday/friday.db`). Fixed at all three sites and pinned: `tests/test_doc_paths.py`, 24 cases. **ADR-127**, FR-151 |
+| **D37** | **NEW, FIXED 2026-09-04 (last)** — **`chat` wrote no audit row, so the slowest turn class in the system was invisible.** `_h_chat` returned a `TurnResult` and recorded nothing; `just stats` reads `action_audit`. Chat TTFA is p50 **7177 ms** before ADR-094's cap (against 1858-2466 ms for a direct action) and **0 of the 192 live rows were chat** — so every latency conversation this project has had was about the cheap half, and the chat:action ratio, the number the whole "is a 12B worth it" question turns on (ADR-126), was unknowable from the data it collects. Fixed: one row per chat turn, `params={}` — **invariant #7, because both halves of a chat turn are what FR-26/FR-57 forbid on disk** — with `outcome` distinguishing a real reply from `CHAT_FALLBACK`, since `generate_reply` swallows every exception. Verified live: `args_redacted='{}'`, `duration_ms=1496`. **Reading the CONSUMER found two more:** `just stats` would have raised `KeyError` on the first chat row (`by_class` was a hand-listed dict indexed directly — the latency tool dying on the class it was extended to measure), and **`file_open` has had no stats class since G12**, four live rows bucketed as `other`. **ADR-127**, FR-150/FR-152, OQ-70 |
 
 **What is fixed, and what that does NOT mean.** `is_affirmation` normalises STT
 punctuation, head-matches with a negative-word veto, and a `_DECLINE` set
@@ -337,7 +362,7 @@ Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
 **Gate numbers, all re-run 2026-09-04 after Phase 3 closed:**
-`uv run pytest` **653 passed, rc=0**, `just eval` **81/81 (100%), regressions 0**
+`uv run pytest` **685 passed, rc=0** (653 until ADR-127 added +2 D35, +4 D37, +2 stats, +24 doc-path), `just eval` **81/81 (100%), regressions 0**
 (64 until criterion 3.6 added 17 so every capability has >=2 — ADR-125),
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
@@ -402,11 +427,41 @@ short version, in order:**
 
 ```
 0.  VERIFY THE GROUND      2 min   commands in START HERE, no judgement needed
-1.  RESTART, THEN SAY "OPEN DISCORD" TWICE   FIRST_USE has never fired live
-2.  A WEEK OF ORDINARY USE, then SELECT COUNT(*) FROM approvals  -> OQ-69
-3.  PHASE 4a / 4b / 4c     design-2026-09-02.md §11. Phase 3 unblocked them
-4.  RECORD IT              paste output into progress.md per rule 6, then commit
+1.  RESTART               1 min   the daemon predates ADR-127, so no `chat`
+                                  audit row can exist until it restarts
+1b. FIRST_USE AT A MIC    DONE 2026-09-04 14:31-14:33, decline path included
+2.  A WEEK OF ORDINARY USE  -> OQ-69 (the BURDEN; the mechanism is closed) and
+                               OQ-70 (read the new `chat` rows in `just stats`)
+3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   half a day. The audit's top
+                               structural finding: `params ::= {string:string}`,
+                               so every enum value is free text the model must
+                               SPELL. Seven small machine-independent enums --
+                               NOT `open_app.app`, which must keep failing
+                               closed by NAMING the id it could not find
+4.  THE MODEL QUESTION     only after 3 and a week of chat rows. See below
+5.  PHASE 4a / 4b / 4c     design-2026-09-02.md §11. Phase 3 unblocked them
+6.  RECORD IT              paste output into progress.md per rule 1, then commit
 ```
+
+**A COLD AUDIT ON 2026-09-04 (last) FOUND THREE DEFECTS UNDER A COMPLETELY GREEN
+GATE — D35, D36, D37, all fixed (ADR-127), six mutations RED, `pytest` 653 →
+685.** Read the D-rows above before re-reading any of them. **OQ-69's mechanism
+half is CLOSED, live by voice** — FIRST_USE asked, was declined with no approval
+written, asked again, was approved, then dispatched with no question, and a
+second app asked on its own (14:31-14:33, read off `action_audit` +
+`approvals`). What OQ-69 owes is the burden, not the mechanism.
+
+**ON THE MODEL, measured live 2026-09-04 (last):** planner p50 **699 ms**, 22
+tokens per plan, **40.2 tok/s** — the `tok/s ≈ 272 / weights_GB` model
+reproduces exactly. Chat generation on the same model is **1496 ms**. **One model
+serves two workloads with opposite requirements:** the planner is a 25-way
+classification with slot fill, on every turn, not a language task; chat wants
+personality and is the only thing the 12B buys. **And the case for Gemma rests
+on three defects, two of which (D19, D20) are param-SPELLING failures that step
+3 makes structurally impossible.** So: do step 3, collect a week of `chat` rows
+(you can, since D37), then re-bench Qwen2.5-7B — still on disk — behind the
+constrained grammar. `just eval` must hold 81/81; chat is judged BY EAR because
+no gate measures it (ADR-126). **Do not swap anything before that.**
 
 **THIS PROJECT OWES A MICROPHONE NOTHING.** D29/ADR-114 was the last item and it
 was ticked 2026-09-04. Everything left at a mic is opportunistic and none of it
@@ -943,9 +998,11 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  123 ADRs
-                      (ADR-001..ADR-125; the count was wrong at 74 for weeks and
-                      again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
+   adr.md             decisions + why + what they cost.  127 ADRs
+                      (ADR-001..ADR-127; the count was wrong at 74 for weeks,
+                      again at 107, and again at 123 while the file held 126 --
+                      verify with `grep -c '^## ADR-' adr.md`, never by reading
+                      this line).
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
                       ADR-120 records the two Phase 3 policy calls (FIRST_USE on
@@ -959,6 +1016,12 @@ evidence, not defaults. A dependency added without this drill is not done.
                       ADR-125 is the handler table, the fixture obligation and
                       the derived hotword list (3.4/3.6/3.7) -- and says which
                       two things were deliberately NOT derived, and why.
+                      ADR-127 is the cold audit: three defects under a fully
+                      green gate (D35 a handler catching a name it never
+                      imported, D36 a runbook naming a database that does not
+                      exist, D37 the slowest turn class writing no audit row),
+                      the two more found by reading the CONSUMER, and four
+                      explicit rejections including OQ-70.
                       ADR-126 is the model-swap contract: what is coupled
                       (the `grammar` field, the VRAM envelope, thought
                       leakage, the eval gate) and what is not (everything
@@ -995,6 +1058,11 @@ evidence, not defaults. A dependency added without this drill is not done.
                       early and standalone (ADR-119).
    test-audit-2026-09-03.md
                       THE TEST-SUITE AUDIT.  Findings M1-M19 from 85 mutations.
+                      **Section I (new 2026-09-04 last) adds two shapes the
+                      mutation method structurally could not reach**: a defect
+                      already present in the committed source (mutation scoring
+                      asks whether the suite notices CORRECT code becoming
+                      wrong), and a defect living in a document.
                       Read its B (the module table -- the pattern IS the
                       finding), F (the index, one effort estimate per fix) and
                       H (what it deliberately did not do).  NOT a code audit:
@@ -1188,7 +1256,7 @@ just eval               # eval fixtures -> pass count (currently 64; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 627
+just test               # full unit + adversarial + injection suite (pytest -q). 685
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -1379,3 +1447,10 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "`git checkout -- <file>` reverts my mutation" | Only on a file with no uncommitted work in it — and ADR-116's amendment already said so. On 2026-09-04 it discarded ~700 lines of uncommitted refactor in one command, mid-mutation-run. **Copy the file aside and copy it back.** Reading the warning is not the same as following it. |
 | "Widening the eval set is safe, new fixtures only add coverage" | A NEW fixture that fails is never a regression (F23), so the exit code will not tell you — read `unbaselined failures`. And re-baseline after, or the next session inherits a gate that cannot see the fixtures you just added. |
 | "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02, `165` on 2026-09-03, `167` after ADR-122 added two aliases — and it moves again the next time an application is installed, because ADR-097 generates the enum from the machine's XDG desktop entries. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose** — this row pinned one itself and was stale within a day. State the shape, and date the observation: *"the generated enum, 167 as scanned 2026-09-04"*. |
+| "Every gate is green, so there is nothing to find" | Three defects were sitting under `pytest` 653, `eval` 81/81, `selftest` 10/10 and byte-identical grammars, and none was exotic: a handler catching a name it never imported (**D35**), a runbook naming a database that does not exist (**D36**), and the slowest turn class writing no audit row at all (**D37**). A green gate measures what someone thought to measure. **Read the code cold** — that is ADR-108's rule and it has now paid three times (F2/F3/F21, then these). |
+| "The handler is broken but the tests pass, so it must be unreachable" | `daemon.py` catches `Exception` and speaks "Something went wrong." for every failure, so a handler raising `NameError` and a handler correctly failing closed are **the same sentence from the outside**. That broad catch is the FR-26 control and it stays — the durable fix is a test per handler error path, not a narrower catch (D35, ADR-127). **A broad except at the top of a turn is a blindfold on everything below it.** |
+| "I will just check the database quickly" | Check the PATH first. `config.MEMORY_DB` is `~/.local/**state**/friday/memory.db`; `~/.local/share/friday/` holds the MODELS. **`sqlite3` on a missing path CREATES an empty database** and then answers `no such table: approvals`, which is indistinguishable from the FIRST_USE you were trying to prove. It cost a session on 2026-09-04 and left a stray file behind (D36). `tests/test_doc_paths.py` pins every runbook path now. |
+| "The row writes nothing sensitive, it is just an audit row" | On the `chat` path both halves are exactly what invariant #7 forbids: the utterance is a raw transcript (FR-26), the reply is raw model output (FR-57). The row is `params={}` and the test asserts `args_redacted == "{}"` rather than the absence of particular strings — an absence test passes for every string you did not think of. And note what it may never grow into: a length, a topic or a token count all start describing what was said (D37, ADR-127). |
+| "I fixed the producer, so the feature is done" | Read the CONSUMER. Adding the `chat` audit row would have made `just stats` raise `KeyError` on its first row — `by_class` was a hand-listed dict of six names that `query_audit_stats` indexes directly, so the latency tool would have died on the class it was being extended to measure. The same read found `file_open` with **no stats class since G12**, four live rows bucketed as `other`. **Grep for the class, not the ticket** — and the class includes whoever reads what you just started writing. |
+| "A test that forbids the wrong value is enough" | It goes green when the value is DELETED. `tests/test_doc_paths.py` as first written forbade the wrong database path and would have passed if the `sqlite3` command were removed from both runbooks entirely — demonstrated by replacing it with `<the database>`. Pin the positive too: `RUNBOOKS` asserts the command is still there. `gpu_arch`'s lesson, re-learned the same afternoon it was written. |
+| "The grammar constrains the plan, so the params are safe" | It constrains the action NAME. `plan.gbnf` line 7 is `pair ::= string ws ":" ws string` — every enum value is **free text the model has to spell**, caught afterwards by `validate.py`. It fails closed, so it is not a hole, but it is where **D19** (the model echoed the prompt's own example as an enum value), **D20** (invented params on a no-param action) and **D34** (`easy-effects`) all came from. Constraining the seven small machine-independent enums is half a day and zero prompt tokens. **Do NOT constrain `open_app.app`:** the enum is generated so the grammar would stop being reproducible, and a constrained `app` **cannot fail closed** — instead of naming the id it could not find, the model gets forced into some other legal id and opens the wrong application. |

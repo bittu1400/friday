@@ -35,6 +35,46 @@ def test_classify_tool():
     assert classify_tool("remember_preference") == "preferences"
     assert classify_tool("dictation_mode") == "intercepts"
     assert classify_tool("unknown_custom_tool") == "other"
+    # D37: chat is its own class, not "other" — it is the SLOWEST turn class
+    # and burying it with genuinely-unknown tools is F29's mistake again.
+    assert classify_tool("chat") == "chat"
+    # `detach=True` in the registry, so it pays the launch grace. It was in no
+    # class at all until 2026-09-04, with four live rows already recorded.
+    assert classify_tool("file_open") == "launches"
+
+
+def test_every_capability_that_can_be_audited_has_a_class():
+    """`ACTION_CLASSES` is one more hand-written list that names capabilities,
+    and every one of those has gone stale at least once — `STT_HOTWORDS` (D26,
+    D31), the planner prompt (D31), the chat persona (D24, F2). This one had
+    too: `file_open` shipped with G12 and never had a class.
+
+    `none` is excluded because it is not an action and writes no row.
+    """
+    from friday.capabilities import CAPABILITIES
+    from friday.stats_cli import ACTION_CLASSES
+
+    missing = [c for c in CAPABILITIES if c != "none" and c not in ACTION_CLASSES]
+    assert missing == [], (
+        f"capabilities with no stats class: {missing}. `just stats` would "
+        f"bucket them as 'other', which is where a latency class goes to hide."
+    )
+
+
+def test_stats_survives_a_class_that_is_not_in_the_hardcoded_bucket_list(tmp_path):
+    """`by_class` used to be a hand-listed dict that `query_audit_stats` indexes
+    directly, so a new class raised KeyError on its first row — the latency tool
+    crashing on the class it was just extended to measure. It is derived now."""
+    db = Database(tmp_path / "memory.db")
+    AuditLog(db).record(
+        request_id="c1", tool_id="chat", params={},
+        policy_decision="allowed", outcome="ok", duration_ms=1496,
+    )
+    data = query_audit_stats(db, days=30)
+    assert data["by_class"]["chat"]["count"] == 1
+    assert data["by_class"]["chat"]["p50_ms"] == 1496.0
+    assert "chat" not in data.get("by_class", {}).get("other", {}), "not 'other'"
+    render_table(data, show_tools=True)  # must not raise
 
 
 def test_compute_metrics_empty():

@@ -439,3 +439,45 @@ owner answers OQ-65 that way.
 - **Did not test the tests' own speed or flakiness.** The suite ran green 86
   times during this audit with no flake, which is itself a small result.
 - **Did not touch `docs/superpowers/` or the archive.**
+
+---
+
+## I. Addendum, 2026-09-04 (last) — the pattern held, in two shapes this audit could not reach
+
+A cold read-only audit of the tree (ADR-127) found three defects under a fully
+green gate. Two of them are **section B's finding in new clothes**, and neither
+is an M-number, because this audit mutated the *source* and asked whether the
+suite noticed. These two live where no mutation of `friday/` can reach.
+
+**Shape 4 — the gap between a handler and its own exception (D35).**
+`handlers.py` caught `SchemaError` without importing it, so both reachable
+triggers raised `NameError` **from inside the except clause**. This is not
+"untested wiring between two well-tested modules" (M2) but something narrower:
+`daemon.py` catches `Exception` and speaks *"Something went wrong."*, so a
+handler that raises and a handler that correctly fails closed **produce the same
+observable behaviour**. A broad catch at the top of a turn is a blindfold over
+every error path below it.
+
+> A mutation sweep would *not* have found this, and that is the interesting
+> part. The defect was already present in the committed source; mutation testing
+> asks "does the suite notice when correct code becomes wrong", and here the
+> code was wrong to begin with. **Mutation score measures the suite against the
+> code as written, never the code against what it was supposed to do.**
+
+**Shape 5 — the gap between a document and the code it tells you to run (D36).**
+Two runbooks handed the next session a `sqlite3` command naming a database that
+does not exist. `sqlite3` creates an empty one at a missing path, so the check
+written to prove FIRST_USE fired would have reported exactly the failure it was
+meant to disprove. This is **M-L4's shape** — a DB check that created the
+database it then reported on — having moved out of `selftest.py`, where a test
+was watching, into a Markdown file, where none was. `tests/test_doc_paths.py`
+now watches it, and it learned twice by failing: it flagged ADR-127's own
+quotation of the wrong path (records are excluded now), and it **passed when the
+command was deleted entirely** until `RUNBOOKS` pinned the positive.
+
+**What this means for section F's index.** Nothing in M1-M19 is invalidated and
+tier 3 (M8-M11) is still the remaining work at the same rank. What is added is a
+sixth question for the next audit of this kind: *where does a defect become
+invisible rather than merely untested?* Three answers so far — a broad
+`except Exception`, a fail-closed path that reports the same thing for every
+cause, and a document nobody executes in CI.

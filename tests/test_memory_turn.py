@@ -4,7 +4,10 @@ injection (ADR-035/036/037)."""
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
+
+import pytest
 
 from friday.store.db import Database
 from friday.store.prefs import PrefStore, resolve
@@ -109,3 +112,41 @@ def test_no_prefs_no_block(tmp_path) -> None:
     client = RecordingClient('{"action":{"name":"none","params":{}}}')
     _run("", prefs, client=client)
     assert "<preferences>" not in client.seen_system
+
+
+# -- D35: a malformed preference must speak, not raise ----------------------
+
+
+@pytest.mark.parametrize(
+    "key, value, why",
+    [
+        ("music", "   ", "resolve() rejects a whitespace-only value"),
+        ("???", "jazz", "canonical_key() rejects a key that slugs to empty"),
+    ],
+)
+def test_a_malformed_preference_fails_closed_instead_of_raising(
+    tmp_path, key, value, why
+) -> None:
+    """D35. `_plan_remember` catches `SchemaError`, and from the criterion-3.4
+    split until 2026-09-04 `handlers.py` never imported the name — so both
+    reachable triggers raised `NameError` from inside the except clause.
+
+    Both are reachable from the planner: `validate.py` only rejects an EMPTY
+    text param, so `"   "` and `"???"` pass it and reach `resolve`.
+
+    The suite could not see it because `daemon.py` catches `Exception` and
+    speaks "Something went wrong." — a broken handler is indistinguishable
+    from any other failure from the outside. This drives `run_turn`, not
+    `_plan_remember`, because the wiring is the thing that was broken (M2).
+    """
+    prefs = _prefs(tmp_path)
+    plan = json.dumps(
+        {"action": {"name": "remember_preference",
+                    "params": {"key": key, "value": value}}}
+    )
+    r = _run(plan, prefs)
+    assert r.plan_name == "remember_preference", why
+    assert r.spoken == "I didn't understand."
+    assert r.pending is None, "nothing may be held for confirmation"
+    assert not r.dispatched
+    assert prefs.active() == {}, "and nothing may be written"

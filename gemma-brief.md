@@ -295,6 +295,23 @@ chat:     1798 / 2166 / 1959 ms, decode 86-89% of each turn, 62-77 tokens
 Planner p50 over 15 utterances: **915.7 ms** (min 729, max 1183), decode 41.4
 tok/s. ADR-084 recorded 891 ms — reproduced.
 
+**Reproduced again 2026-09-04 (last), n=8, through Friday's real
+`SYSTEM_POLICY` and `plan.gbnf`, against the live unit:**
+
+```
+planner p50 = 699 ms   (min 540, max 755)   decode 39.8-40.4 tok/s
+generated   = 17-25 tokens per plan, 22 typical
+```
+
+Lower than the 915 ms above because that run included longer plans; the decode
+rate is the same. The bandwidth model holds: 6.3 GB of weights, `272/6.3 = 43`
+predicted, **40.2 measured**. **The load-bearing number for any model decision
+is that a plan is 22 tokens** — so decode is ~547 ms of the 699 and the fixed
+per-request overhead is ~152 ms, and a model half the size buys roughly 275 ms
+per turn and nothing else. Whether that is worth it is the question ADR-126
+says no gate answers; since D37 the `chat` rows are at least the data for the
+half of it that is about how often chat runs.
+
 The 193 ms is **not** prompt processing (only 13 tokens are new). It is fixed
 per-request overhead — graph setup, sampler construction, HTTP. Nothing on the
 prompt side can reduce it. It is unattributed and remains an open thread.
@@ -520,7 +537,16 @@ llama.cpp can load. Not "any model".**
 
 Measured live 2026-09-04 while writing this: **8151 MiB total, 7010 MiB held by
 llama-server, 726 MiB free** — which reproduces §4's 740 MiB at `-np 1` within
-driver noise. §3 is the part people get wrong: Gemma's KV is cheap *because* 40
+driver noise.
+
+> **Amended 2026-09-04 (last).** Re-measured during the ADR-127 audit:
+> `8151 total, 7021 used` → **1130 free**. That is not drift, and the older
+> number is not wrong: `8151 − 7010 = 1141`, so the 726 was taken with ~415 MiB
+> of *desktop* GPU load present. **The envelope is
+> `8151 − 7010 − whatever else is on the display`, and it moves with the
+> browser.** Do not pin it — that is M19's rule for a generated number, and it
+> applies to a measured one just as hard. Size a candidate against ~1100 MiB
+> with a quiet desktop and re-check with the desktop you actually use. §3 is the part people get wrong: Gemma's KV is cheap *because* 40
 of its 48 layers are sliding-window. **A dense-attention model of the same
 parameter count uses MORE KV, not the same**, so "it is also 12B" is not a
 sizing argument. Decode is bandwidth-bound at ~272 GB/s, so

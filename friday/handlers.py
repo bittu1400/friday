@@ -34,6 +34,11 @@ from .errors import Outcome
 from .gate import PendingAction, TurnResult, _audit_confirmed
 from .llm import chat, grounding
 from .llm.client import LlamaClient
+# `_plan_remember` catches this. It was caught without being imported from
+# 2026-09-04 (criterion 3.4 moved the body here and left the name behind), so
+# the handler raised NameError on every malformed preference instead of
+# speaking "I didn't understand." — D35.
+from .llm.validate import SchemaError
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore, resolve
 from .tools.search import SearchClient, SearchResult, SearchUnavailable, sanitize
@@ -381,7 +386,28 @@ async def _h_none(ctx: TurnContext, params: dict) -> TurnResult:
 
 
 async def _h_chat(ctx: TurnContext, params: dict) -> TurnResult:
-    """The talking half. No executor call, `dispatched=False`, ever."""
+    """The talking half. No executor call, `dispatched=False`, ever.
+
+    It writes ONE audit row, and the row is deliberately EMPTY of content
+    (D37). Chat is the most expensive turn class in the system — TTFA p50 was
+    7177 ms before ADR-094 capped the reply, against 1858-2466 ms for a direct
+    action — and it was the only turn class writing no row at all, so
+    `just stats`, which reads `action_audit`, could not see it. Every latency
+    conversation in this project has therefore been about the cheap half.
+
+    **`params` is `{}` and must stay `{}`.** Both halves of a chat turn are
+    exactly what invariant #7 forbids on disk: `ctx.utterance` is a raw
+    transcript (FR-26) and `reply` is raw model output (FR-57). The fact worth
+    keeping is that a chat turn happened and how long it took; there is no
+    content whose absence costs anything.
+
+    `outcome` separates a real reply from `CHAT_FALLBACK`, which
+    `generate_reply` returns for ANY generation failure — it swallows the
+    exception, so without this the row would say a chat turn succeeded while
+    the model was down. That is the one bit of chat health the row can carry
+    without carrying content.
+    """
+    t0 = time.monotonic()
     reply = await asyncio.to_thread(
         chat.generate_reply, ctx.client, ctx.utterance,
         prefs_digest=(ctx.prefs.digest() if ctx.prefs else ""),
@@ -389,6 +415,15 @@ async def _h_chat(ctx: TurnContext, params: dict) -> TurnResult:
         habits_digest=ctx.habits_digest,
         summaries_digest=ctx.summaries_digest,
     )
+    if ctx.audit is not None:
+        await ctx.audit.arecord(
+            request_id=ctx.request_id,
+            tool_id="chat",
+            params={},  # invariant #7: never the utterance, never the reply
+            policy_decision="allowed",
+            outcome="ok" if reply != chat.CHAT_FALLBACK else "error",
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
     return TurnResult("chat", {}, reply, False)
 
 

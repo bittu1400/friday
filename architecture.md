@@ -123,13 +123,28 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
                             question -- if you are writing either, it belongs in
                             `risk`. Capabilities with a `Subprocess` spec are
                             deliberately absent: they share one body in `turn.py`
-                            and the lookup MISSING is what selects it
+                            and the lookup MISSING is what selects it.
+                            A handler that does real work AUDITS it -- including
+                            `_h_chat` since D37, whose row carries `params={}`
+                            because the utterance and the reply are both what
+                            invariant #7 forbids on disk (FR-150). A handler's
+                            own error path needs its own test: `daemon.py`
+                            catches `Exception` and speaks one line for every
+                            failure, so 653 tests were green over a handler that
+                            raised `NameError` instead of failing closed (D35)
      dialogue.py            in-RAM session dialogue ring buffer (ADR-048)
      logging_config.py      structured JSON logging, 10MB x 5 rotation, redaction (FR-43)
      selftest.py            unified 10-subsystem sanity & health check CLI (G9, F28,
                             ADR-109; the 10th asks systemd whether the RUNNING unit
                             matches the committed one -- M16, ADR-117)
-     stats_cli.py           `just stats` — latency & TTFA breakdown by action class (ADR-107, FR-128)
+     stats_cli.py           `just stats` — latency & TTFA breakdown by action class
+                            (ADR-107, FR-128). `ACTION_CLASSES` is the one
+                            remaining hand-written list that names capabilities;
+                            a test asserts every capability but `none` has an
+                            entry, and the buckets are DERIVED from it rather
+                            than re-listed (FR-152) -- re-listing them made the
+                            latency tool raise KeyError on the first row of any
+                            class added to it
      watchdog.py            systemd sd_notify READY/STOPPING + periodic WATCHDOG task (F11, ADR-109)
      prefs_cli.py           `just prefs` — list/export/forget/reset
      ptt_cli.py             `friday-ptt toggle|press|release|cancel` client
@@ -392,7 +407,11 @@ Guarantees (as actually implemented 2026-08-26; see ADR-067d):
   hand-written blocks. Until the hardening
   phase (ADR-067b, landed 2026-08-29) the confirm paths and web_search wrote
   none; `tests/test_audit_contract.py` now walks the schema and asserts
-  exactly one row per executed dispatch
+  exactly one row per executed dispatch. **`chat` joined them 2026-09-04
+  (D37/FR-150)** and is the only row that is deliberately EMPTY -- it records
+  that a chat turn happened and how long it took, never a word of it. Four
+  capabilities still write nothing (`none`, `read_notes`, `list_reminders`,
+  `resume_dnd`): **OQ-70**, recorded rather than defaulted
 
 ---
 

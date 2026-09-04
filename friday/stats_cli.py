@@ -3,10 +3,14 @@
 Queries `action_audit` from SQLite memory database and computes empirical
 latency metrics (p50, p95, mean, min, max) broken down by action class:
   - Commands (system controls, workspace, notes, reminders, clipboard)
-  - Launches (GUI application launches: open_app, youtube)
+  - Launches (GUI launches: open_app, youtube, file_open)
   - Search (web_search)
   - Preferences (remember_preference, forget_preference)
+  - Chat (conversation — its own class since D37, because it is the slowest)
   - Intercepts (dictation, conversational DND, sign-off)
+
+The class list is DERIVED from `ACTION_CLASSES` in `query_audit_stats`; do not
+re-list it there.
 
 Consequences of ADR-107 & FR-128:
 Reporting latency broken down by action class prevents a single metric from
@@ -46,11 +50,23 @@ ACTION_CLASSES: dict[str, str] = {
     "open_app": "launches",
     "open_youtube": "launches",
     "youtube_search": "launches",
+    # `detach=True` in the registry, so it pays the same 400 ms launch grace
+    # every other launch pays. It was in NO class at all until 2026-09-04 and
+    # fell through to "other" — four live rows, invisible (D37, found while
+    # fixing chat: grep for the class, not the ticket).
+    "file_open": "launches",
     # Search
     "web_search": "search",
     # Preferences
     "remember_preference": "preferences",
     "forget_preference": "preferences",
+    # Conversation. Its own class, not "other": chat generation is 1496 ms
+    # against a planner turn's ~700 ms measured live 2026-09-04, and TTFA
+    # includes synthesizing the WHOLE reply (p50 7177 ms before ADR-094 capped
+    # it). Bucketing it with genuinely-unknown tools would repeat F29 — where
+    # launches and commands, two different latency classes, were conflated in
+    # every budget written before 2026-09-02.
+    "chat": "chat",
     # Intercepts
     "dictation_mode": "intercepts",
     "dictation_type": "intercepts",
@@ -117,13 +133,14 @@ def query_audit_stats(
         (cutoff,),
     )
 
+    # DERIVED from ACTION_CLASSES, not hand-listed. It was a hardcoded dict of
+    # six names, and `by_class[cls_name].append(...)` below indexes it directly
+    # — so adding "chat" to ACTION_CLASSES would have made `just stats` raise
+    # KeyError on the first chat row, i.e. the tool built to measure latency
+    # crashing on the class it was extended to measure. Found 2026-09-04 while
+    # fixing D37, by reading the consumer instead of only the table.
     by_class: dict[str, list[int]] = {
-        "commands": [],
-        "launches": [],
-        "search": [],
-        "preferences": [],
-        "intercepts": [],
-        "other": [],
+        name: [] for name in (*sorted(set(ACTION_CLASSES.values())), "other")
     }
     by_tool: dict[str, list[int]] = {}
 

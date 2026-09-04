@@ -12,6 +12,31 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-09-04 (LAST): A COLD READ-ONLY AUDIT OF THE TREE FOUND THREE DEFECTS
+UNDER A COMPLETELY GREEN GATE, AND ALL THREE ARE FIXED (ADR-127).** Every gate
+was green when it started: `pytest` 653, `eval` 81/81, `selftest` 10/10,
+grammars byte-identical. **D35** — `handlers.py` caught `SchemaError` without
+importing it, so a preference with a whitespace value or a key that slugs to
+empty raised `NameError` **from inside the handler** instead of speaking "I
+didn't understand."; 653 tests could not see it because `daemon.py` catches
+`Exception` and speaks one line for every failure. **D36** — the `sqlite3`
+command that proves FIRST_USE fired named `~/.local/**share**/friday/memory.db`;
+the database is under `state`, and a wrong path does not error — **`sqlite3`
+CREATES an empty database** and answers `no such table: approvals`, which reads
+exactly like a FIRST_USE that never fired. **D37** — `chat` wrote **no audit
+row**, so the slowest turn class in the system (TTFA p50 7177 ms vs 1858-2466 ms
+for an action) was invisible to `just stats`, and **0 of 192 live rows were
+chat**. Reading the CONSUMER instead of only the producer found two more:
+`just stats` would have raised `KeyError` on the first chat row, and `file_open`
+has had **no stats class since G12**. `pytest` **653 → 685**, `eval` **81/81
+regressions 0**, six mutations RED. **AND OQ-69's MECHANISM HALF IS CLOSED, LIVE
+BY VOICE** — the audit table shows `open_app` FIRST_USE asked, was declined,
+asked again, was approved, and then **dispatched with no question** at
+14:31-14:33, plus a second app asking on its own. `docs/reality-check.md` §G1
+said "has never fired at a microphone" and was stale by half an hour. What OQ-69
+still owes is the BURDEN, not the mechanism. **The daemon running now predates
+these fixes — restart before believing any of the new behaviour is live.** <<<**
+
 **>>> 2026-09-04 (later): PHASE 3 IS COMPLETE — ALL NINE CRITERIA.**
 3.1/3.2/3.8 were ADR-123; **3.3, 3.5 and 3.9 are ADR-124** (both prompt regions
 derived, the confirm decision and the panic gate derived from `risk`, and the
@@ -6085,7 +6110,236 @@ That last one is the contract for the whole phase, working.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-04**, after Phase 3 closed) <<<
+## 2026-09-04 (last) — the cold audit, and the three defects under a green gate
+
+**Method.** A read-only architecture + security audit run against the CODE, not
+the docs — ADR-108's rule, *"a doc records the FIX and not the REGRESSION"*,
+which is how the 2026-09-02 audit found F2, F3 and F21. Then the first fix pass
+off its findings. Everything below is pasted, not recalled.
+
+### The ground, before anything was touched
+
+```
+$ .venv/bin/python -m pytest -q
+653 passed, 2 warnings in 7.38s
+
+$ .venv/bin/python -m friday.eval_harness
+fixture-set revision: 3caeb92212e1
+passed 81/81  (100%)
+known-failing: 0
+regressions vs baseline: 0
+
+$ nvidia-smi --query-gpu=memory.total,memory.used --format=csv
+8151 MiB, 7021 MiB
+$ nvidia-smi --query-compute-apps=pid,used_memory,name --format=csv
+15828, 7010 MiB, /opt/llama.cpp/build/bin/llama-server
+
+$ systemctl --user show friday -p MainPID -p ActiveEnterTimestamp -p NRestarts \
+    -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload
+ActiveEnterTimestamp=Fri 2026-09-04 14:31:30 +0545
+NeedDaemonReload=no
+Type=notify
+WatchdogUSec=10s
+MainPID=94363
+NRestarts=0
+KillMode=process
+
+$ find friday -name '*.py' -newer friday/__init__.py -printf '%T+ %p\n' | sort | tail -1
+2026-09-04+12:31:08 friday/capabilities.py
+```
+
+**The daemon (14:31) is NEWER than the newest source file (12:31), so Phase 3
+was actually running** — the first time in four sessions that check came back
+the right way round. M16's question asked and answered.
+
+### Live planner latency, n=8, against the real Gemma
+
+```
+  652.7 ms  open_app{firefox}          gen=22  pred_tps=40.2
+  652.0 ms  system_volume{up}          gen=22  pred_tps=40.4
+  699.4 ms  web_search{...}            gen=24  pred_tps=40.3
+  704.0 ms  hypr_window{close}         gen=23  pred_tps=39.8
+  733.6 ms  youtube_search{lo-fi}      gen=24  pred_tps=40.0
+  755.5 ms  create_note{...}           gen=25  pred_tps=40.0
+  675.1 ms  hypr_workspace{3}          gen=23  pred_tps=40.2
+  539.9 ms  read_notes{}               gen=17  pred_tps=40.0
+planner p50=699 ms  min=540 max=755
+```
+
+`gemma-brief.md` §3's bandwidth model reproduces: 6.3 GB weights, `272/6.3 = 43`
+predicted, **40.2 measured**. **A plan is 22 tokens**, so decode is ~547 ms of
+the 699 and the fixed per-request overhead is ~152 ms.
+
+**One correction to §12 while here:** it records "726 MiB free". Live now:
+`8151 − 7021 = 1130`. Not doc drift — §12's own arithmetic (`8151 − 7010`) gives
+1141, so it was measured with ~415 MiB of desktop GPU load present. **The
+envelope is `8151 − 7010 − whatever else is on the display`, and it moves.** Do
+not pin it; that is M19's rule for a generated number, applied to a measured one.
+
+### OQ-69's mechanism half — CLOSED, live, read off the tables
+
+`docs/reality-check.md` §G1 said `open_app` FIRST_USE "has never fired at a
+microphone". The audit table disagreed:
+
+```
+$ sqlite3 ~/.local/state/friday/memory.db \
+    'SELECT created_at, args_redacted, policy_decision, outcome, duration_ms
+       FROM action_audit WHERE tool_id="open_app" ORDER BY rowid DESC LIMIT 4;'
+14:33:12  {"app": "firefox"}  allowed   ok        403
+14:32:53  {"app": "discord"}  allowed   ok        402
+14:32:24  {"app": "discord"}  allowed   ok        404
+14:31:55  {"app": "discord"}  declined  declined    0
+
+$ sqlite3 ~/.local/state/friday/memory.db 'SELECT * FROM approvals;'
+app|discord|b6f5764d29d5c0b0d27f23fc5a1318ec6bfcb3b8227c2d88f729685ef24e12ea|2026-09-04 14:32:24
+app|firefox|1a5511df24effe95e63d0b28e1bdf42b534214893ab62270e635bfa7fa7e4945|2026-09-04 14:33:12
+```
+
+Ask → **decline, and NO approval row** → ask → approve, one row → **remembered,
+no question** → a second application asking on its own. §G1's script has four
+steps; the decline path is a fifth it never asked for, and it worked. Durations
+402-404 ms are the healthy launch signature (the 400 ms grace timed out, so the
+process was alive). **OQ-69 still owes the BURDEN** — two approvals is not a
+week — but the mechanism is no longer a claim.
+
+### D35 — a handler that raised instead of speaking
+
+```
+$ .venv/bin/python -c "from friday.handlers import _plan_remember; ..."
+{'key': 'music', 'value': '   '} -> NameError name 'SchemaError' is not defined
+{'key': '???',   'value': 'jazz'} -> NameError name 'SchemaError' is not defined
+```
+
+`except (SchemaError, KeyError)` at `handlers.py:138`, and the name was never
+imported — criterion 3.4 moved the body out of `turn.py`, which does import it.
+Both triggers are reachable from the planner because `validate.py` rejects only
+an **empty** text param. After the one-line fix:
+
+```
+{'key': 'music', 'value': '   '} -> I didn't understand.
+{'key': '???',   'value': 'jazz'} -> I didn't understand.
+{'key': 'music', 'value': 'jazz'} -> Remember that your media_player is jazz? (yes/no)
+```
+
+### D37 — the chat row, verified against the real model
+
+```
+$ .venv/bin/python -c "<run_turn against a live LlamaClient, temp DB>"
+plan   : chat dispatched: False
+spoken : I am doing wonderful, thank you for asking. How can I make your day easier?
+row    : {'request_id': 'live-chat-1', 'tool_id': 'chat', 'args_redacted': '{}',
+          'policy_decision': 'allowed', 'outcome': 'ok', 'duration_ms': 1496}
+```
+
+`args_redacted` is `{}` — invariant #7 — and **1496 ms of generation against a
+planner turn's ~700 ms**, which is why chat is its own stats class and not
+`other`.
+
+### Six mutations, each applied, watched RED, and reverted
+
+The file was **copied aside and copied back**, never `git checkout` — ADR-116's
+amendment, which cost ~700 lines of uncommitted work on 2026-09-04 when it was
+read and not followed.
+
+| # | mutation | what turned red |
+| :-- | :-- | :-- |
+| a | remove `from .llm.validate import SchemaError` | both D35 cases |
+| b | `params={}` → `{"reply": reply, "said": ctx.utterance}` | `test_the_chat_row_carries_no_utterance_and_no_reply` |
+| c | `outcome="ok" if … else "error"` → `outcome="ok"` | `test_a_failed_generation_is_recorded_as_an_error_not_a_success` |
+| d | delete the whole `arecord` from `_h_chat` | 4 tests |
+| e | remove `"chat": "chat"` from `ACTION_CLASSES` | 3 tests |
+| f | hand-list `by_class` again | `KeyError` in `query_audit_stats` |
+| g | replace the runbook path with `<the database>` | the passes-by-deletion guard |
+
+(g) is the one worth remembering: `tests/test_doc_paths.py` as first written
+**only forbade the wrong value**, so deleting the command entirely made it
+green. A check that cannot fail is worthless — `gpu_arch`'s lesson, applied to a
+check written the same afternoon.
+
+### Two more found by reading the CONSUMER, not the producer
+
+- **`just stats` would have crashed on the first chat row.** `by_class` was a
+  hand-listed dict of six names that `query_audit_stats` indexes directly. The
+  latency tool would have died on the class it was being extended to measure.
+  Derived from `ACTION_CLASSES` now.
+- **`file_open` had no stats class at all** — four live rows bucketed as
+  `other`, since G12. It is `detach=True`, so it pays the same 400 ms launch
+  grace every launch pays.
+
+### Gates after the change
+
+```
+$ .venv/bin/python -m pytest -q
+685 passed in 11.90s                       # 653 -> 685
+
+$ .venv/bin/python -m friday.eval_harness
+passed 81/81  (100%)   known-failing: 0    regressions vs baseline: 0
+
+$ .venv/bin/python -m friday.selftest      # 10/10, rc=0
+[PASS] llm_on_gpu      llama-server pid 15828 holds 7010 MiB VRAM (GPU offload live)
+[PASS] database        SQLite at /home/bittusah/.local/state/friday/memory.db (0600, dir 0700, schema v4)
+[PASS] unit_deployed   Running friday.service matches the repo (reload clean, 4 directives verified)
+
+$ .venv/bin/python scripts/bootstrap.py --check
+[BOOTSTRAP SUCCESS] All systems, models, and services verified.   # 11/11
+
+$ .venv/bin/python -m friday.llm.schema && git diff --stat friday/llm/grammars/
+(empty — byte-identical)
+
+$ .venv/bin/python -m pytest tests/test_injection.py -q      # 1 test over 20 fixtures
+$ .venv/bin/python -m pytest tests/test_adversarial.py tests/test_youtube.py -q   # 17 passed
+$ .venv/bin/python -m pytest tests/test_egress.py -q         # 8 passed
+$ ! grep -rniE "f[\"'][^\"']*(select|insert|...)" friday/store/
+OK: store/ is strictly parameterized SQL
+```
+
+`just stats` over the live DB, after `file_open` got a class:
+
+```
+  Action Class        Count   Min(ms)   p50(ms)   p95(ms)  Mean(ms) Max(ms)
+  commands               82         0       7.5      34.7      13.8     306
+  intercepts             18         0       0.0     728.8     206.4    1459
+  launches               82         0     401.0     410.0     273.1     412
+  preferences             4         0       0.0       0.0       0.0       0
+  search                  7         0       0.0    3679.2     750.9    5256
+  ALL ACTIONS           193         0      21.0     409.4     168.4    5256
+```
+
+**No `chat` row yet, correctly: the running daemon predates the fix.** It
+appears after a restart. That is the whole of "the fix is committed so the fix
+is running" — do not read its absence as the fix not working.
+
+### Housekeeping owed to the owner
+
+A stray zero-byte file was created at `~/.local/share/friday/friday.db` while
+probing D36's wrong path — the exact failure D36 describes, committed by the
+session that found it. Removing it was refused by the sandbox:
+
+```bash
+rm ~/.local/share/friday/friday.db
+```
+
+### Decisions taken, and where they are written
+
+| decision | where |
+| :-- | :-- |
+| the three fixes, their mutations, and what 653 green tests could not see | **ADR-127** |
+| the chat row is content-free, `params={}` | ADR-127 · **FR-150** · `threat-model.md` change log |
+| a runbook path must equal `config.MEMORY_DB`, pinned by a test | ADR-127 · **FR-151** |
+| every capability but `none` has a stats class; buckets derived | ADR-127 · **FR-152** |
+| a handler's own fail-closed path needs its own test | **FR-25** amendment |
+| `none`/`read_notes`/`list_reminders`/`resume_dnd` stay unaudited | **OQ-70**, recorded not defaulted |
+| `ACTION_CLASSES` is NOT derived from `capabilities.py` | ADR-127 § Rejected — a class is a latency judgement, not a property of the capability |
+| `daemon.py`'s broad `except Exception` stays | ADR-127 § Rejected — it is the FR-26 control |
+| `adr.md` is excluded from the doc-path scan | ADR-127 — a record must be able to quote what went wrong |
+
+**No diagram was contradicted.** `02-tool-call-loop.md` depicts the action enum
+and the trust boundary, `04-trust-boundaries.md` names no disk sinks, and
+`01-turn-lifecycle.md` stops at the confirm window. Checked, not assumed.
+
+---
+
+## >>> START HERE: NEXT SESSION (written **2026-09-04 (last)**, after the cold audit) <<<
 
 **Read this whole block before touching anything. Everything in it is measured.**
 
@@ -6106,12 +6360,29 @@ That last one is the contract for the whole phase, working.
   `habits.describe_action`'s phrasing chain (the obligation is derived, the
   hundred lines of tuned prose are not) and `summary`'s length (compressing the
   twelve-line `open_app` paragraph that fixed D31 is its own commit).
-- Gates: `pytest` **653 rc=0**, `eval` **81/81 regressions 0**, `selftest`
+- **A COLD AUDIT THEN FOUND THREE DEFECTS UNDER THAT GREEN GATE (ADR-127).**
+  **D35** a handler caught `SchemaError` without importing it, so a malformed
+  preference raised `NameError` instead of failing closed; **D36** the `sqlite3`
+  command that proves FIRST_USE fired named the wrong database, and a wrong path
+  CREATES an empty one and reports `no such table` — indistinguishable from the
+  thing it was written to disprove; **D37** `chat`, the slowest turn class, wrote
+  no audit row, so `just stats` could not see it and 0 of 192 live rows were
+  chat. Two more fell out of D37 by reading the consumer: `just stats` would
+  have raised `KeyError` on the first chat row, and `file_open` has had no stats
+  class since G12. All fixed, six mutations RED.
+- **OQ-69's MECHANISM HALF IS CLOSED — live, by voice, 14:31-14:33.** `open_app`
+  FIRST_USE asked, was declined (no approval written), asked again, was
+  approved, then **dispatched with no question**; a second app asked on its own.
+  Read off `action_audit` + `approvals`, pasted above. What OQ-69 still owes is
+  the **burden**: two approvals is not a week.
+- Gates: `pytest` **685 rc=0**, `eval` **81/81 regressions 0**, `selftest`
   **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**,
   `SYSTEM_POLICY` **1401 tokens**, `turn.py` **246 lines**, app enum **167 as
   scanned 2026-09-04** (generated — do not pin it).
-- **The daemon has NOT been restarted onto this code.** Everything above is
-  measured on disk. The first job is the ground check, then a restart.
+- **The daemon running now (started 14:31:30) PREDATES the ADR-127 fixes.** It
+  postdates Phase 3, which is why FIRST_USE could fire. **The first `chat` audit
+  row appears only after a restart** — its absence from `just stats` is not the
+  fix failing.
 - Mutation tiers 1 and 2 are closed (M1-M7). **Tier 3 is M8-M11** and is still
   ranked below live work.
 
@@ -6119,10 +6390,20 @@ That last one is the contract for the whole phase, working.
 
 ```
 [ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed
-[ ] 1.  RESTART AND SAY "OPEN X"  OQ-69 cannot start until FIRST_USE is live
-[ ] 2.  A WEEK OF ORDINARY USE  then SELECT COUNT(*) FROM approvals -> OQ-69
-[ ] 3.  PHASE 4a / 4b / 4c      design-2026-09-02.md §11. Phase 3 unblocked them
-[ ] 4.  RECORD IT               paste output here per rule 6, then commit
+[ ] 1.  RESTART                 1 min   the daemon predates ADR-127. Then `just stats`
+                                        grows a `chat` row on the next conversation
+[x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, incl. the decline path
+[ ] 2.  A WEEK OF ORDINARY USE  then SELECT COUNT(*) FROM approvals -> OQ-69 (burden),
+                                        and read the `chat` row -> OQ-70
+[ ] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   the audit's top structural finding.
+                                        `params ::= {string:string}` today, so every
+                                        enum value is free text the model must SPELL
+                                        and only `validate.py` catches. That is where
+                                        D19, D20 and D34 all came from. Half a day,
+                                        machine-independent, no prompt tokens
+[ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
+[ ] 5.  PHASE 4a / 4b / 4c      design-2026-09-02.md §11. Phase 3 unblocked them
+[ ] 6.  RECORD IT               paste output here per rule 1, then commit
 ```
 
 ### 0. Verify the ground — two minutes, no judgement required
@@ -6131,7 +6412,7 @@ That last one is the contract for the whole phase, working.
 cd /home/bittusah/Projects/Personal/Intern/friday
 
 # uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
-.venv/bin/python -m pytest -q                            # 653 passed, rc=0
+.venv/bin/python -m pytest -q                            # 685 passed, rc=0
 .venv/bin/python -m friday.eval_harness                  # 81/81 (100%), regressions 0
 .venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
 .venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
@@ -6142,18 +6423,36 @@ ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
 wc -l friday/turn.py                                     # 246; criterion 3.4 is <400
 ```
 
-### 1. The one live thing Phase 3 owes: FIRST_USE at a microphone
+### 1. Restart — the daemon predates ADR-127
 
-`open_app` asks once per application now, and **the running daemon predates
-it**. Restart, then say *"open discord"* twice:
+**FIRST_USE at a microphone is DONE** (2026-09-04 14:31-14:33; the evidence is
+in the session block above, and `docs/reality-check.md` §G1 now carries it). The
+restart still owed is a different one: the daemon started at **14:31:30** and
+the ADR-127 fixes are later, so **no `chat` audit row can exist until it
+restarts**. Its absence from `just stats` is not the fix failing.
+
+```bash
+systemctl --user restart friday
+systemctl --user show friday -p ActiveEnterTimestamp   # must be AFTER the source mtimes
+# then have one ordinary conversation, and:
+.venv/bin/python -m friday.stats_cli --tools           # a `chat` class must appear
+```
+
+The original FIRST_USE script is kept below, because it is still the right
+ninety seconds on any machine that has not run it:
 
 ```bash
 systemctl --user restart friday
 # say: "open discord"  -> expect "Do you want me to open Discord? I'll remember."
 # say: "yes"           -> it opens
 # say: "open discord"  -> expect NO question
-sqlite3 ~/.local/share/friday/memory.db 'SELECT kind, subject, approved_at FROM approvals;'
+sqlite3 ~/.local/state/friday/memory.db 'SELECT kind, subject, approved_at FROM approvals;'
 ```
+
+**`state`, not `share`** — this line said `share` until 2026-09-04 (D36). A
+wrong path does not error: `sqlite3` creates an empty database and reports
+`no such table: approvals`, which is indistinguishable from a FIRST_USE that
+never fired. Pinned by `tests/test_doc_paths.py`.
 
 If the second ask still happens, the store is not reaching the turn: check
 `daemon.py`'s `self._approvals` is not None (it is built from the same `db` the
@@ -6162,14 +6461,97 @@ FIRST_USE degrades to asking every time, on purpose).
 
 ### 2. OQ-69 — is asking once per application tolerable?
 
-**No test can answer this and none will.** The eval fixtures score the
-planner's output, not what the turn does with it, so 81/81 reads 81/81 whether
-the confirm handshake works, annoys, or never fires. The measurement is a week
-of ordinary use plus `SELECT COUNT(*) FROM approvals`. If it is intolerable the
-fallback is in ADR-120: the safer plumbing-only option, one edit to
-`_open_app_risk`.
+**The mechanism half is CLOSED** (live, 2026-09-04, above). What is open is the
+**burden**, and no test can answer that: the eval fixtures score the planner's
+output, not what the turn does with it, so 81/81 reads 81/81 whether the confirm
+handshake works, annoys, or never fires. The measurement is a week of ordinary
+use plus `SELECT COUNT(*) FROM approvals` — at
+`~/.local/state/friday/memory.db`, `state` not `share` (D36). If the count
+settles near the number of applications actually used, it works; if it keeps
+climbing, `argv_sha256` is churning on an app whose argv changes on update. The
+fallback is in ADR-120: one edit to `_open_app_risk`.
 
-### 3. After that, Phase 4
+**And read the new `chat` rows in the same sitting — that is OQ-70.** If
+`just stats` reads usefully with chat in it, the same argument extends to
+`none`, `read_notes`, `list_reminders` and `resume_dnd`, which still write
+nothing.
+
+### 3. Constrain the closed enum params in `plan.gbnf` — the audit's top finding
+
+**`plan.gbnf` constrains the action NAME and nothing else.** Line 7, verbatim:
+
+```
+params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
+pair   ::= string ws ":" ws string
+```
+
+So `direction`, `state`, `action`, `workspace` and `app` are **free text the
+model has to SPELL**, caught only afterwards by `validate.py`. It fails closed,
+so it is not a hole — but it is where **D19** (Qwen echoed the prompt's own
+example phrase back as an enum value), **D20** (invented params on a no-param
+action) and **D34** (`easy-effects` where the generator makes `easy_effects`)
+all came from. Constraining them makes that whole class structurally
+impossible, costs **zero prompt tokens** (GBNF is server-side) and ~0.3 ms of
+grammar compile, and shrinks the planner's job to "pick 1 of 25, pick 1 of N,
+copy some text" — which is what makes step 4 answerable.
+
+**Do the five small closed enums. Do NOT do `app`:**
+
+| param | values | do it? |
+| :-- | :-- | :-- |
+| `system_volume.direction` | 5 | yes |
+| `system_brightness.direction` | 2 | yes |
+| `system_media.action` | 6 | yes |
+| `system_wifi.state` | 2 | yes |
+| `hypr_window.action` | 6 | yes |
+| `hypr_workspace.workspace` | 10 | yes |
+| `dictation_mode.action` | 2 | yes |
+| `open_app.app` | **167, generated** | **NO** |
+
+Two reasons for the `app` exception, and the second is the important one.
+(1) The enum is generated from the machine's XDG entries, so enumerating it
+would make `plan.gbnf` machine-dependent and break the byte-identity contract
+that is Phase 3's safety net. (2) **A grammar-constrained `app` cannot fail
+closed.** Today an uninstalled app yields `E_TOOL_NOTFOUND: app 'easy-effects'`
+and Friday says *"I couldn't find Easy Effects"* — the log names the id, which
+is what turned two microphone sessions into a grep instead of a bisect. Under a
+constraint the model would be forced down a path to **some** legal id instead,
+silently opening the wrong application. Keep it free, keep the ADR-121 fold.
+
+The seven above are all machine-independent, so `just grammar` stays
+reproducible; regenerate once, re-baseline nothing, and `just eval` must hold
+81/81 with zero regressions or the change did more than it claimed.
+
+### 4. The model question — only after 3, and after a week of `chat` rows
+
+**Do not swap anything yet.** The measured position, live 2026-09-04:
+
+- planner p50 **699 ms**, 22 tokens, **40.2 tok/s**; `tok/s ≈ 272 / weights_GB`
+  reproduces (6.3 GB → 43 predicted).
+- chat generation **1496 ms** on the same model, and TTFA includes synthesizing
+  the whole reply.
+- Gemma holds **7010 MiB of 8151**. Qwen2.5-7B (4.4 GB) is still on disk as the
+  rollback and would predict ~62 tok/s, i.e. roughly **200 ms off every turn**.
+
+**The structural point: one model serves two workloads with opposite
+requirements.** The planner is a 25-way classification with slot fill, 22
+tokens, on every turn — not a language task. Chat wants personality and world
+knowledge, and is **the only thing the 12B buys**. The 12B is sized for the
+workload that runs less often and taxes the one that runs always.
+
+**And the case for Gemma rests on three defects, two of which are grammar
+defects wearing a model costume.** D19 and D20 are param-spelling failures —
+exactly what step 3 makes impossible. Only D21 (anaphoric "copy that" → the
+literal word `"that"`) is a genuine reasoning win, and Gemma got it by
+*refusing*, which is a fixture-correctness result.
+
+**So the order is: step 3, then a week of chat rows (you now have the data —
+D37), then re-bench Qwen behind the constrained grammar.** `just eval` must hold
+81/81, and chat is judged BY EAR because no gate measures it (ADR-126). If Qwen
+holds with D19/D20 structurally impossible, the trade is ~200 ms/turn and
+1.9 GB of VRAM against chat quality — a trade that is finally visible.
+
+### 5. After that, Phase 4
 
 `design-2026-09-02.md` §11: **4a** cheap width (`system_status`, `local_time`,
 window/workspace targeting), **4b** the filesystem work, **4c** multi-action.
@@ -6177,6 +6559,11 @@ Phase 3 existed to make those cost one edit each instead of ten. **A new
 capability is now: one `Capability(...)` in `friday/capabilities.py`, one
 handler row in `friday/handlers.py`, and >=2 eval fixtures.** Everything else
 follows, and four separate tests fail if you forget a piece.
+
+**Two things ADR-127 adds to that checklist:** if the capability does real work
+it AUDITS it (FR-58/FR-150), and it needs an entry in
+`stats_cli.ACTION_CLASSES` (FR-152) — a test fails without the second, and
+nothing but review catches the first.
 
 ### Asked and answered this session: "can any model be swapped in?"
 
@@ -6218,6 +6605,20 @@ Every doc below now matches the code as committed. Do not re-derive:
 | `gemma-brief.md` | **§12**, the model-swap contract |
 | `README.md` | 653 / 81 / 86 test files, and Phase 3 in the status block |
 | `open-questions.md` | OQ-68 survives the refactor, smaller — one field, not a string constant |
+
+**Re-synced AGAIN at the end of 2026-09-04 (last), after the cold audit:**
+
+| doc | what changed |
+| :-- | :-- |
+| `adr.md` | **ADR-127** — the three defects, their six mutations, the two found by reading the consumer, and four explicit rejections (auditing the other four capabilities → OQ-70; deriving `ACTION_CLASSES`; narrowing `daemon.py`'s `except Exception`; scanning `adr.md` for doc paths) |
+| `spec.md` | **FR-150** the content-free chat row, **FR-151** a runbook path must equal `config.MEMORY_DB`, **FR-152** every capability but `none` has a stats class. **FR-58** amended (chat audits; four still do not, deliberately). **FR-25** amended — a HANDLER's own fail-closed path needs its own test |
+| `threat-model.md` | a 2026-09-04 (later) row: invariant #7 gained a disk sink on purpose, and the control is that the sink is EMPTY. Names what the row may never become — a length, a topic, a token count all start describing what was said |
+| `architecture.md` | `handlers.py` says a handler audits its own work and that its error path needs its own test; `stats_cli.py` says `ACTION_CLASSES` is the last hand-written capability list and the buckets are derived; the audit-callers bullet names `chat` and OQ-70 |
+| `docs/reality-check.md` | **§G1 is TICKED** with the four audit rows and the two approvals; the "never fired at a microphone" sentence is corrected and the correction explained. Both `sqlite3` paths fixed (D36) |
+| `open-questions.md` | **OQ-69** gains the live mechanism evidence and is narrowed to the burden; **OQ-70** is new — should the other four capabilities audit too |
+| `gemma-brief.md` | §12's "726 MiB free" annotated: live is 1130, and the difference is desktop GPU load, not drift. §5 gains the n=8 live planner reproduction |
+| `CLAUDE.md` | D35/D36/D37 in the ledger, gate numbers 653 → 685, five new trap rows, and a rewritten NEXT SESSION list |
+| `tests/test_doc_paths.py` | NEW. 24 cases. Two things it learned by failing: it caught ADR-127 quoting the wrong path (records are excluded now), and it passed when the command was DELETED (`RUNBOOKS` fixes that) |
 
 ### What Phase 3 changed that a reader will trip over
 

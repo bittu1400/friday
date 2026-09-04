@@ -132,7 +132,7 @@ Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 > **Whether that is tolerable is OQ-69 and it is measured HERE, not by a
 > test** — `just eval` scores the planner's output, not what the turn does
 > with it, so 81/81 reads 81/81 either way. Live with it for a week, then
-> `sqlite3 ~/.local/share/friday/memory.db 'SELECT COUNT(*) FROM approvals;'`.
+> `sqlite3 ~/.local/state/friday/memory.db 'SELECT COUNT(*) FROM approvals;'`.
 > The fallback if it is intolerable is one edit to `_open_app_risk` (ADR-120).
 
 ### A1. Launch apps (`open_app`) — the five curated semantic ids
@@ -1059,13 +1059,41 @@ opportunistic — say them next time you are at the machine anyway:
 cannot see the FIRST_USE confirm burden that ADR-120 turns on, because its
 fixtures score the planner's output and not what the turn does with it. That is
 **OQ-69**, and it is answered by a week of ordinary use plus
-`SELECT COUNT(*) FROM approvals`.
+`SELECT COUNT(*) FROM approvals`. **The mechanism half was proven live
+2026-09-04 — see §G1** — so what is owed is only the burden.
 
 ### G1. Added 2026-09-04 (later) — the first row Phase 3 put back on this list
 
-`open_app` FIRST_USE went LIVE with ADR-124 and **has never fired at a
-microphone**. The running daemon predates it. This is now the first thing to do
-at the machine, and it is ninety seconds:
+**TICKED 2026-09-04 14:31-14:33, at a microphone. Read off `action_audit` and
+`approvals` during the ADR-127 audit, not claimed.** The daemon was restarted at
+14:31:30 (step 1), and every step below happened — plus the decline path, which
+this script never asked for:
+
+```
+14:31:55  open_app {"app":"discord"}  declined  declined    0 ms   <- asked, said NO
+14:32:24  open_app {"app":"discord"}  allowed   ok        404 ms   <- asked, said yes
+14:32:53  open_app {"app":"discord"}  allowed   ok        402 ms   <- NO question: remembered
+14:33:12  open_app {"app":"firefox"}  allowed   ok        403 ms   <- a second app asks on its own
+
+approvals: ('app','discord','b6f5764d…', 2026-09-04 14:32:24)
+           ('app','firefox','1a5511df…', 2026-09-04 14:33:12)
+```
+
+**Note the decline recorded a row and NO approval** — FR-149's
+`test_a_declined_first_use_records_nothing_and_asks_again` proven live — and the
+403-404 ms durations are the healthy launch signature (the 400 ms grace timed
+out, so the process was alive).
+
+**What this does NOT close is OQ-69.** Two approvals is not a week, and the
+question is the BURDEN, not the mechanism. Keep using it and re-read the count.
+
+**This paragraph said "has never fired at a microphone" for half an hour after it
+had.** It is the ordinary shape of a doc that records intent: the block was
+written before the session that ran it, and nothing made the two meet. The
+script below is kept because it is still the right script for the next machine,
+and because §G1's own step 5 was pointing at the wrong database (D36).
+
+The original script, ninety seconds:
 
 | step | say / run | expect |
 | :-- | :-- | :-- |
@@ -1073,7 +1101,18 @@ at the machine, and it is ninety seconds:
 | 2 | *"open discord"* | **"Do you want me to open Discord? I'll remember."** — NOT a launch |
 | 3 | *"yes"* | Discord opens, and one row appears in `approvals` |
 | 4 | *"open discord"* again | it opens with **NO question** |
-| 5 | `sqlite3 ~/.local/share/friday/memory.db 'SELECT kind, subject, argv_sha256, approved_at FROM approvals;'` | exactly one row, `kind='app'`, `subject='discord'` |
+| 5 | `sqlite3 ~/.local/state/friday/memory.db 'SELECT kind, subject, argv_sha256, approved_at FROM approvals;'` | exactly one row, `kind='app'`, `subject='discord'` |
+
+**The path in step 5 is `state`, not `share`, and getting it wrong is silent.**
+Until 2026-09-04 this table said `~/.local/share/friday/...`, which is where the
+MODELS live; `config.MEMORY_DB` is `XDG_STATE_HOME/friday/memory.db`.
+`sqlite3` on a path that does not exist **creates an empty database** and then
+answers `no such table: approvals` — so a wrong path reads exactly like a
+FIRST_USE that never fired, in the one check written to prove it did. That is
+M-L4's shape (a DB check that created the database it then reported on) reappearing
+in the instructions rather than in the code. It cost a session on 2026-09-04 and
+left a stray zero-byte file behind. `tests/test_doc_paths.py` now fails if any
+tracked document names a `friday/*.db` path that is not `config.MEMORY_DB`.
 
 **If step 4 still asks**, the store is not reaching the turn rather than the
 tier being wrong: `Daemon.__init__` builds `self._approvals` from the same `db`

@@ -6252,3 +6252,185 @@ are new machinery in the exact place this repo has been burned by proxies
 the mic was live or dead). One line of honest prose beats a check that cannot
 fail. If a future swap makes chat regression a recurring cost, that is when it
 earns its build.
+
+---
+
+## ADR-127 — Three defects the whole gate was green over: a handler that raised instead of speaking, a document that named the wrong database, and the slowest turn class writing no row at all
+
+**Date:** 2026-09-04 (later) · **Status:** ACCEPTED · **Defects:** D35, D36, D37
+
+### Context
+
+A read-only architecture and security audit of the tree, run cold against the
+code rather than the docs (the ADR-108 method: *"a doc records the FIX and not
+the REGRESSION"*). Every gate was green when it started and every gate is green
+now — `pytest` 653, `eval` 81/81, `selftest` 10/10, grammars byte-identical.
+The three defects below were all sitting under that.
+
+They have nothing in common as bugs. They have one thing in common as *misses*:
+**each lives in the gap between two things that are individually well tested.**
+That is M2's sentence — the suite tests functions, not wiring — for the third
+time, and it now has two new shapes: the gap between a handler and its
+exception, and the gap between a document and the code it instructs you to run.
+
+### The three
+
+**D35 — `handlers.py:138` caught a name it never imported.**
+
+`_plan_remember` has `except (SchemaError, KeyError)`. Criterion 3.4 (ADR-125)
+moved that body from `turn.py` — which imports `SchemaError` — into
+`handlers.py`, which does not. Evaluating the except clause therefore raised
+`NameError` **from inside the handler**, on both reachable triggers:
+
+```
+{'key': 'music', 'value': '   '} -> NameError name 'SchemaError' is not defined
+{'key': '???',   'value': 'jazz'} -> NameError name 'SchemaError' is not defined
+```
+
+Both reach it from the planner, because `validate.py` rejects only an **empty**
+text param: `"   "` and `"???"` pass validation, then `store.prefs.resolve`
+raises on the whitespace value and `canonical_key` raises on the key that slugs
+to empty.
+
+**Why 653 tests could not see it.** `daemon.py:510` catches `Exception` and
+speaks "Something went wrong." A broken handler is indistinguishable from any
+other failure from the outside — the user hears the same sentence either way,
+and no test drove `remember_preference` with a value the validator lets through
+but `resolve` does not. **The generalisation: a broad `except Exception` at the
+top of a turn converts every handler defect into the same spoken line, so the
+handler's own error path needs its own test or nothing is watching it.**
+
+**D36 — the check that proves FIRST_USE fired named a path that does not exist.**
+
+`docs/reality-check.md` §G1 step 5 and `progress.md`'s START HERE both said
+`sqlite3 ~/.local/share/friday/memory.db`. `config.MEMORY_DB` is
+`XDG_STATE_HOME/friday/memory.db`; `~/.local/share/friday/` is where the
+**models** live.
+
+The failure is silent and it fails in the worst direction: **`sqlite3` creates
+an empty database at a missing path** and then answers `no such table:
+approvals` — which reads exactly like a FIRST_USE that never fired, in the one
+command written to prove it did. That is M-L4's shape (a DB check that created
+the database it then reported on) having **moved out of the code and into the
+instructions**, where no test was looking. It cost a session on 2026-09-04 and
+left a stray zero-byte file behind.
+
+**D37 — `chat` wrote no audit row, so the slowest turn class was invisible.**
+
+`_h_chat` returned a `TurnResult` and recorded nothing. `just stats` reads
+`action_audit`. Chat TTFA was measured at p50 **7177 ms** before ADR-094 capped
+the reply (against 1858–2466 ms for a direct action), and **not one of the 192
+rows in the live database was a chat turn.** Every latency conversation this
+project has had was therefore about the cheap half of the system, and the
+chat:action ratio — the number the whole "is a 12B worth it" question turns on
+(ADR-126) — was unknowable from the data the project collects.
+
+### Decision
+
+**D35: import the name.** One line. The test drives `run_turn`, not
+`_plan_remember`, because the wiring is what broke (M2).
+
+**D36: correct all three sites, and pin them.** `tests/test_doc_paths.py` scans
+every tracked `*.md` outside `docs/archive/` for a `~/…friday….db` path and
+fails unless it equals `config.MEMORY_DB`. ADR-042 wrote a coupling down in
+prose and prose prevented nothing; `tests/test_stt_hotwords.py` exists for that
+reason and so does this. The FAIL path was demonstrated by putting the wrong
+path back.
+
+**Two things the test learned about itself, both by failing.** First, it caught
+**this ADR** — the paragraph above quotes the wrong path as the defect it
+describes, and the test cannot tell a quotation from an instruction. `adr.md` is
+therefore excluded, for the same reason `docs/archive/` is: a decision record
+must be able to write down what went wrong, and nobody runs a command out of
+one. Second, and found while making that exclusion: a check that only forbids a
+wrong value **goes green when the value is deleted**. `RUNBOOKS` names the two
+documents that actually hand the next session a `sqlite3 … approvals` command
+and asserts they still carry it — demonstrated by replacing the path with
+`<the database>` and watching it fail. That is `gpu_arch`'s lesson (a check that
+cannot fail is worthless) applied to a check written the same afternoon.
+
+**D37: one audit row per chat turn, and the row carries NOTHING.**
+
+```python
+params={},  # invariant #7: never the utterance, never the reply
+```
+
+Both halves of a chat turn are exactly what may never reach disk: the utterance
+is a raw transcript (FR-26) and the reply is raw model output (FR-57). The row
+records **that** a chat turn happened and **how long** it took, which is the
+entire fact worth keeping. `outcome` is `"ok"` unless the reply is
+`CHAT_FALLBACK` — `generate_reply` swallows every exception (FR-26), so without
+that conditional the row would report a healthy chat turn while llama-server was
+down: a check that cannot fail, inside the row added to make chat measurable.
+
+Verified live against the real model, not only in a stub:
+
+```
+plan   : chat dispatched: False
+spoken : I am doing wonderful, thank you for asking. How can I make your day easier?
+row    : {'request_id': 'live-chat-1', 'tool_id': 'chat', 'args_redacted': '{}',
+          'policy_decision': 'allowed', 'outcome': 'ok', 'duration_ms': 1496}
+```
+
+**Two more defects fell out of D37, by reading the CONSUMER instead of only the
+producer** — "grep for the class, not the ticket":
+
+- **`just stats` would have crashed on the first chat row.** `by_class` was a
+  hand-listed dict of six names that `query_audit_stats` indexes directly, so a
+  class not in that list raises `KeyError`. The latency tool would have died on
+  the class it was being extended to measure. It is now derived from
+  `ACTION_CLASSES`.
+- **`file_open` had no stats class at all** and fell through to `"other"` — four
+  live rows, invisible, since G12. It is `detach=True` in the registry, so it
+  pays the same 400 ms launch grace every other launch pays. `ACTION_CLASSES` is
+  one more hand-written list that names capabilities, and every one of those has
+  gone stale at least once (D24, D26, D31, F2). `test_stats.py` now asserts
+  every capability except `none` has a class.
+
+`chat` is its own class, not `"other"`: chat generation measured **1496 ms**
+against a planner turn's ~700 ms, and bucketing two latency classes together is
+F29 exactly.
+
+### Consequences
+
+- `pytest` **653 → 684** (+2 D35, +4 D37, +2 stats, +23 doc-path).
+- `eval` **81/81, regressions 0**; grammars byte-identical; `selftest` **10/10**;
+  `bootstrap --check` 11/11; injection 20/20; adversarial 17; egress 8.
+- **Six mutations demonstrated RED and reverted** (ADR-116 method; the file was
+  copied aside and copied back, never `git checkout` — its amendment, which cost
+  ~700 lines of uncommitted work on 2026-09-04 when it was read and not
+  followed): the `SchemaError` import; `params={}` → the reply and the
+  utterance; the `outcome` conditional; the whole `arecord`; the `"chat"` class;
+  and the hand-listed `by_class`.
+- `just stats` grows a **chat** row as soon as a daemon running this code takes
+  a conversational turn. **The daemon running right now predates it** — it
+  started 14:31:30 and these files are later — so the first chat row appears
+  after a restart. Asking `systemctl show` rather than assuming is the whole of
+  M16.
+- No diagram contradicted: `02-tool-call-loop.md` depicts the action enum and
+  the trust boundary, `04-trust-boundaries.md` names no disk sinks, and
+  `01-turn-lifecycle.md` stops at the confirm window. Checked, not assumed.
+
+### Rejected
+
+**Auditing `none`, `read_notes`, `list_reminders` and `resume_dnd` too.** They
+are the other four capabilities that write no row. Three are `Risk.NONE`
+read-only and `none` is not an action, so none of them has the property that
+made chat worth the change: an expensive, invisible turn. Adding rows for them
+is churn in the table `mine_habits` and `just stats` both read, for no question
+anyone has. Recorded as **OQ-70** rather than defaulted, because "every turn
+writes a row" is a defensible position and this is a judgement call, not a fact.
+
+**Deriving `ACTION_CLASSES` from `capabilities.py`.** It would close the stale
+list for good — the Phase 3 move. But a class is a LATENCY judgement, not a
+property of the capability: `file_open` is a launch because `detach=True`, and
+`chat` is its own class because it is 2× a planner turn. Neither is readable
+from the record without adding a field whose only consumer is `just stats`. The
+coverage test buys the same protection for two lines. If a third latency class
+argues about where it belongs, revisit.
+
+**Making `daemon.py`'s `except Exception` narrower** so a handler defect is
+audible. It is the FR-26 control that stops a raw exception reaching the user,
+and loosening it to expose D35-shaped bugs trades a real guarantee for a
+debugging convenience. The durable fix is the one taken: a test per handler
+error path.
