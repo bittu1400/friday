@@ -46,10 +46,14 @@ regressions 0**, six mutations RED. **The same audit closed OQ-69's mechanism
 half off the live tables** — FIRST_USE asked, was declined with no approval
 written, asked again, was approved, then dispatched with NO question, and a
 second app asked on its own (14:31-14:33). What OQ-69 owes is the BURDEN.
-**The audit's top structural finding is not a defect and is the next job:**
-`plan.gbnf` constrains the action NAME only — `params ::= {string:string}` — so
-every enum value is free text the model must SPELL, which is where D19, D20 and
-D34 all came from. See NEXT SESSION. <<<**
+**The audit's top structural finding is FIXED (ADR-128):**
+`plan.gbnf` previously constrained the action NAME only (`params ::= {string:string}`),
+which was where D19, D20 and D34 came from. The seven machine-independent closed enum
+actions (`system_volume.direction`, `system_brightness.direction`, `system_media.action`,
+`system_wifi.state`, `hypr_workspace.workspace`, `hypr_window.action`, `dictation_mode.action`)
+are now constrained server-side in GBNF. `open_app.app` is explicitly kept free in
+`action-generic` to preserve machine independence and retain fail-closed diagnostics.
+`pytest` **685 → 687**, `eval` **81/81 regressions 0**, mutation demonstrated RED. <<<**
 
 **>>> 2026-09-04 (later): PHASE 3 IS COMPLETE — ALL NINE CRITERIA.**
 3.1/3.2/3.8 were ADR-123; **3.3, 3.5, 3.9 are ADR-124** and **3.4, 3.6, 3.7 are
@@ -426,18 +430,16 @@ todo list, the runnable commands and the gate numbers — read it first. The
 short version, in order:**
 
 ```
-0.  VERIFY THE GROUND      2 min   commands in START HERE, no judgement needed
-1.  RESTART               1 min   the daemon predates ADR-127, so no `chat`
-                                  audit row can exist until it restarts
-1b. FIRST_USE AT A MIC    DONE 2026-09-04 14:31-14:33, decline path included
-2.  A WEEK OF ORDINARY USE  -> OQ-69 (the BURDEN; the mechanism is closed) and
-                               OQ-70 (read the new `chat` rows in `just stats`)
-[x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128) — seven closed
-                                        enums server-side; open_app.app kept free
-                                        to fail closed and preserve machine-independence
-[ ] 4.  THE MODEL QUESTION     only after 3 and a week of chat rows. See below
-5.  PHASE 4a / 4b / 4c     design-2026-09-02.md §11. Phase 3 unblocked them
-6.  RECORD IT              paste output into progress.md per rule 1, then commit
+[ ] 0.  VERIFY THE GROUND       2 min   commands in START HERE, no judgement needed (pytest 687, eval 81/81, selftest 10/10)
+[x] 1.  RESTART                 1 min   DONE — daemon restarted 15:45:56; chat row live in action_audit
+[x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, decline path included
+[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 4 approvals live (discord, firefox, gedit, zen_browser);
+                                        1 chat row audited (p50 1399 ms); burden measurement ongoing -> OQ-69, OQ-70
+[x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128, FR-153) — 7 closed enums server-side;
+                                        open_app.app kept free; pytest 685 -> 687; eval 81/81; mutation RED
+[ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
+[ ] 5.  PHASE 4a / 4b / 4c      design-2026-09-02.md §11. Phase 3 unblocked them
+[x] 6.  RECORD IT               DONE — ADR-128, FR-153, evidence pasted in progress.md
 ```
 
 **A COLD AUDIT ON 2026-09-04 (last) FOUND THREE DEFECTS UNDER A COMPLETELY GREEN
@@ -1450,4 +1452,5 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The row writes nothing sensitive, it is just an audit row" | On the `chat` path both halves are exactly what invariant #7 forbids: the utterance is a raw transcript (FR-26), the reply is raw model output (FR-57). The row is `params={}` and the test asserts `args_redacted == "{}"` rather than the absence of particular strings — an absence test passes for every string you did not think of. And note what it may never grow into: a length, a topic or a token count all start describing what was said (D37, ADR-127). |
 | "I fixed the producer, so the feature is done" | Read the CONSUMER. Adding the `chat` audit row would have made `just stats` raise `KeyError` on its first row — `by_class` was a hand-listed dict of six names that `query_audit_stats` indexes directly, so the latency tool would have died on the class it was being extended to measure. The same read found `file_open` with **no stats class since G12**, four live rows bucketed as `other`. **Grep for the class, not the ticket** — and the class includes whoever reads what you just started writing. |
 | "A test that forbids the wrong value is enough" | It goes green when the value is DELETED. `tests/test_doc_paths.py` as first written forbade the wrong database path and would have passed if the `sqlite3` command were removed from both runbooks entirely — demonstrated by replacing it with `<the database>`. Pin the positive too: `RUNBOOKS` asserts the command is still there. `gpu_arch`'s lesson, re-learned the same afternoon it was written. |
-| "The grammar constrains the plan, so the params are safe" | It constrains the action NAME. `plan.gbnf` line 7 is `pair ::= string ws ":" ws string` — every enum value is **free text the model has to spell**, caught afterwards by `validate.py`. It fails closed, so it is not a hole, but it is where **D19** (the model echoed the prompt's own example as an enum value), **D20** (invented params on a no-param action) and **D34** (`easy-effects`) all came from. Constraining the seven small machine-independent enums is half a day and zero prompt tokens. **Do NOT constrain `open_app.app`:** the enum is generated so the grammar would stop being reproducible, and a constrained `app` **cannot fail closed** — instead of naming the id it could not find, the model gets forced into some other legal id and opens the wrong application. |
+| "The grammar constrains the plan, so the params are safe" | It USED TO constrain the action NAME only (`pair ::= string ws ":" ws string`), which was where **D19** (the model echoed the prompt's own example as an enum value), **D20** (invented params on a no-param action) and **D34** (`easy-effects`) all came from. **Fixed (ADR-128):** the seven machine-independent closed enum actions are now server-side constrained in `plan.gbnf`. But **do NOT constrain `open_app.app`:** the enum is generated so the grammar would stop being reproducible, and a constrained `app` **cannot fail closed** — instead of naming the id it could not find, the model gets forced into some other legal id and opens the wrong application. |
+

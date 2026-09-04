@@ -1797,7 +1797,9 @@ table. **The decline path was not even in §G1's script** and it worked.
 
 **What is still open is only the BURDEN**, which is what the question actually
 asks: does the count of `approvals` settle at roughly the number of applications
-the owner uses, or does it keep climbing? Two rows is not a week. Unchanged:
+the owner uses, or does it keep climbing? Two rows was not a week; as of 2026-09-04
+post-audit, 4 approvals are live in `approvals` (`discord`, `firefox`, `gedit`,
+`zen_browser`) and observation is ongoing. Unchanged:
 `SELECT COUNT(*) FROM approvals` — at
 `~/.local/state/friday/memory.db`, **`state`, not `share`** (D36; a wrong path
 CREATES an empty database and then reports `no such table`, which reads exactly
@@ -1832,7 +1834,9 @@ unmeasurable.
 
 **What would answer it:** a week of the new `chat` rows. If `just stats` reads
 usefully with chat in it, the same argument extends to `none`; if the table is
-already noisy, it does not.
+already noisy, it does not. (Update 2026-09-04 post-audit: the first `chat` row
+is recorded — `duration_ms=1399`, `args_redacted='{}'` — and parses cleanly in
+`just stats` as `chat: p50 1399.0 ms`).
 
 **Default if the owner declines to decide:** leave them unaudited. It is the
 current behaviour, it is reversible in four lines, and ADR-127 declined to

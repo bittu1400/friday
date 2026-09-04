@@ -12,7 +12,21 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
-**>>> 2026-09-04 (LAST): A COLD READ-ONLY AUDIT OF THE TREE FOUND THREE DEFECTS
+**>>> 2026-09-04 (post-audit / ADR-128): CLOSED ENUM PARAMS ARE CONSTRAINED IN plan.gbnf (STEP 3, ADR-128).**
+`plan.gbnf` previously constrained the action name only while params were generic `{string: string}`
+— the structural cause of D19, D20, and D34. The seven machine-independent closed enum actions are now
+server-side constrained in GBNF: `system_volume.direction`, `system_brightness.direction`,
+`system_media.action`, `system_wifi.state`, `hypr_workspace.workspace`, `hypr_window.action`,
+`dictation_mode.action`. `open_app.app` is explicitly kept in `action-generic` (free-text string) to
+preserve host machine independence (no XDG leakage into static grammar) and preserve fail-closed
+diagnostics (`E_TOOL_NOTFOUND: app '<name>' not installed` instead of forced incorrect app launch).
+Gates: `pytest` **685 → 687**, `eval` **81/81 (100%), 0 regressions**, `selftest` **10/10 PASS**,
+`bootstrap --check` **11/11 PASS**, grammars byte-identical. Hard invariant #5 mutation demonstrated RED:
+mutating `open_app` exclusion turned 3 tests in `tests/test_schema.py` RED. Step 2 status: daemon running
+since 15:45:56; 4 approvals live in `~/.local/state/friday/memory.db` (`discord`, `firefox`, `gedit`, `zen_browser`);
+1 `chat` row recorded in `action_audit` (`duration_ms=1399`, parsed by `just stats`); ongoing burden observation continues. <<<**
+
+**>>> 2026-09-04 (last): A COLD READ-ONLY AUDIT OF THE TREE FOUND THREE DEFECTS
 UNDER A COMPLETELY GREEN GATE, AND ALL THREE ARE FIXED (ADR-127).** Every gate
 was green when it started: `pytest` 653, `eval` 81/81, `selftest` 10/10,
 grammars byte-identical. **D35** — `handlers.py` caught `SchemaError` without
@@ -6339,7 +6353,232 @@ and the trust boundary, `04-trust-boundaries.md` names no disk sinks, and
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-04 (last)**, after the cold audit) <<<
+## 2026-09-04 (post-audit): Constraining Closed Enum Params in plan.gbnf (Step 3, ADR-128)
+
+**Execution of Step 3 from the previous START HERE block.**
+
+### The problem
+
+Prior to ADR-128, `plan.gbnf` constrained the action name, but parameters were free text:
+```gbnf
+params ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
+pair   ::= string ws ":" ws string
+```
+Every enum value was free text the model had to spell. Application validation failed closed,
+but free text was the root cause of:
+- **D19**: The model echoed prompt examples back as enum values.
+- **D20**: The model hallucinated params on parameterless actions (`set_dnd`).
+- **D34**: The model emitted `easy-effects` when the generator produced `easy_effects`.
+
+### The fix
+
+1. Constrain the 7 machine-independent closed enum actions in GBNF directly:
+   - `system_volume.direction`: `"up" | "down" | "mute" | "unmute" | "toggle_mute"`
+   - `system_brightness.direction`: `"up" | "down"`
+   - `system_media.action`: `"play_pause" | "play" | "pause" | "next" | "previous" | "stop"`
+   - `system_wifi.state`: `"on" | "off"`
+   - `hypr_workspace.workspace`: `"1" | "2" | ... | "10"`
+   - `hypr_window.action`: `"focus_left" | "focus_right" | "focus_up" | "focus_down" | "fullscreen" | "close"`
+   - `dictation_mode.action`: `"start" | "stop"`
+2. Derived in `friday/llm/schema.py` from `Capability.params`.
+3. Note: GBNF rule identifiers in llama.cpp reject underscores (`_`) with HTTP 400. All derived rule names use hyphens (`-`), e.g., `action-system-volume`.
+4. `open_app.app` is explicitly kept in `action-generic` (free-text string):
+   - **Machine-independence**: `APPS` is generated from local `.desktop` files. Baking it into GBNF would make `plan.gbnf` host-dependent and break byte-identical reproducibility.
+   - **Fail-closed**: If constrained, an uninstalled or misspelled app forces the sampler into an incorrect legal app token, launching the wrong program silently. Kept free, it fails closed with `E_TOOL_NOTFOUND: app '<name>' not installed`.
+
+### Gates after the change
+
+```
+$ .venv/bin/python -m pytest -q
+687 passed, 2 warnings in 6.41s               # 685 -> 687
+
+$ .venv/bin/python -m friday.eval_harness
+passed 81/81  (100%)   known-failing: 0    regressions vs baseline: 0
+
+$ .venv/bin/python -m friday.selftest         # 10/10 PASS, rc=0
+[PASS] llama-server    Reachable at http://127.0.0.1:8080 (status: ok)
+[PASS] searxng         Reachable at http://127.0.0.1:8888 (HTTP 200)
+[PASS] gpu_arch        NVIDIA GeForce RTX 5070 Laptop GPU (compute 12.0 - sm_120 verified)
+[PASS] llm_on_gpu      llama-server pid 205338 holds 7010 MiB VRAM (GPU offload live)
+[PASS] database        SQLite at /home/bittusah/.local/state/friday/memory.db (mode 0600, dir 0700, schema v4)
+[PASS] audio_devices   Input: default | Output: default
+[PASS] panic_switch    Disarmed (normal dispatch allowed)
+[PASS] socket_binds    Services bound to 127.0.0.1 loopback only (no 0.0.0.0 / wildcard listeners)
+[PASS] power_profile   Profile is 'balanced'
+[PASS] unit_deployed   Running friday.service matches the repo (reload clean, 4 directives verified)
+
+$ .venv/bin/python scripts/bootstrap.py --check
+[BOOTSTRAP SUCCESS] All systems, models, and services verified.   # 11/11
+
+$ .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/
+(clean — byte-identical)
+```
+
+### Hard Invariant #5 Mutation Verification
+
+Demonstrated in `tests/test_schema.py`:
+Changing the `open_app` exclusion in `friday/llm/schema.py` to allow `open_app` to be constrained produced 3 test failures RED:
+- `test_plan_grammar_matches_schema`
+- `test_plan_grammar_constrains_the_seven_closed_enums`
+- `test_plan_grammar_does_not_constrain_open_app`
+Cleanly restored from `.bak`.
+
+### Step 2 Status (Measured Live)
+
+- Daemon active since 15:45:56 under `balanced` power profile.
+- Approvals table in `~/.local/state/friday/memory.db`: 4 applications approved (`discord`, `firefox`, `gedit`, `zen_browser`).
+- Audit log in `~/.local/state/friday/memory.db`: 1 `chat` row recorded (`duration_ms=1399`, `args_redacted='{}'`), parsed cleanly by `just stats` as `chat: p50 1399.0 ms`.
+- User burden observation is ongoing (OQ-69, OQ-70).
+
+### Decisions taken, and where they are written
+
+| decision | where |
+| :-- | :-- |
+| Constrain 7 closed enum actions in GBNF server-side; keep `open_app.app` free | **ADR-128** · **FR-153** · **FR-22** |
+| Derive GBNF enum rules from `Capability.params` in `schema.py` | ADR-128 · `friday/llm/schema.py` |
+| Hyphenated rule names in GBNF (llama.cpp disallows `_` in rule identifiers) | ADR-128 |
+| OQ-69 and OQ-70 status updated with 4 live approvals and 1 audited chat row | `open-questions.md` |
+| T2 Control 1 strengthened with server-side GBNF constraints | `threat-model.md` |
+| Diagram 02 Turn 1 box annotated with ADR-128 closed enum constraints | `diagrams/02-tool-call-loop.md` |
+
+**No diagram was contradicted.** `02-tool-call-loop.md` Turn 1 box updated with ADR-128 constraints.
+
+---
+
+## >>> START HERE: NEXT SESSION (written **2026-09-04**, after Step 3 / ADR-128) <<<
+
+**Read this whole block before touching anything. Everything in it is measured.**
+
+### The state in seven lines
+
+- **STEP 3 IS COMPLETE (ADR-128, FR-153):** The seven machine-independent closed enum
+  actions (`system_volume.direction`, `system_brightness.direction`, `system_media.action`,
+  `system_wifi.state`, `hypr_workspace.workspace`, `hypr_window.action`, `dictation_mode.action`)
+  are server-side constrained in `plan.gbnf`. `open_app.app` is explicitly free-text to preserve
+  host machine-independence and retain fail-closed diagnostics (`E_TOOL_NOTFOUND: app '<name>' not installed`).
+- **STEP 2 IS IN PROGRESS:** Daemon restarted at 15:45:56 under `balanced` profile; 4 approvals live
+  in `~/.local/state/friday/memory.db` (`discord`, `firefox`, `gedit`, `zen_browser`); 1 `chat` row
+  audited in `action_audit` (1399 ms, `args_redacted='{}'`); burden measurement ongoing (OQ-69, OQ-70).
+- **All Phase 3 criteria are closed (ADR-123, ADR-124, ADR-125); ADR-127 defects (D35, D36, D37) fixed.**
+- **Gates:** `pytest` **687 rc=0**, `eval` **81/81 regressions 0 (100%)**, `selftest` **10/10 rc=0**,
+  `bootstrap --check` **11/11**, grammars **byte-identical**, `SYSTEM_POLICY` **1401 tokens**,
+  `turn.py` **246 lines**, app enum **167 as scanned 2026-09-04** (generated — do not pin it).
+- **Mutations demonstrated RED:** 2 tests in `tests/test_schema.py` pin enum constraints and `open_app` exclusion.
+  Mutating `open_app` inclusion failed 3 tests RED; cleanly reverted.
+- **Power profile MUST be `balanced`:** Check `powerprofilesctl get` before running latency benches or selftest.
+- **Next up: Step 4 (The Model Question)** only after a week of chat rows accumulate, followed by Phase 4.
+
+### THE TODO LIST, in order
+
+```
+[ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed (pytest 687, eval 81/81, selftest 10/10)
+[x] 1.  RESTART                 1 min   DONE — daemon restarted 15:45:56; chat row live in action_audit
+[x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, incl. the decline path
+[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 4 approvals live (discord, firefox, gedit, zen_browser);
+                                        1 chat row audited (p50 1399 ms); burden measurement ongoing -> OQ-69, OQ-70
+[x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128, FR-153) — 7 closed enums server-side;
+                                        open_app.app kept free; pytest 685 -> 687; eval 81/81; mutation RED
+[ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
+[ ] 5.  PHASE 4a / 4b / 4c      design-2026-09-02.md §11. Phase 3 unblocked them
+[x] 6.  RECORD IT               DONE — ADR-128, FR-153, evidence pasted below
+```
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 687 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 81/81 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+powerprofilesctl get                                     # MUST be `balanced`
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # MUST stay clean
+ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
+.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"      # generated; 167 on 2026-09-04
+wc -l friday/turn.py                                     # 246; criterion 3.4 is <400
+.venv/bin/python -m friday.stats_cli --tools             # verify chat and launch rows
+sqlite3 ~/.local/state/friday/memory.db 'SELECT kind, subject, approved_at FROM approvals;'  # verify approvals
+```
+
+### 1. Daemon & FIRST_USE Status
+
+- The daemon was restarted at **15:45:56** (post-ADR-127), so `chat` audit rows and FIRST_USE are live.
+- Approvals live in `~/.local/state/friday/memory.db`: 4 apps approved (`discord`, `firefox`, `gedit`, `zen_browser`).
+- The FIRST_USE test script:
+```bash
+# say: "open <new-app>" -> expect "Do you want me to open <app>? I'll remember."
+# say: "yes"            -> it opens and records the grant
+# say: "open <new-app>" -> expect NO question
+sqlite3 ~/.local/state/friday/memory.db 'SELECT kind, subject, approved_at FROM approvals;'
+```
+**`state`, not `share`** — path pinned by `tests/test_doc_paths.py`.
+
+### 2. OQ-69 & OQ-70 — A week of ordinary use
+
+- **OQ-69 (User burden):** Mechanism is closed (decline, accept, remember verified live at mic).
+  What is being evaluated is the human burden: does `SELECT COUNT(*) FROM approvals` settle near
+  the number of distinct applications actually used, or churn? 4 apps approved so far.
+- **OQ-70 (Audit rows):** `chat` now records audit rows (`duration_ms=1399`, `args_redacted='{}'`)
+  and displays cleanly in `just stats`. Evaluation of whether the remaining 4 read-only actions
+  (`none`, `read_notes`, `list_reminders`, `resume_dnd`) should audit is ongoing based on real-world log clarity.
+
+### 3. Closed Enum Constraints in plan.gbnf (ADR-128, FR-153) — DONE
+
+- The seven machine-independent closed enum actions are server-side constrained in `plan.gbnf`:
+  `system_volume.direction`, `system_brightness.direction`, `system_media.action`, `system_wifi.state`,
+  `hypr_workspace.workspace`, `hypr_window.action`, `dictation_mode.action`.
+- Derived in `friday/llm/schema.py` from `Capability.params`.
+- GBNF rule identifiers use hyphens (`-`), not underscores (`_`), complying with `llama.cpp` parser rules.
+- `open_app.app` is explicitly kept in `action-generic` (free string) to preserve machine-independence
+  and fail-closed logging (`E_TOOL_NOTFOUND`).
+- Pinned by `tests/test_schema.py` (+2 tests).
+
+### 4. The model question — only after 3 + a week of `chat` rows
+
+- With Step 3 complete, D19 and D20 are structurally eliminated by the grammar.
+- Chat rows are now accumulating in `action_audit` (D37 fixed).
+- After a week of chat data, re-bench Qwen behind the constrained grammar. `just eval` must hold 81/81,
+  and chat is judged by ear (ADR-126).
+
+### 5. After that, Phase 4
+
+`design-2026-09-02.md` §11:
+- **4a** cheap width (`system_status`, `local_time`, window/workspace targeting)
+- **4b** filesystem work
+- **4c** multi-action
+A new capability requires: 1 `Capability(...)` in `capabilities.py`, 1 handler row in `handlers.py`,
+>=2 eval fixtures, and if it does work, an audit call and a stats class in `stats_cli.py`.
+
+### The docs were re-synced to the tree at the end of this session
+
+Every doc below matches the code as committed:
+
+| doc | what changed |
+| :-- | :-- |
+| `adr.md` | **ADR-128** — Constraining the seven closed enum parameters in `plan.gbnf`. Detailed context (D19, D20, D34), decisions, machine-independence & fail-closed rationale for `open_app.app`, consequences and rejections |
+| `spec.md` | **FR-153** server-side closed enum constraints in `plan.gbnf` for the 7 machine-independent actions, `open_app.app` excluded; **FR-22** amended |
+| `architecture.md` | `plan.gbnf` entry updated with 7 closed enums constrained; `schema.py` describes deriving GBNF rules for closed enums from `Capability.params` |
+| `threat-model.md` | T2 Control 1 reinforced with server-side GBNF constraints; §6 change log carries ADR-128 row |
+| `diagrams/02-tool-call-loop.md` | TURN 1 `plan.gbnf` annotated with ADR-128 server-side closed enum constraints |
+| `README.md` | Pytest count updated to 687; status block updated with ADR-128 summary |
+| `CLAUDE.md` | Top banner, gate status (687 tests), ADR count (128), TODO list, and trap table row 1457 updated for ADR-128 |
+| `progress.md` | Top session banner, session log for Step 3, new START HERE block, Step 3 marked DONE, Step 2 in progress |
+| `open-questions.md` | OQ-69 updated with 4 live approvals (`discord`, `firefox`, `gedit`, `zen_browser`); OQ-70 updated with 1 live `chat` row |
+
+### What you need to know about GBNF rule identifiers
+
+`llama.cpp` grammar parser disallows underscores (`_`) in rule identifiers (throws `HTTP 400: failed to parse grammar`).
+All derived rule names in `friday/llm/schema.py` translate underscores to hyphens (e.g., `action-system-volume`).
+
+### Power profile reminder
+
+Always verify `powerprofilesctl get` is `balanced` before running latency benches or selftest.
+
+---
+
+## >>> (superseded 2026-09-04 by the block above) START HERE: NEXT SESSION (written **2026-09-04 (last)**, after the cold audit) <<<
 
 **Read this whole block before touching anything. Everything in it is measured.**
 

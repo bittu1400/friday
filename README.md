@@ -73,7 +73,7 @@ fail if you forget a piece. The safety net is that `SYSTEM_POLICY` assembles
 **byte-identical** and both grammars still regenerate byte-for-byte.
 
 ```text
-.venv/bin/python -m pytest   685 passed, rc=0 (87 test files in tests/)
+.venv/bin/python -m pytest   687 passed, rc=0 (87 test files in tests/)
 just eval                 81/81, regressions 0 (100%)
 just test-injection       20/20 blocked
 just test-egress          8 passed (a real egress check since ADR-110)
@@ -132,6 +132,7 @@ passes and a live-voice pass found defects that unit tests missed when they bypa
   audit closed OQ-69's mechanism half from the audit tables** — FIRST_USE asked,
   was declined with no approval written, asked again, was approved, then
   dispatched with no question; a second application asked on its own.
+- **Closed enum parameter constraints (ADR-128), 2026-09-04.** `plan.gbnf` previously constrained the action name only while params were generic `{string: string}` — the root cause of D19, D20 and D34. The seven machine-independent closed enum actions are now server-side constrained in GBNF: `system_volume.direction`, `system_brightness.direction`, `system_media.action`, `system_wifi.state`, `hypr_workspace.workspace`, `hypr_window.action`, `dictation_mode.action`. `open_app.app` is kept free in `action-generic` to preserve host machine-independence and allow failing closed with an informative log rather than forced hallucinations. `pytest` **685 → 687**, `eval` **81/81 (100%)**, 0 regressions.
 - **Verification pass (ADR-110/111/112):** the phases above were then checked against the machine rather than against their own write-ups, and three claims did not survive. `just test-egress` still could not observe a connection, so it was rewritten as a real guard over `socket.getaddrinfo`/`socket.socket.connect` with a demonstrated FAIL path (ADR-110). `pytest -q` had been crashing at session finish on a leaked PortAudio stream (ADR-111). And the new egress check immediately found that **`import onnxruntime` transmits to Microsoft telemetry on import** — on Linux, with no inference, on every daemon start for the life of the project; fixed with `ORT_DISABLE_TELEMETRY=1` (ADR-112).
 
 **On "local-first":** it is true, and it was not fully true before 2026-09-02.

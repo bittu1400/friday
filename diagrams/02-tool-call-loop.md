@@ -37,6 +37,12 @@ internet steering a local action.**
    |   create/read_notes           ||
    |   clipboard_read/set          ||
    |   dictation_mode |            ||
+   |                  |            ||
+   |  * 7 closed enum |            ||
+   |    actions are   |            ||
+   |    constrained   |            ||
+   |    in GBNF       |            ||
+   |    (ADR-128)     |            ||
   +--------+---------+            ||
            |                      ||
            v                      ||

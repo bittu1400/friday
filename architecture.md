@@ -160,10 +160,11 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
          final.gbnf         action enum = ["none"] ONLY (enforced at G7)
        schema.py            grammar + validator generator. NO LONGER the source of
                             truth: since ADR-123 `PARAM_SCHEMA` is a VIEW over
-                            `friday/capabilities.py` and this file went 216 -> 153
-                            lines. The param vocabularies are re-exported here so
-                            `from friday.llm.schema import WORKSPACE_ENUM` keeps
-                            working, but they are DECLARED with the record
+                            `friday/capabilities.py` (and since ADR-128 derives
+                            GBNF rules for the seven closed enum actions directly
+                            from `Capability.params`). The param vocabularies are
+                            re-exported here so `from friday.llm.schema import WORKSPACE_ENUM`
+                            keeps working, but they are DECLARED with the record
        prompt.py            SYSTEM POLICY + <preferences> digest assembly. BOTH
                             prompt regions are DERIVED from `capabilities.py`
                             (3.3): the action block is one `summary` per
