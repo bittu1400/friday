@@ -93,7 +93,7 @@ def test_check_database_valid(tmp_path: Path):
 
     res = check_database(db_file)
     assert res.status is Status.PASS
-    assert "schema v3" in res.message
+    assert "schema v4" in res.message
 
 
 def test_check_database_bad_perms(tmp_path: Path):

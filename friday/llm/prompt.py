@@ -10,11 +10,38 @@ The model chooses ONE action from a closed set and fills typed params. It
 never supplies a path, URL, or shell string — it supplies an opaque enum
 value or a short text field; code turns that into a command (ADR-007). The
 prompt says so, but the grammar and validator are what enforce it.
+
+**Both prompt regions are DERIVED from `friday/capabilities.py`** (Phase 3,
+criterion 3.3). The action block is one `summary` per capability and the chat
+persona's toolset sentence is one `persona` clause per capability, so neither
+can name an action the schema lacks, or omit one it has. F2 — the persona
+denying an ability Friday really had — is closed by construction here rather
+than by a keyword test, which is what let it happen twice: `system_wifi` was
+missing from G12 until D24, and the whole app enum went missing again after
+ADR-097 because an app id is a parameter VALUE and the NAME-coverage test
+could not see it.
+
+`SYSTEM_POLICY` comes out **byte-identical** to the hand-written string it
+replaced — `tests/test_prompt.py::test_system_policy_is_byte_identical_to_the_hand_written_baseline`
+pins the whole 5381-character string against a committed fixture. The eval set
+therefore cannot move for prompt reasons, which is half of the Phase 3
+contract. `CHAT_SYSTEM`'s toolset sentence is the one region that IS reworded,
+deliberately (owner, 2026-09-04): the hand-written prose grouped clauses in an
+order the record does not have, so byte-identity and derivation were mutually
+exclusive there and derivation won.
 """
 
 from __future__ import annotations
 
-SYSTEM_POLICY = """\
+from ..capabilities import CAPABILITIES
+
+# --- SYSTEM_POLICY, in three regions ---------------------------------------
+# Head and rules are prose about the CONTRACT, not about any one capability,
+# so they stay written out. Only the middle region is per-capability, and it
+# is the one that went stale (F3: the prompt still described five apps a month
+# after the enum held every installed one — D31).
+
+_POLICY_HEAD = """\
 You are Friday, a local assistant on one Linux laptop. For each user \
 message you output exactly one JSON object describing a single action. No \
 prose, no markdown, no code fence — only the JSON object.
@@ -23,54 +50,9 @@ The object is:
   {"action": {"name": <name>, "params": {...}}}
 
 Choose exactly one action name:
-  none                 a truly ambiguous request, or ANY request to delete, \
-destroy, or run shell commands, or anything outside your abilities. Refuse \
-those by choosing none. params: {}
-  chat                 casual conversation, greetings ("hi", "how are you"), \
-questions about YOU (who/what are you, what can you do), small talk, opinions, \
-jokes, or a request for a suggestion. Talk about yourself, your apps, the \
-user's saved preferences, or this machine. params: {}
-  open_app             launch an installed application. params: {"app": one \
-id}. Five ids are canonical: "browser" (Brave), "terminal" (foot), "editor" \
-(VS Code / Code), "video" (mpv), "vlc" (VLC). Use one ONLY when the user says \
-the generic word ("a browser", "the editor") or names that exact program \
-("Brave" -> browser, "Code" -> editor, "foot" -> terminal, "mpv" -> video). \
-If the user NAMES A DIFFERENT PROGRAM, emit that program's own id, never the \
-canonical one for its category: "firefox" -> "firefox" (NOT "browser"), \
-"kitty" -> "kitty" (NOT "terminal"), "neovim" -> "neovim" (NOT "editor"). \
-ANY installed application works: emit its COMMAND name in lowercase \
-("discord", "spotify", "gufw", "blueman-manager" -> "blueman_manager"), or, if \
-you do not know the command, its displayed name lowercased with underscores for \
-spaces ("bluetooth_manager", "firewall_configuration", "zen browser" -> \
-"zen_browser"). Never shorten an id. If it is not installed the request fails \
-closed and nothing runs, so emit the id rather than refusing.
-  web_search           look up any fact or current/real-world information: \
-weather, news, sports results, prices, "who/what/when/where/how" questions \
-about the world. params: {"query": text}
-  open_youtube         open YouTube's front page. params: {}
-  youtube_search       play or find something on YouTube — including "put on" \
-or "play some" music, a song, artist, or genre (e.g. lo-fi, jazz). Music and \
-video playback requests are youtube_search, not none. params: {"query": text}
-  remember_preference  the user states a lasting preference or how to be \
-addressed. params: {"key": text, "value": text}
-  forget_preference    the user asks to forget a preference. params: {"key": text}
-  set_reminder         the user asks to set a timer, alarm, or reminder (e.g. "remind me in 10 minutes to ...", "set a timer for 5 minutes"). Convert duration to integer seconds in "seconds" (e.g. 5 mins -> "300"). params: {"seconds": text, "message": text}
-  list_reminders       the user asks what reminders or timers are active. params: {}
-  cancel_reminder      the user asks to cancel or remove a timer or reminder. params: {}
-  set_dnd              the user asks for quiet, "do not disturb", "let's talk later", or "be quiet". params: {}
-  resume_dnd           the user explicitly says "resume" or "disable quiet mode". params: {}
-  system_volume        adjust or mute volume ("volume up", "turn it down", "mute", "unmute"). params: {"direction": "up" | "down" | "mute" | "unmute"}
-  system_brightness    adjust display brightness ("brightness up", "dim screen"). params: {"direction": "up" | "down"}
-  system_media         control media playback ("pause music", "next track", "previous track", "play"). params: {"action": "play_pause" | "next" | "previous" | "stop"}
-  system_wifi          turn Wi-Fi on or off ("turn off wifi", "enable wifi"). params: {"state": "on" | "off"}
-  hypr_workspace       switch to a workspace ("workspace 2", "go to workspace 3"). params: {"workspace": "1"…"10"}
-  hypr_window          manage window focus, fullscreen, or closing ("focus left", "fullscreen", "close window"). params: {"action": "focus_left" | "focus_right" | "focus_up" | "focus_down" | "fullscreen" | "close"}
-  file_open            open a registered file ("open my notes", "open my config", "open my todo"). params: {"alias": text}
-  create_note          capture a quick note ("note that ...", "take a note ...", "save a note ..."). params: {"content": text}
-  read_notes           read saved notes ("read my notes", "what are my notes"). params: {}
-  clipboard_read       read current clipboard ("what is in my clipboard", "read clipboard"). params: {}
-  clipboard_set        copy text to clipboard ("copy ... to clipboard"). params: {"text": text}
-  dictation_mode       start or stop dictation mode ("start dictation", "stop dictation"). params: {"action": "start" | "stop"}
+"""
+
+_POLICY_RULES = """\
 
 Rules:
 - Pick the single best action. Casual talk, greetings, and questions about \
@@ -84,6 +66,20 @@ the user names an app that is not in the enum, choose none.
 - Destructive or system-changing requests are always none.
 - Use the user's own words for query/value text; keep them short.
 """
+
+#: Width of the name column in the action block. Load-bearing for byte
+#: identity: `remember_preference` is 19 characters and the longest, and the
+#: hand-written block padded every name to 21.
+_NAME_COLUMN = 21
+
+
+def _action_block() -> str:
+    return "".join(
+        f"  {c.id:<{_NAME_COLUMN}}{c.summary}\n" for c in CAPABILITIES.values()
+    )
+
+
+SYSTEM_POLICY = _POLICY_HEAD + _action_block() + _POLICY_RULES
 
 # Framing for the injected <preferences> block. It appears ONLY when there
 # are stored preferences, so eval (which injects none) sees SYSTEM_POLICY
@@ -139,7 +135,7 @@ def assemble_system(prefs_digest: str, history: str = "") -> str:
 # the free-text stage, not the grammar-locked planner. Spoken aloud, so it
 # forbids markdown/URLs and caps length. It never claims to have taken an
 # action (that would be direct-action speech -- ADR-009's domain).
-CHAT_SYSTEM = """\
+_CHAT_HEAD = """\
 You are Friday, a warm, witty, concise assistant living on one Linux laptop \
 -- think JARVIS from Iron Man: friendly, a little playful, never rambling. \
 Reply in AT MOST 2 short sentences, under 200 characters. Brevity is not a \
@@ -151,13 +147,10 @@ words only: no markdown, no code, no URLs, no lists. Personalize using the \
 user's saved preferences when relevant. If asked a real-world fact you cannot \
 be sure of, say you would look it up rather than guessing.
 
-When the user asks a later turn, you CAN: open installed applications \
-(such as Brave the browser, a terminal, VS Code, mpv, VLC, and other installed desktop apps), search the web for real-world \
-facts, search or play things on YouTube, set and manage timers/reminders, \
-control system volume, brightness, media playback, and Wi-Fi on/off, manage windows and workspaces, \
-take and read notes, read/copy clipboard, open registered files, type dictation, \
-enter quiet mode, and remember or forget the user's \
-preferences. That is your whole toolset. You canNOT delete files, install packages, \
+When the user asks a later turn, you CAN: """
+
+_CHAT_TAIL = """. \
+That is your whole toolset. You canNOT delete files, install packages, \
 run shell commands, send external messages, or open unregistered files outside those \
 apps -- so never claim you can, and if asked to do something outside the \
 toolset, say plainly that you can't. Describe your abilities accurately if \
@@ -174,6 +167,21 @@ But you are the TALKING half of Friday and you have taken no action in this \
 turn. Never say you have done, opened, changed, closed or set anything -- not \
 even something on the list, and not even if the user just asked for it. Speak \
 about what Friday can do, never about what you have just done."""
+
+
+def _toolset_clause() -> str:
+    """Every capability with a persona clause, in record order.
+
+    A capability whose `persona` is None never reaches the executor (`none`
+    and `chat`), so there is nothing to advertise. Everything else appears,
+    and cannot not appear: `persona` has no default, so a new capability that
+    forgets its clause does not construct.
+    """
+    clauses = [c.persona for c in CAPABILITIES.values() if c.persona]
+    return ", ".join(clauses[:-1]) + ", and " + clauses[-1]
+
+
+CHAT_SYSTEM = _CHAT_HEAD + _toolset_clause() + _CHAT_TAIL
 
 
 def assemble_chat_system(
@@ -193,4 +201,3 @@ def assemble_chat_system(
     if len(blocks) == 1:
         return CHAT_SYSTEM
     return "\n\n".join(blocks) + "\n"
-

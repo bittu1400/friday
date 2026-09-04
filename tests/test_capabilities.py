@@ -106,3 +106,45 @@ def test_open_app_gates_settings_panels_and_asks_once_for_everything_else():
 def test_a_read_only_capability_never_confirms():
     for cid in ("none", "chat", "list_reminders", "read_notes"):
         assert CAPABILITIES[cid].risk_for({}) is Risk.NONE
+
+
+# --- criterion 3.3: the two prompt regions ----------------------------------
+
+
+def test_no_capability_can_ship_without_a_summary_or_a_persona_clause():
+    """Criterion 3.3, and F2 closed by construction.
+
+    Neither field has a default, for the same reason `risk` does not: a
+    default is how "every capability describes itself" quietly stops being
+    true. F2 is what that looks like in production — the chat persona denied
+    an ability the schema had, TWICE, months apart (`system_wifi` in D24, then
+    the whole app enum after ADR-097), and the second one survived a coverage
+    test because it checks action NAMES and an app id is a parameter VALUE.
+    """
+    with pytest.raises(TypeError):
+        Capability("stub", {}, Risk.LOW)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        Capability("stub", {}, Risk.LOW, summary="x")  # type: ignore[call-arg]
+
+    for cid, cap in CAPABILITIES.items():
+        assert cap.summary and cap.summary.strip() == cap.summary, cid
+        # `none` and `chat` never reach the executor, so there is no ability
+        # to advertise; everything else must have a clause.
+        if cid in {"none", "chat"}:
+            assert cap.persona is None, cid
+        else:
+            assert cap.persona and cap.persona.strip() == cap.persona, cid
+
+
+def test_every_summary_and_persona_clause_reaches_its_prompt():
+    """The derivation, asserted from the record's side.
+
+    `tests/test_prompt.py` pins the assembled strings; this pins that no
+    capability's text is silently dropped on the way there.
+    """
+    from friday.llm.prompt import CHAT_SYSTEM, SYSTEM_POLICY
+
+    for cid, cap in CAPABILITIES.items():
+        assert f"\n  {cid:<21}{cap.summary}\n" in SYSTEM_POLICY, cid
+        if cap.persona:
+            assert cap.persona in CHAT_SYSTEM, cid

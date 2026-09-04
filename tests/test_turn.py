@@ -18,12 +18,13 @@ class StubClient:
         return True
 
 
-def _turn(reply: str, *, dry_run: bool = True):
+def _turn(reply: str, *, dry_run: bool = True, approvals=None):
     from friday.turn import run_turn
 
     return asyncio.run(
         run_turn(
-            "whatever", StubClient(reply), request_id="t", dry_run=dry_run
+            "whatever", StubClient(reply), request_id="t", dry_run=dry_run,
+            approvals=approvals,
         )
     )
 
@@ -53,8 +54,12 @@ def test_none_speaks_out_of_scope_line() -> None:
 # covered by tests/test_web_search_turn.py.
 
 
-def test_open_app_dispatches_via_template() -> None:
-    r = _turn('{"action":{"name":"open_app","params":{"app":"browser"}}}')
+def test_open_app_dispatches_via_template(approved_apps) -> None:
+    # `open_app` is FIRST_USE (ADR-120): an app that has never been approved
+    # asks once. This test is about the outcome TEMPLATE, so the app is
+    # already approved; the gate itself is tests/test_open_app_scope.py.
+    r = _turn('{"action":{"name":"open_app","params":{"app":"browser"}}}',
+              approvals=approved_apps)
     assert r.plan_name == "open_app" and r.dispatched
     assert r.spoken.startswith("Launching Brave")  # ADR-073: a launch states what it did
 

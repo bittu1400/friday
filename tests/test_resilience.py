@@ -17,7 +17,7 @@ from friday.turn import run_turn
 from friday.voice_main import wait_for_llm
 
 
-def test_nfr9_survives_llm_crash_and_recovers():
+def test_nfr9_survives_llm_crash_and_recovers(approved_apps):
     """NFR-9: Survives kill of llama-server and recovers on next turn."""
     client = LlamaClient(base_url="http://127.0.0.1:8080")
 
@@ -47,6 +47,7 @@ def test_nfr9_survives_llm_crash_and_recovers():
                 client,
                 request_id="req_recover_2",
                 dry_run=True,
+                approvals=approved_apps,
             )
         )
         assert res2.plan_name == "open_app"

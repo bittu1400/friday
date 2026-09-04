@@ -27,11 +27,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import config
+from .capabilities import CAPABILITIES, Risk
 from .errors import E_LLM_DOWN, E_LLM_TIMEOUT, E_SCHEMA, E_TOOL_NOTFOUND, Outcome
 from .llm import chat, grounding, schema
 from .llm.client import LlamaClient, LlamaTimeout, LlamaUnreachable
 from .llm.prompt import assemble_system
 from .llm.validate import AppNotInstalledError, SchemaError, validate
+from .store.approvals import ApprovalStore, fingerprint
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore, resolve
 from .tools import executor
@@ -149,6 +151,98 @@ class TurnResult:
 
 
 
+# --- the derived gate (Phase 3, criterion 3.5; design §3.1/§3.2) ------------
+#
+# One place decides, for every capability, whether the panic switch blocks it
+# and whether it must be confirmed. Both answers come from `risk`, so a new
+# capability cannot be added without one — which is what the five hand-coded
+# `if plan.name == ...` confirm branches and the eight hand-written
+# `config.is_disabled()` blocks that used to live in this file could not
+# guarantee. Three of those five confirms were deletable in silence with the
+# whole suite green (M1), and the panic switch guarded one of eleven
+# side-effecting paths when Phase 1 found it (F1).
+
+
+async def _panic_blocked(
+    tool_id: str,
+    params: dict[str, str],
+    audit: AuditLog | None,
+    request_id: str,
+    t0: float,
+) -> str | None:
+    """The spoken line if the panic switch is engaged, else None.
+
+    Every tier above NONE is blocked, including the FIRST_USE approval write —
+    a switch that stops the launch but records the grant would come back on to
+    a machine that has quietly agreed to things (design §3.2). Read-only
+    capabilities (`Risk.NONE`) are not blocked: `read_notes` and
+    `list_reminders` change nothing, and refusing to read back what the user
+    already stored is not what "switched off" means.
+    """
+    if not config.is_disabled():
+        return None
+    if audit is not None:
+        await audit.arecord(
+            request_id=request_id,
+            tool_id=tool_id,
+            params=params,
+            policy_decision="disabled",
+            outcome="disabled",
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+    return templates.render(Outcome.DISABLED, "")
+
+
+def _confirm_question(
+    tool_id: str,
+    params: dict[str, str],
+    approvals: ApprovalStore | None,
+) -> tuple[str, str] | None:
+    """`(question, description)` if this invocation must be confirmed.
+
+    The tier is `risk_for(params)`, so a gate conditional on a param value —
+    Wi-Fi only when off, a window only on close, an app only for a Settings
+    panel — is expressed in the record rather than in an `if` here.
+
+    FIRST_USE asks once per subject and remembers the answer keyed to the
+    argv's fingerprint. With no store it degrades to asking EVERY time, which
+    is the safe direction: an approval that cannot be recorded must not be
+    assumed.
+    """
+    cap = CAPABILITIES.get(tool_id)
+    if cap is None or cap.ask is None:
+        return None
+    tier = cap.risk_for(params)
+    if tier in (Risk.NONE, Risk.LOW):
+        return None
+    question, what = cap.ask(params), cap.describe(params)  # type: ignore[misc]
+    if tier is Risk.FIRST_USE:
+        if approvals is not None and cap.subject is not None:
+            kind, subject, argv = cap.subject(params)
+            if approvals.is_approved(kind, subject, fingerprint(argv)):
+                return None
+        return f"{question} I'll remember.", what
+    return question, what
+
+
+async def _record_approval(
+    pending: "PendingAction", approvals: ApprovalStore | None
+) -> None:
+    """Write the grant a completed FIRST_USE handshake earned.
+
+    Called only from `resolve_pending`, only after an explicit affirmation, and
+    only once the panic gate has passed — so no planner output and no disabled
+    machine can create a row (design §3.3).
+    """
+    cap = CAPABILITIES.get(pending.tool_id)
+    if approvals is None or cap is None or cap.subject is None:
+        return
+    if cap.risk_for(pending.params) is not Risk.FIRST_USE:
+        return
+    kind, subject, argv = cap.subject(pending.params)
+    await approvals.aapprove(kind, subject, fingerprint(argv))
+
+
 async def run_turn(
     utterance: str,
     client: LlamaClient,
@@ -159,6 +253,7 @@ async def run_turn(
     audit: AuditLog | None = None,
     speaker: "object | None" = None,
     search_client: SearchClient | None = None,
+    approvals: ApprovalStore | None = None,
     connected: bool = True,
     history: str = "",
     habits_digest: str = "",
@@ -175,6 +270,7 @@ async def run_turn(
         prefs=prefs,
         audit=audit,
         search_client=search_client,
+        approvals=approvals,
         connected=connected,
         history=history,
         habits_digest=habits_digest,
@@ -210,6 +306,7 @@ async def _plan_and_act(
     prefs: PrefStore | None = None,
     audit: AuditLog | None = None,
     search_client: SearchClient | None = None,
+    approvals: ApprovalStore | None = None,
     connected: bool = True,
     history: str = "",
     habits_digest: str = "",
@@ -283,6 +380,25 @@ async def _plan_and_act(
 
 
 
+    # THE GATE (criterion 3.5). One panic check and one confirm decision for
+    # every capability, both derived from `risk`. Everything below this point
+    # is a handler, and no handler re-asks either question.
+    t0 = time.monotonic()
+    blocked = await _panic_blocked(
+        plan.name, audit_params(PendingAction(plan.name, params, "")),
+        audit, request_id, t0,
+    )
+    if blocked is not None:
+        return TurnResult(plan.name, params, blocked, False)
+
+    gate = _confirm_question(plan.name, params, approvals)
+    if gate is not None:
+        question, what = gate
+        return TurnResult(
+            plan.name, params, question, False,
+            pending=PendingAction(plan.name, params, what),
+        )
+
     if plan.name == "remember_preference":
         return _plan_remember(params)
 
@@ -309,52 +425,6 @@ async def _plan_and_act(
 
     if plan.name == "read_notes":
         return await _do_read_notes(prefs)
-
-    if plan.name == "clipboard_read":
-        # ADR-068a (OQ-34): the clipboard is read ALOUD, so its contents leave
-        # the machine as sound in whatever room Friday is in — a copied
-        # password or 2FA code included. Speaking it because the planner
-        # matched a phrase is not acceptable, so it joins clipboard_set,
-        # wifi-off and window-close behind the confirm. Nothing is even read
-        # until the user says yes.
-        return TurnResult(
-            "clipboard_read", params,
-            "Do you want me to read your clipboard aloud?", False,
-            pending=PendingAction("clipboard_read", {}, "read the clipboard aloud"),
-        )
-
-    if plan.name == "clipboard_set":
-        return TurnResult(
-            "clipboard_set", params, "Are you sure you want to overwrite your clipboard?",
-            False, pending=PendingAction("clipboard_set", params, "overwrite clipboard")
-        )
-
-    if plan.name == "system_wifi" and params.get("state") == "off":
-        return TurnResult(
-            "system_wifi", params, "Are you sure you want to turn off Wi-Fi?",
-            False, pending=PendingAction("system_wifi", params, "turn off Wi-Fi")
-        )
-
-    if plan.name == "open_app":
-        # ADR-097: the app table is now the machine's installed applications,
-        # not five hand-written entries. Ordinary apps dispatch as before; a
-        # Settings panel (gufw, blueman, the printer and input panels — see
-        # desktop.py) is launchable but never off a bare phrase match. The
-        # user's call 2026-09-02: refusing them outright would mean Bluetooth
-        # settings could never be opened by voice at all.
-        app = APPS.get(params.get("app", ""))
-        if app is not None and app.confirm:
-            what = f"open {app.display}"
-            return TurnResult(
-                "open_app", params, f"Do you want me to {what}?", False,
-                pending=PendingAction("open_app", params, what),
-            )
-
-    if plan.name == "hypr_window" and params.get("action") == "close":
-        return TurnResult(
-            "hypr_window", params, "Are you sure you want to close the active window?",
-            False, pending=PendingAction("hypr_window", params, "close active window")
-        )
 
     if plan.name == "dictation_mode":
         act = params.get("action", "start").lower()
@@ -421,10 +491,6 @@ async def _do_web_search(
                 policy_decision=policy_decision, outcome=outcome, duration_ms=dur_ms,
             )
 
-    if config.is_disabled():
-        await _row("disabled", policy_decision="disabled")
-        return TurnResult("web_search", {"query": query}, templates.render(Outcome.DISABLED, ""), False)
-
     if not connected:  # ADR-046: local mode refuses audibly
         await _row("disabled")
         return TurnResult("web_search", {"query": query}, templates.SEARCH_LOCAL_MODE, False)
@@ -475,17 +541,6 @@ async def confirm_preference(
 ) -> str:
     """Execute the confirmed write, THEN return the spoken line (ADR-009)."""
     t0 = time.monotonic()
-    if config.is_disabled():
-        if audit is not None:
-            await audit.arecord(
-                request_id=request_id,
-                tool_id="remember_preference",
-                params={"key": pending.key},
-                policy_decision="disabled",
-                outcome="disabled",
-                duration_ms=int((time.monotonic() - t0) * 1000),
-            )
-        return templates.render(Outcome.DISABLED, "")
     if prefs is None:
         return templates.MEMORY_UNAVAILABLE
     await asyncio.to_thread(prefs.put, pending)
@@ -509,6 +564,7 @@ async def resolve_pending(
     audit: AuditLog | None,
     request_id: str,
     dry_run: bool = False,
+    approvals: ApprovalStore | None = None,
 ) -> str | None:
     """Resolve a held confirm against the user's answer (G12, ADR-057/069).
 
@@ -529,6 +585,12 @@ async def resolve_pending(
 
     if isinstance(pending, PendingPreference):
         if is_affirmation(answer):
+            blocked = await _panic_blocked(
+                "remember_preference", audit_params(pending), audit, request_id,
+                time.monotonic(),
+            )
+            if blocked is not None:
+                return blocked
             return await confirm_preference(pending, prefs, audit, request_id=request_id)
         await _audit_declined(audit, request_id, "remember_preference", pending)
         # Live 2026-08-29: "Open a terminal" was swallowed by a preference
@@ -545,6 +607,23 @@ async def resolve_pending(
         await _audit_declined(audit, request_id, pending.tool_id, pending)
         return templates.CANCELLED_ACTION if is_decline(answer) else None
 
+    # The same derived gate the planning path uses, on the other side of the
+    # handshake: a confirm that was armed before the switch was thrown must
+    # not dispatch, and — design §3.2 — must not record the FIRST_USE grant
+    # either. A machine that comes back on having quietly agreed to things is
+    # worse than one that asks twice.
+    blocked = await _panic_blocked(
+        pending.tool_id, audit_params(pending), audit, request_id, time.monotonic()
+    )
+    if blocked is not None:
+        return blocked
+
+    # An explicit yes to a FIRST_USE question is the ONLY thing that writes an
+    # approval. It is recorded before the dispatch, so a launch that fails
+    # still counts as answered — the user said yes to the application, not to
+    # its exit code.
+    await _record_approval(pending, approvals)
+
     # Every branch below EXECUTES, so every branch below audits (FR-58). These
     # are the dangerous dispatches — wifi off, close the window, overwrite the
     # clipboard, read a secret aloud — and until now they were the only ones
@@ -553,14 +632,6 @@ async def resolve_pending(
         # Not a subprocess-registry tool: text goes to wl-copy on STDIN (see
         # tools/clipboard.py). Speak the real outcome — never a blanket "done".
         t0 = time.monotonic()
-        if config.is_disabled():
-            await _audit_confirmed(
-                audit, request_id, "clipboard_set", audit_params(pending),
-                "disabled",
-                policy_decision="disabled",
-                duration_ms=int((time.monotonic() - t0) * 1000),
-            )
-            return templates.render(Outcome.DISABLED, "")
         from .tools.clipboard import set_clipboard
 
         ok = await asyncio.to_thread(set_clipboard, pending.params.get("text", ""))
@@ -578,14 +649,6 @@ async def resolve_pending(
         # ADR-068a: read only now, on an explicit yes — a declined confirm must
         # not so much as fetch the selection, let alone voice it.
         t0 = time.monotonic()
-        if config.is_disabled():
-            await _audit_confirmed(
-                audit, request_id, "clipboard_read", audit_params(pending),
-                "disabled",
-                policy_decision="disabled",
-                duration_ms=int((time.monotonic() - t0) * 1000),
-            )
-            return templates.render(Outcome.DISABLED, "")
         from .tools.clipboard import read_clipboard
 
         raw = await asyncio.to_thread(read_clipboard)
@@ -687,17 +750,6 @@ async def _do_forget(
     request_id: str,
 ) -> TurnResult:
     t0 = time.monotonic()
-    if config.is_disabled():
-        if audit is not None:
-            await audit.arecord(
-                request_id=request_id,
-                tool_id="forget_preference",
-                params=params,
-                policy_decision="disabled",
-                outcome="disabled",
-                duration_ms=int((time.monotonic() - t0) * 1000),
-            )
-        return TurnResult("forget_preference", params, templates.render(Outcome.DISABLED, ""), False)
     if prefs is None:
         return TurnResult("forget_preference", params, templates.MEMORY_UNAVAILABLE, False)
     try:
@@ -759,17 +811,6 @@ async def _do_set_reminder(
     request_id: str,
 ) -> TurnResult:
     t0 = time.monotonic()
-    if config.is_disabled():
-        if audit is not None:
-            await audit.arecord(
-                request_id=request_id,
-                tool_id="set_reminder",
-                params=params,
-                policy_decision="disabled",
-                outcome="disabled",
-                duration_ms=int((time.monotonic() - t0) * 1000),
-            )
-        return TurnResult("set_reminder", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else (audit._db if audit else None)
     if db is None:
         return TurnResult("set_reminder", params, "Memory unavailable.", False)
@@ -837,13 +878,6 @@ async def _do_cancel_reminder(
     request_id: str = "",
 ) -> TurnResult:
     t0 = time.monotonic()
-    if config.is_disabled():
-        if audit is not None:
-            await _audit_confirmed(
-                audit, request_id, "cancel_reminder", {}, "disabled",
-                policy_decision="disabled", duration_ms=int((time.monotonic() - t0) * 1000)
-            )
-        return TurnResult("cancel_reminder", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else None
     if db is None:
         return TurnResult("cancel_reminder", params, "Memory unavailable.", False)
@@ -882,17 +916,6 @@ async def _do_create_note(
     request_id: str,
 ) -> TurnResult:
     t0 = time.monotonic()
-    if config.is_disabled():
-        if audit is not None:
-            await audit.arecord(
-                request_id=request_id,
-                tool_id="create_note",
-                params=params,
-                policy_decision="disabled",
-                outcome="disabled",
-                duration_ms=int((time.monotonic() - t0) * 1000),
-            )
-        return TurnResult("create_note", params, templates.render(Outcome.DISABLED, ""), False)
     db = prefs._db if prefs else (audit._db if audit else None)
     if db is None:
         return TurnResult("create_note", params, "Memory unavailable.", False)

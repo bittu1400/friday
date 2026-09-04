@@ -19,9 +19,9 @@ filled one derivation at a time so each step keeps the contract visible:
 
     SHIPPED   `PARAM_SCHEMA` and therefore both grammars   (criterion 3.2)
     SHIPPED   the risk tier for all 25 actions             (criterion 3.8)
-    next      the prompt regions                           (criterion 3.3)
-    next      the confirm decision and the panic gate      (criterion 3.5)
-    later     eval fixtures, hotwords, describe_action     (3.6, 3.7)
+    SHIPPED   both prompt regions                          (criterion 3.3)
+    SHIPPED   the confirm decision and the panic gate      (criterion 3.5)
+    next      eval fixtures, hotwords, describe_action     (3.6, 3.7)
 
 **The contract for the whole phase**: if `just grammar` stops reproducing the
 committed `.gbnf` byte-for-byte, or `just eval` moves off 64/64 with zero
@@ -82,6 +82,40 @@ class Capability:
     id: str
     params: Mapping[str, Mapping[str, object]]
     risk: RiskSpec
+    #: The planner-prompt entry for this action, VERBATIM. `prompt.py`
+    #: renders `f"  {id:<21}{summary}"` per capability and the assembled
+    #: SYSTEM_POLICY is byte-identical to the hand-written one it replaced
+    #: -- `tests/test_prompt.py` pins that. Compressing this text is a
+    #: separate, measurable commit (owner, 2026-09-04): today's `open_app`
+    #: paragraph is the ADR-118 text that fixed D31 and E61-E64 test it,
+    #: so rewriting it inside a behaviour-freeze refactor would make an
+    #: intended change and a regression indistinguishable.
+    summary: str
+    #: ONE clause for the chat persona's toolset sentence, or None for a
+    #: capability that never reaches the executor. `prompt.py` joins these
+    #: in record order, so the persona cannot deny an ability the schema
+    #: has -- F2 closed by construction rather than by a keyword test. It
+    #: had to be closed twice by hand already: `system_wifi` was missing
+    #: from G12 until D24, and the whole app enum after ADR-097 (F2), the
+    #: second of which the NAME-coverage test could not see because an app
+    #: id is a parameter VALUE. No default: a new capability that forgets
+    #: its clause does not construct.
+    persona: str | None
+    #: The confirm question, spoken VERBATIM when a tier says to ask. It is a
+    #: field and not a template because the five live questions are not one
+    #: sentence shape: `clipboard_read` asks "Do you want me to ..." while the
+    #: other three ask "Are you sure you want to ...", and ADR-120(b) freezes
+    #: every existing gate bit-for-bit. FIRST_USE appends " I'll remember."
+    ask: Callable[[Params], str] | None = None
+    #: What the held `PendingAction` records, for the audit row and for the
+    #: daemon's re-ask ("...you asked me to <describe>"). Shorter than `ask`
+    #: and not derivable from it.
+    describe: Callable[[Params], str] | None = None
+    #: What a FIRST_USE approval is keyed to: (kind, subject, argv).
+    #: `argv` is fingerprinted, because `desktop.app_key` resolves a collision
+    #: with `setdefault` — first wins — so an uninstall-then-install can hand a
+    #: stored approval to a DIFFERENT binary (design §3.3).
+    subject: Callable[[Params], tuple[str, str, tuple[str, ...]]] | None = None
 
     def risk_for(self, params: Params) -> Risk:
         """The tier for this invocation. Code, never a model judgement."""
@@ -145,6 +179,20 @@ def _window_risk(params: Params) -> Risk:
     return Risk.ALWAYS if params.get("action") == "close" else Risk.LOW
 
 
+def _open_app_subject(params: Params) -> tuple[str, str, tuple[str, ...]]:
+    """What an `open_app` approval is keyed to. The argv comes from the app
+    table — never from the model — so the fingerprint is over code-owned
+    strings."""
+    key = params.get("app", "")
+    app = APPS.get(key)
+    return ("app", key, app.argv if app is not None else ())
+
+
+def _open_app_describe(params: Params) -> str:
+    app = APPS.get(params.get("app", ""))
+    return f"open {app.display if app is not None else params.get('app', '')}"
+
+
 def _open_app_risk(params: Params) -> Risk:
     """A Settings panel is launchable but never off a bare phrase match — the
     owner's call 2026-09-02, because refusing them outright would mean
@@ -172,18 +220,135 @@ _ALL: Final[tuple[Capability, ...]] = (
     # llm/chat.py and `none` to a template, so neither can dispatch and both
     # are NONE — but they are still capabilities, because the grammar's name
     # alternation is generated from this tuple.
-    Capability("none", _NO_PARAMS, Risk.NONE),
-    Capability("chat", _NO_PARAMS, Risk.NONE),
-    Capability("open_app", _enum(app=APP_ENUM), _open_app_risk),
+    Capability(
+        "none",
+        _NO_PARAMS,
+        Risk.NONE,
+        summary=(
+            "a truly ambiguous request, or ANY request to delete, destroy, or "
+            "run shell commands, or anything outside your abilities. Refuse "
+            "those by choosing none. params: {}"
+        ),
+        persona=None,
+    ),
+    Capability(
+        "chat",
+        _NO_PARAMS,
+        Risk.NONE,
+        summary=(
+            "casual conversation, greetings (\"hi\", \"how are you\"), questions "
+            "about YOU (who/what are you, what can you do), small talk, "
+            "opinions, jokes, or a request for a suggestion. Talk about "
+            "yourself, your apps, the user's saved preferences, or this "
+            "machine. params: {}"
+        ),
+        persona=None,
+    ),
+    Capability(
+        "open_app",
+        _enum(app=APP_ENUM),
+        _open_app_risk,
+        summary=(
+            "launch an installed application. params: {\"app\": one id}. Five ids "
+            "are canonical: \"browser\" (Brave), \"terminal\" (foot), \"editor\" (VS "
+            "Code / Code), \"video\" (mpv), \"vlc\" (VLC). Use one ONLY when the "
+            "user says the generic word (\"a browser\", \"the editor\") or names "
+            "that exact program (\"Brave\" -> browser, \"Code\" -> editor, \"foot\" "
+            "-> terminal, \"mpv\" -> video). If the user NAMES A DIFFERENT "
+            "PROGRAM, emit that program's own id, never the canonical one for "
+            "its category: \"firefox\" -> \"firefox\" (NOT \"browser\"), \"kitty\" -> "
+            "\"kitty\" (NOT \"terminal\"), \"neovim\" -> \"neovim\" (NOT \"editor\"). ANY "
+            "installed application works: emit its COMMAND name in lowercase "
+            "(\"discord\", \"spotify\", \"gufw\", \"blueman-manager\" -> "
+            "\"blueman_manager\"), or, if you do not know the command, its "
+            "displayed name lowercased with underscores for spaces "
+            "(\"bluetooth_manager\", \"firewall_configuration\", \"zen browser\" -> "
+            "\"zen_browser\"). Never shorten an id. If it is not installed the "
+            "request fails closed and nothing runs, so emit the id rather than "
+            "refusing."
+        ),
+        persona=(
+            "open installed applications (Brave the browser, a terminal, VS Code, "
+            "mpv, VLC, and other installed desktop apps)"
+        ),
+        ask=lambda p: f"Do you want me to {_open_app_describe(p)}?",
+        describe=_open_app_describe,
+        subject=_open_app_subject,
+    ),
     # Egress. The ONLY tool that reaches the network, and a turn that consumes
     # its results is grammar-locked to action=none (invariant #1).
-    Capability("web_search", _text("query"), Risk.LOW),
-    Capability("open_youtube", _NO_PARAMS, Risk.LOW),
-    Capability("youtube_search", _text("query"), Risk.LOW),
-    Capability("remember_preference", _text("key", "value"), Risk.LOW),
-    Capability("forget_preference", _text("key"), Risk.LOW),
-    Capability("set_reminder", _text("seconds", "message"), Risk.LOW),
-    Capability("list_reminders", _NO_PARAMS, Risk.NONE),
+    Capability(
+        "web_search",
+        _text("query"),
+        Risk.LOW,
+        summary=(
+            "look up any fact or current/real-world information: weather, news, "
+            "sports results, prices, \"who/what/when/where/how\" questions about "
+            "the world. params: {\"query\": text}"
+        ),
+        persona="search the web for real-world facts",
+    ),
+    Capability(
+        "open_youtube",
+        _NO_PARAMS,
+        Risk.LOW,
+        summary=(
+            "open YouTube's front page. params: {}"
+        ),
+        persona="open YouTube",
+    ),
+    Capability(
+        "youtube_search",
+        _text("query"),
+        Risk.LOW,
+        summary=(
+            "play or find something on YouTube — including \"put on\" or \"play "
+            "some\" music, a song, artist, or genre (e.g. lo-fi, jazz). Music "
+            "and video playback requests are youtube_search, not none. params: "
+            "{\"query\": text}"
+        ),
+        persona="search or play things on YouTube",
+    ),
+    Capability(
+        "remember_preference",
+        _text("key", "value"),
+        Risk.LOW,
+        summary=(
+            "the user states a lasting preference or how to be addressed. "
+            "params: {\"key\": text, \"value\": text}"
+        ),
+        persona="remember a preference",
+    ),
+    Capability(
+        "forget_preference",
+        _text("key"),
+        Risk.LOW,
+        summary=(
+            "the user asks to forget a preference. params: {\"key\": text}"
+        ),
+        persona="forget a preference",
+    ),
+    Capability(
+        "set_reminder",
+        _text("seconds", "message"),
+        Risk.LOW,
+        summary=(
+            "the user asks to set a timer, alarm, or reminder (e.g. \"remind me "
+            "in 10 minutes to ...\", \"set a timer for 5 minutes\"). Convert "
+            "duration to integer seconds in \"seconds\" (e.g. 5 mins -> \"300\"). "
+            "params: {\"seconds\": text, \"message\": text}"
+        ),
+        persona="set a timer or reminder",
+    ),
+    Capability(
+        "list_reminders",
+        _NO_PARAMS,
+        Risk.NONE,
+        summary=(
+            "the user asks what reminders or timers are active. params: {}"
+        ),
+        persona="list active timers",
+    ),
     # No params, deliberately. `id` used to be declared here as required text,
     # which made the tool unusable: reminder ids are `rem_<hex8>` and are never
     # spoken or shown, so the planner could not know one — while the validator
@@ -191,26 +356,172 @@ _ALL: Final[tuple[Capability, ...]] = (
     # unreachable and every "cancel my timer" answered "No active timer to
     # cancel." A param the model can never fill is also what invariant #2
     # forbids: an opaque id from a CLOSED set, or nothing (ADR-070).
-    Capability("cancel_reminder", _NO_PARAMS, Risk.LOW),
-    Capability("set_dnd", _NO_PARAMS, Risk.LOW),
-    Capability("resume_dnd", _NO_PARAMS, Risk.LOW),
-    Capability("system_volume", _enum(direction=VOLUME_ENUM), Risk.LOW),
-    Capability("system_brightness", _enum(direction=BRIGHTNESS_ENUM), Risk.LOW),
-    Capability("system_media", _enum(action=MEDIA_ENUM), Risk.LOW),
-    Capability("system_wifi", _enum(state=WIFI_ENUM), _wifi_risk),
-    Capability("hypr_workspace", _enum(workspace=WORKSPACE_ENUM), Risk.LOW),
-    Capability("hypr_window", _enum(action=WINDOW_ENUM), _window_risk),
-    Capability("file_open", _text("alias"), Risk.LOW),
-    Capability("create_note", _text("content"), Risk.LOW),
-    Capability("read_notes", _NO_PARAMS, Risk.NONE),
+    Capability(
+        "cancel_reminder",
+        _NO_PARAMS,
+        Risk.LOW,
+        summary=(
+            "the user asks to cancel or remove a timer or reminder. params: {}"
+        ),
+        persona="cancel a timer",
+    ),
+    Capability(
+        "set_dnd",
+        _NO_PARAMS,
+        Risk.LOW,
+        summary=(
+            "the user asks for quiet, \"do not disturb\", \"let's talk later\", or "
+            "\"be quiet\". params: {}"
+        ),
+        persona="enter quiet mode",
+    ),
+    Capability(
+        "resume_dnd",
+        _NO_PARAMS,
+        Risk.LOW,
+        summary=(
+            "the user explicitly says \"resume\" or \"disable quiet mode\". params: "
+            "{}"
+        ),
+        persona="leave quiet mode",
+    ),
+    Capability(
+        "system_volume",
+        _enum(direction=VOLUME_ENUM),
+        Risk.LOW,
+        summary=(
+            "adjust or mute volume (\"volume up\", \"turn it down\", \"mute\", "
+            "\"unmute\"). params: {\"direction\": \"up\" | \"down\" | \"mute\" | "
+            "\"unmute\"}"
+        ),
+        persona="change the volume",
+    ),
+    Capability(
+        "system_brightness",
+        _enum(direction=BRIGHTNESS_ENUM),
+        Risk.LOW,
+        summary=(
+            "adjust display brightness (\"brightness up\", \"dim screen\"). params: "
+            "{\"direction\": \"up\" | \"down\"}"
+        ),
+        persona="change screen brightness",
+    ),
+    Capability(
+        "system_media",
+        _enum(action=MEDIA_ENUM),
+        Risk.LOW,
+        summary=(
+            "control media playback (\"pause music\", \"next track\", \"previous "
+            "track\", \"play\"). params: {\"action\": \"play_pause\" | \"next\" | "
+            "\"previous\" | \"stop\"}"
+        ),
+        persona="control media playback",
+    ),
+    Capability(
+        "system_wifi",
+        _enum(state=WIFI_ENUM),
+        _wifi_risk,
+        summary=(
+            "turn Wi-Fi on or off (\"turn off wifi\", \"enable wifi\"). params: "
+            "{\"state\": \"on\" | \"off\"}"
+        ),
+        persona="turn Wi-Fi on or off",
+        ask=lambda p: "Are you sure you want to turn off Wi-Fi?",
+        describe=lambda p: "turn off Wi-Fi",
+    ),
+    Capability(
+        "hypr_workspace",
+        _enum(workspace=WORKSPACE_ENUM),
+        Risk.LOW,
+        summary=(
+            "switch to a workspace (\"workspace 2\", \"go to workspace 3\"). "
+            "params: {\"workspace\": \"1\"…\"10\"}"
+        ),
+        persona="switch workspaces",
+    ),
+    Capability(
+        "hypr_window",
+        _enum(action=WINDOW_ENUM),
+        _window_risk,
+        summary=(
+            "manage window focus, fullscreen, or closing (\"focus left\", "
+            "\"fullscreen\", \"close window\"). params: {\"action\": \"focus_left\" | "
+            "\"focus_right\" | \"focus_up\" | \"focus_down\" | \"fullscreen\" | "
+            "\"close\"}"
+        ),
+        persona="manage windows (focus, fullscreen, close)",
+        ask=lambda p: "Are you sure you want to close the active window?",
+        describe=lambda p: "close active window",
+    ),
+    Capability(
+        "file_open",
+        _text("alias"),
+        Risk.LOW,
+        summary=(
+            "open a registered file (\"open my notes\", \"open my config\", \"open "
+            "my todo\"). params: {\"alias\": text}"
+        ),
+        persona="open a registered file",
+    ),
+    Capability(
+        "create_note",
+        _text("content"),
+        Risk.LOW,
+        summary=(
+            "capture a quick note (\"note that ...\", \"take a note ...\", \"save a "
+            "note ...\"). params: {\"content\": text}"
+        ),
+        persona="take a note",
+    ),
+    Capability(
+        "read_notes",
+        _NO_PARAMS,
+        Risk.NONE,
+        summary=(
+            "read saved notes (\"read my notes\", \"what are my notes\"). params: "
+            "{}"
+        ),
+        persona="read your notes",
+    ),
     # Reading the clipboard ALOUD puts its contents into whatever room Friday
     # is in — a copied password or 2FA code included. Speaking it because the
     # planner matched a phrase is not acceptable, so it is gated even though it
     # is read-only: opt-in is not a gate, and a mishear is exactly what a gate
     # is for (ADR-068a/ADR-104, OQ-34).
-    Capability("clipboard_read", _NO_PARAMS, Risk.ALWAYS),
-    Capability("clipboard_set", _text("text"), Risk.ALWAYS),
-    Capability("dictation_mode", _enum(action=DICTATION_ENUM), Risk.LOW),
+    Capability(
+        "clipboard_read",
+        _NO_PARAMS,
+        Risk.ALWAYS,
+        summary=(
+            "read current clipboard (\"what is in my clipboard\", \"read "
+            "clipboard\"). params: {}"
+        ),
+        persona="read the clipboard",
+        ask=lambda p: "Do you want me to read your clipboard aloud?",
+        describe=lambda p: "read the clipboard aloud",
+    ),
+    Capability(
+        "clipboard_set",
+        _text("text"),
+        Risk.ALWAYS,
+        summary=(
+            "copy text to clipboard (\"copy ... to clipboard\"). params: {\"text\": "
+            "text}"
+        ),
+        persona="copy text to the clipboard",
+        ask=lambda p: "Are you sure you want to overwrite your clipboard?",
+        describe=lambda p: "overwrite clipboard",
+    ),
+    Capability(
+        "dictation_mode",
+        _enum(action=DICTATION_ENUM),
+        Risk.LOW,
+        summary=(
+            "start or stop dictation mode (\"start dictation\", \"stop "
+            "dictation\"). params: {\"action\": \"start\" | \"stop\"}"
+        ),
+        persona="type dictation",
+    ),
 )
 
 CAPABILITIES: Final[Mapping[str, Capability]] = MappingProxyType(

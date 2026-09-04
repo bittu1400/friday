@@ -108,6 +108,13 @@ class Daemon:
                 )
 
         db = self._audit._db if self._audit else (self._prefs._db if self._prefs else None)
+
+        # The FIRST_USE allowlist (Phase 3, criterion 3.9). Without it
+        # `open_app` — `Risk.FIRST_USE` for every id (ADR-120) — asks on every
+        # single launch, because a grant that cannot be recorded must not be
+        # assumed. Same SQLite as everything else; one writer (FR-51).
+        from .store.approvals import ApprovalStore
+        self._approvals = ApprovalStore(db) if db is not None else None
         if self._scheduler is None and db is not None:
             from .store.reminders import ReminderStore
             from .proactive.scheduler import Scheduler
@@ -432,6 +439,7 @@ class Daemon:
                 run_turn(
                     text, self._client, request_id=rid, dry_run=self._dry_run,
                     prefs=self._prefs, audit=self._audit, speaker=None,
+                    approvals=self._approvals,
                     search_client=self._search, connected=self._connected,
                     history=self._dialogue.render(),
                     habits_digest=habits_digest,
@@ -574,7 +582,7 @@ class Daemon:
         # drift apart again — audit finding C1 was exactly that drift.
         spoken = await resolve_pending(
             pending, text,
-            prefs=self._prefs, audit=self._audit,
+            prefs=self._prefs, audit=self._audit, approvals=self._approvals,
             request_id=rid, dry_run=self._dry_run,
         )
         if spoken is None:

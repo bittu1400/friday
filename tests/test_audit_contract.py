@@ -90,11 +90,14 @@ def test_registry_schema_and_params_table_agree():
 
 
 @pytest.mark.parametrize("tool_id", sorted(_PARAMS))
-def test_every_registry_dispatch_writes_exactly_one_row(tool_id, store, ok_executor):
+def test_every_registry_dispatch_writes_exactly_one_row(
+    tool_id, store, ok_executor, approved_apps
+):
     db, audit, prefs = store
     r = asyncio.run(run_turn(
         "do the thing", StubClient(_plan_json(tool_id, _PARAMS[tool_id])),
         request_id=f"rid-{tool_id}", audit=audit, prefs=prefs,
+        approvals=approved_apps,
     ))
     assert r.dispatched, f"{tool_id} did not dispatch; the case proves nothing"
     rows = _rows(db)

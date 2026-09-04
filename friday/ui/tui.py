@@ -66,6 +66,12 @@ class FridayTUI(App):
         self._client = client
         self._prefs = prefs
         self._audit = audit
+        # The FIRST_USE allowlist (criterion 3.9). Text mode and voice mode
+        # share one resolver (C1) and must share one approval store too, or an
+        # app approved by voice would be asked about again in the TUI.
+        _db = audit._db if audit else (prefs._db if prefs else None)
+        from ..store.approvals import ApprovalStore
+        self._approvals = ApprovalStore(_db) if _db is not None else None
         self._speaker = speaker
         self._dry_run = dry_run
         self._connected = connected
@@ -171,6 +177,7 @@ class FridayTUI(App):
             history=self._dialogue.render(),
             habits_digest=habits_digest,
             summaries_digest=summaries_digest,
+            approvals=self._approvals,
         )
 
 
@@ -216,6 +223,7 @@ class FridayTUI(App):
             pending, answer,
             prefs=self._prefs, audit=self._audit,
             request_id=uuid.uuid4().hex, dry_run=self._dry_run,
+            approvals=self._approvals,
         )
         if spoken is None:  # neither yes nor no: cancelled, now run it (ADR-075c)
             await self._turn_body(answer)

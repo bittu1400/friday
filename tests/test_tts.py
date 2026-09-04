@@ -75,19 +75,21 @@ class StubClient:
         return True
 
 
-def _turn(reply: str, speaker):
+def _turn(reply: str, speaker, approvals=None):
     from friday.turn import run_turn
 
     return asyncio.run(
         run_turn(
-            "x", StubClient(reply), request_id="t", dry_run=True, speaker=speaker
+            "x", StubClient(reply), request_id="t", dry_run=True, speaker=speaker,
+            approvals=approvals,
         )
     )
 
 
-def test_run_turn_speaks_dispatched_outcome() -> None:
+def test_run_turn_speaks_dispatched_outcome(approved_apps) -> None:
     sp = RecordingSpeaker()
-    r = _turn('{"action":{"name":"open_app","params":{"app":"browser"}}}', sp)
+    r = _turn('{"action":{"name":"open_app","params":{"app":"browser"}}}', sp,
+              approvals=approved_apps)
     assert r.dispatched
     assert len(sp.said) == 1 and sp.said[0].startswith("Launching Brave")  # ADR-073
 

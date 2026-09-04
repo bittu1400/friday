@@ -5941,3 +5941,130 @@ of `"off"`; `hypr_window` no longer gating `close`; `clipboard_read` downgraded
 to `NONE`; `open_app` no longer gating Settings panels; and **reordering two
 capabilities, which fails the order test AND the byte-identical grammar test** —
 the contract for the whole phase, working.
+
+
+## ADR-124 — Both prompt regions, the confirm decision and the panic gate are derived; the first-use allowlist goes live (Phase 3, criteria 3.3, 3.5, 3.9)
+
+**Date:** 2026-09-04 · **Status:** ACCEPTED · **Supersedes nothing; extends ADR-123**
+
+### Context
+
+ADR-123 built the record and derived `PARAM_SCHEMA` and both grammars from it
+(criteria 3.1, 3.2, 3.8). Six of the ten places a capability lives were still
+hand-written: the planner prompt's action block, the chat persona's toolset
+sentence, five confirm branches in `turn.py`, eight `config.is_disabled()`
+blocks, the eval fixtures, and `STT_HOTWORDS`. This ADR closes the first four.
+
+Three decisions were put to the owner before a line was written, because each
+changes what gets built rather than how.
+
+### Decision (a) — the persona clause is DERIVED, and is therefore REWORDED
+
+`SYSTEM_POLICY`'s action block comes out **byte-identical**: `summary` holds
+each capability's entry verbatim and `prompt.py` renders
+`f"  {id:<21}{summary}"`. Measured: 5381 characters, **1401 tokens** — dead on
+criterion 3.3's re-baselined figure, because nothing changed.
+
+`CHAT_SYSTEM`'s toolset sentence could not be both derived and byte-identical.
+The hand-written prose grouped clauses ("control system volume, brightness,
+media playback, and Wi-Fi on/off") in an order the record does not have, so
+reassembling it from per-capability fragments in record order necessarily
+rewords it. The owner chose derivation.
+
+**Rejected:** keep the prose and check it against the record with a stronger
+keyword test. That is what already existed, and F2 is what it missed — twice,
+months apart. `system_wifi` was absent from the persona from G12 until D24, and
+the whole app enum went missing again after ADR-097, which the NAME-coverage
+test structurally could not see because an app id is a parameter VALUE. The
+persona now cannot contradict the schema because it is built from it.
+
+`persona` has **no default**, like `risk`: a capability that forgets its clause
+does not construct.
+
+### Decision (b) — eval fixtures stay the source; `examples` will point INTO them
+
+Criterion 3.6 wants a capability with empty `examples` to fail the suite. The
+alternative reading — generate `tests/fixtures/eval.jsonl` from the record —
+was rejected: the generated set would not be exactly today's 64, so `just eval`
+would need a re-baseline **inside a refactor whose entire contract is that
+behaviour did not move**, making an intended change and a regression
+indistinguishable. `examples` will hold utterances that must EXIST in the
+fixture file. (Built in the 3.6 commit.)
+
+### Decision (c) — `STT_HOTWORDS` derives its control words; the twenty app names stay data
+
+Criterion 3.7 requires the generated list to be a superset of today's. The app
+half is OQ-68, which says in terms not to spend a session choosing a number, so
+`open_app`'s `hotwords` field holds today's twenty verbatim and the STT bias
+does not move. Answering OQ-68 later becomes editing one field. (Built in 3.7.)
+
+### The gate (criterion 3.5)
+
+`turn.py` had five `if plan.name == ...` confirm branches and eight
+`config.is_disabled()` blocks. Both are now one derived decision:
+
+- `_confirm_question(tool_id, params, approvals)` reads `cap.risk_for(params)`.
+  A gate conditional on a param value — Wi-Fi only on `off`, a window only on
+  `close`, an app only for a Settings panel — lives in the record, not in an
+  `if` in the turn.
+- `_panic_blocked(...)` blocks **every tier above NONE**, in one place, before
+  any handler runs. Read-only capabilities (`read_notes`, `list_reminders`) are
+  not blocked: refusing to read back what the user already stored is not what
+  "switched off" means. Three capabilities became newly gated by this —
+  `set_dnd`, `resume_dnd`, `dictation_mode` — which is F1's fix finished, not a
+  new policy.
+
+The four existing questions are reproduced **byte-for-byte**, verified live.
+`ask` is a field rather than a template because the five live questions are not
+one sentence shape: `clipboard_read` asks *"Do you want me to…"* and the others
+ask *"Are you sure you want to…"*, and ADR-120(b) freezes every existing gate.
+
+`tests/test_confirm_arming.py` passes **untouched**, which is what it is for.
+
+### The allowlist (criterion 3.9)
+
+Migration `004_approvals.sql` and `friday/store/approvals.py`. `open_app`'s
+declared `FIRST_USE` (ADR-120) is now **live**: an app that has never been
+approved asks once, the handshake records the grant, and the next turn
+dispatches. The grant is keyed to a **SHA-256 of the argv**, not to the id
+alone, because `desktop.app_key`'s `setdefault` is first-wins and an
+uninstall-then-install can hand a stored approval to a different binary.
+
+Two rules that only exist because a mutation found them missing:
+
+- **The panic switch blocks the approval WRITE.** The first mutation of this —
+  recording the grant before the panic check — left the whole suite green: the
+  launch is still blocked and the spoken line is still *"I'm switched off."*
+  What changes is that the machine comes back on having quietly agreed to
+  something. `test_the_panic_switch_blocks_the_approval_write_not_just_the_launch`
+  now fails on it.
+- **No store means ask every time.** An approval that cannot be recorded must
+  not be assumed.
+
+### Cost
+
+`tests/test_panic_gate.py` stays 10/10 but **six of its ten tests were
+rewritten to drive `run_turn` and `resolve_pending`** instead of calling
+`_do_web_search`, `_do_forget`, `_do_set_reminder`, `_do_cancel_reminder`,
+`_do_create_note` and `confirm_preference` directly. Those handlers no longer
+carry the check, so a handler-level test cannot see it — and a handler-level
+test could never have caught F1 anyway, which was a gate missing from ten paths
+rather than a gate that was wrong. Driving the wiring is M2's lesson applied.
+
+Five test files gained the `approved_apps` fixture, because a turn that means
+to exercise an audit row or a spoken template now stops at the confirm.
+
+**OQ-69 is unchanged and unanswerable by this commit**: whether asking once per
+application is tolerable is a week of ordinary use plus
+`SELECT COUNT(*) FROM approvals`, and the eval gate structurally cannot see it.
+
+### Evidence
+
+`pytest` 627 → **642**, `eval` **64/64, regressions 0**, grammars
+**byte-identical**, `SYSTEM_POLICY` **1401 tokens** and byte-identical to the
+committed fixture. Nine mutations demonstrated RED: the name column width; the
+D31 sentence dropped from `open_app`'s summary; a persona clause set to None;
+the toolset joined in sorted order; the confirm gate never firing; the panic
+gate never blocking; the argv fingerprint ignored; `system_wifi` gating
+unconditionally; and the approval written while disabled — the last of which
+**survived its first run and is why that test exists.**

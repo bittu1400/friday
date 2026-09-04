@@ -214,3 +214,57 @@ def test_chat_system_has_no_hardcoded_numeral_app_count():
     assert not re.search(r"\b(five|\d+)\s+app\s+ids\b", SYSTEM_POLICY, re.IGNORECASE), (
         "SYSTEM_POLICY contains a hardcoded numeral app count"
     )
+
+
+# --- criterion 3.3: both prompt regions are DERIVED from the record ---------
+#
+# The refactor's claim is that moving the text into `friday/capabilities.py`
+# changed nothing the planner sees. The claim is only worth what pins it, so
+# the whole 5381-character string is committed as a fixture and compared
+# byte-for-byte. A weaker check — "every action name appears" — is what the
+# hand-written prompt already had, and D31 is what it missed: the block named
+# five apps for a month after the enum held every installed one.
+
+
+def test_system_policy_is_byte_identical_to_the_hand_written_baseline():
+    """The eval set cannot move for prompt reasons. This is half of the Phase
+    3 contract (the other half is the committed grammars, `test_schema.py`).
+
+    The fixture is the string as it stood at commit `cb1e7f5`, before the
+    derivation. Regenerate it ONLY with an ADR saying what changed and why,
+    and re-run `just eval` in the same commit.
+    """
+    from pathlib import Path
+
+    baseline = (Path(__file__).parent / "fixtures" / "system_policy.txt").read_text()
+    assert SYSTEM_POLICY == baseline
+
+
+def test_the_action_block_is_one_line_per_capability_in_record_order():
+    from friday.capabilities import CAPABILITIES
+
+    block = SYSTEM_POLICY.split("Choose exactly one action name:\n", 1)[1]
+    block = block.split("\nRules:\n", 1)[0]
+    lines = [ln for ln in block.split("\n") if ln.strip()]
+    assert len(lines) == len(CAPABILITIES)
+    for line, cap in zip(lines, CAPABILITIES.values()):
+        assert line == f"  {cap.id:<21}{cap.summary}"
+
+
+def test_chat_persona_toolset_is_derived_and_names_every_capability():
+    """F2, closed by construction rather than by a keyword list.
+
+    The clause is the one region 3.3 deliberately REWORDS (owner, 2026-09-04):
+    the hand-written prose grouped clauses in an order the record does not
+    have, so byte-identity and derivation were mutually exclusive here. What
+    replaces byte-identity is this — the sentence is literally built from the
+    record, so it cannot omit a capability or invent one.
+    """
+    from friday.capabilities import CAPABILITIES
+    from friday.llm.prompt import CHAT_SYSTEM
+
+    clause = CHAT_SYSTEM.split("you CAN: ", 1)[1].split(". That is your whole", 1)[0]
+    expected = [c.persona for c in CAPABILITIES.values() if c.persona]
+    assert clause == ", ".join(expected[:-1]) + ", and " + expected[-1]
+    # 23 of the 25: `none` and `chat` never reach the executor.
+    assert len(expected) == len(CAPABILITIES) - 2

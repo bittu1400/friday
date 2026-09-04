@@ -5,7 +5,11 @@ Two things are locked here, and they are the two the user decided:
   - a Settings panel is launchable but CONFIRMED, never dispatched straight
     off a phrase match — so a misheard command cannot silently open the
     firewall;
-  - an ordinary application still dispatches with no ceremony.
+  - an ordinary application asks ONCE and is then remembered — `Risk.FIRST_USE`
+    (ADR-120, Phase 3 criterion 3.5). Until 2026-09-04 it dispatched with no
+    ceremony at all; the owner chose the ask-once tier over the safer
+    plumbing-only option, and OQ-69 is the measurement of whether the burden is
+    tolerable, because the eval gate structurally cannot see it.
 
 The third lock is the one that must not regress: the enum is still CLOSED.
 `tests/fixtures/adversarial.jsonl` AS-7/AS-8/AS-9 already assert that a path,
@@ -109,11 +113,97 @@ def test_settings_panel_is_confirmed_not_dispatched() -> None:
     assert APPS[key].display in r.spoken
 
 
-def test_ordinary_app_is_not_confirmed() -> None:
-    r = asyncio.run(run_turn(
-        "open my browser", StubClient(_plan("browser")), request_id="t", dry_run=True,
+def test_an_ordinary_app_asks_once_and_is_then_remembered(tmp_path) -> None:
+    """`Risk.FIRST_USE`, end to end through `run_turn` (criterion 3.5).
+
+    The store starts empty, so the first turn must ASK; the answer is recorded
+    by the handshake, and the second identical turn must dispatch without a
+    question. Both halves matter: a tier that always asks is `ALWAYS` wearing
+    the wrong name, and one that never asks is `LOW`.
+    """
+    from friday.store.approvals import ApprovalStore
+    from friday.store.db import Database
+    from friday.turn import resolve_pending
+
+    approvals = ApprovalStore(Database(tmp_path / "a.db"))
+
+    first = asyncio.run(run_turn(
+        "open my browser", StubClient(_plan("browser")), request_id="t1",
+        dry_run=True, approvals=approvals,
     ))
-    assert r.pending is None, "an ordinary app must not ask for confirmation"
+    assert not first.dispatched, "an unapproved app dispatched without asking"
+    assert isinstance(first.pending, PendingAction)
+    assert "I'll remember." in first.spoken
+    assert approvals.list_approvals() == []
+
+    asyncio.run(resolve_pending(
+        first.pending, "yes", prefs=None, audit=None, request_id="t1",
+        dry_run=True, approvals=approvals,
+    ))
+    assert [a.subject for a in approvals.list_approvals()] == ["browser"]
+
+    second = asyncio.run(run_turn(
+        "open my browser", StubClient(_plan("browser")), request_id="t2",
+        dry_run=True, approvals=approvals,
+    ))
+    assert second.pending is None, "an approved app asked again"
+    assert second.dispatched
+
+
+def test_a_declined_first_use_records_nothing_and_asks_again(tmp_path) -> None:
+    """"no" is not "not yet decided" — but it is also not a stored decision.
+    Design §3.3: a decline records the audit row and stores NOTHING, so the
+    next attempt asks rather than being permanently refused."""
+    from friday.store.approvals import ApprovalStore
+    from friday.store.db import Database
+    from friday.turn import resolve_pending
+
+    approvals = ApprovalStore(Database(tmp_path / "a.db"))
+    r = asyncio.run(run_turn(
+        "open my browser", StubClient(_plan("browser")), request_id="t1",
+        dry_run=True, approvals=approvals,
+    ))
+    asyncio.run(resolve_pending(
+        r.pending, "no", prefs=None, audit=None, request_id="t1",
+        dry_run=True, approvals=approvals,
+    ))
+    assert approvals.list_approvals() == []
+
+    again = asyncio.run(run_turn(
+        "open my browser", StubClient(_plan("browser")), request_id="t2",
+        dry_run=True, approvals=approvals,
+    ))
+    assert isinstance(again.pending, PendingAction)
+
+
+def test_an_approval_for_a_changed_binary_asks_again(tmp_path) -> None:
+    """Criterion 3.9 at the turn level, not just the store's.
+
+    `desktop.app_key` resolves a collision with `setdefault`, first wins, so an
+    uninstall-then-install can rebind an id to a different binary. A grant is
+    keyed to the argv's fingerprint, so the stale one does not apply.
+    """
+    from friday.store.approvals import ApprovalStore, fingerprint
+    from friday.store.db import Database
+
+    approvals = ApprovalStore(Database(tmp_path / "a.db"))
+    approvals.approve("app", "browser", fingerprint(("some-other-browser",)))
+
+    r = asyncio.run(run_turn(
+        "open my browser", StubClient(_plan("browser")), request_id="t",
+        dry_run=True, approvals=approvals,
+    ))
+    assert isinstance(r.pending, PendingAction), "a stale approval was honoured"
+
+
+def test_first_use_without_a_store_asks_every_time() -> None:
+    """Degrade in the safe direction: an approval that cannot be recorded must
+    not be assumed. `run_turn` with no `approvals` asks, every time."""
+    r = asyncio.run(run_turn(
+        "open my browser", StubClient(_plan("browser")), request_id="t",
+        dry_run=True,
+    ))
+    assert isinstance(r.pending, PendingAction)
 
 
 def test_the_planner_may_spell_an_app_id_the_way_a_human_says_it():

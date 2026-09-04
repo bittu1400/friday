@@ -63,7 +63,7 @@ def test_history_reaches_the_planner_system(monkeypatch):
     assert r.pending is not None and r.pending.tool_id == "open_app"
 
 
-def test_action_in_the_users_own_words_is_not_confirmed():
+def test_action_in_the_users_own_words_is_not_confirmed(approved_apps):
     """ADR-065 must not add a confirm to a plain command. Only an action that
     appears solely because history was in the prompt is held back."""
     class _Direct(_ChatClient):
@@ -77,7 +77,7 @@ def test_action_in_the_users_own_words_is_not_confirmed():
     d.add("earlier", "context line")
     r = asyncio.run(turn_mod.run_turn(
         "open my browser", _Direct(), request_id="w3", dry_run=True,
-        history=d.render()))
+        history=d.render(), approvals=approved_apps))
     assert r.pending is None
     assert r.plan_name == "open_app"
 
