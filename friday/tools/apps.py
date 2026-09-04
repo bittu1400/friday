@@ -68,6 +68,17 @@ _GENERIC_LAUNCHERS: frozenset[str] = frozenset(
 )
 
 
+# Path components that are filesystem furniture, not an application name. A
+# vendor that ships `.../<app-name>/bin/<exe>` names the app in the directory —
+# JetBrains Toolbox does exactly this — but `/usr/bin/discord` would otherwise
+# alias `usr`, and `/usr/lib/jvm/java-26-openjdk/bin/jshell` would alias
+# `java_26_openjdk` for two different entries.
+_GENERIC_PATH_PARENTS: frozenset[str] = frozenset(
+    {"usr", "local", "opt", "bin", "sbin", "lib", "lib64", "libexec",
+     "share", "jre", "jdk", "jvm", "home", "srv", "var", "run"}
+)
+
+
 def build_apps(scanned: Mapping[str, desktop.DesktopApp]) -> dict[str, App]:
     """Merge the scan into the curated table. Curated ids always win."""
     apps: dict[str, App] = {}
@@ -85,6 +96,34 @@ def build_apps(scanned: Mapping[str, desktop.DesktopApp]) -> dict[str, App]:
         alias = desktop.app_key(binary)
         if alias and alias not in apps:
             apps[alias] = apps[key]
+
+    # A third id, for applications whose `.desktop` Name carries a version and
+    # whose binary is an abbreviation — the two ways a generated id stops being
+    # the name a human says. Measured live 2026-09-04 (D33): Android Studio's
+    # id was `android_studio_panda_4_2025_3_4_patch_1` (the Name, with the
+    # release in it) and its binary alias was `studio`, so neither "android
+    # studio" nor anything else a person would say could reach it. The planner
+    # emitted `android_studio` three times and `android_studio_panda_4` once and
+    # every one failed closed.
+    #
+    # A vendor that installs to `.../<app-name>/bin/<exe>` has already written
+    # the known name into the path, so take it from there. Only when it is
+    # UNAMBIGUOUS: `/usr/lib/jvm/java-26-openjdk/bin/{jshell,jconsole}` would
+    # give one alias for two different entries, and an ambiguous alias silently
+    # picks whichever the scan saw first — the `setdefault` hazard that
+    # `argv_sha256` exists to catch (ADR-120). Ambiguous ones are dropped, not
+    # resolved.
+    path_alias: dict[str, list[str]] = {}
+    for key, entry in scanned.items():
+        exe = Path(entry.argv[0])
+        if not exe.is_absolute() or exe.parent.name != "bin":
+            continue
+        alias = desktop.app_key(exe.parent.parent.name)
+        if alias and alias not in _GENERIC_PATH_PARENTS:
+            path_alias.setdefault(alias, []).append(key)
+    for alias, keys in path_alias.items():
+        if len(keys) == 1 and alias not in apps:
+            apps[alias] = apps[keys[0]]
 
     apps.update(CURATED)  # last, so the five originals cannot be shadowed
     return apps

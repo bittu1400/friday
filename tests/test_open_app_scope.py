@@ -159,3 +159,42 @@ def test_the_spelling_fold_is_not_a_fuzzy_matcher():
         # that was actually there. Applying the fold unconditionally still
         # fails closed, so only this assertion catches it.
         assert exc.value.app_name == hostile
+
+
+def test_a_vendor_path_supplies_the_name_a_human_actually_says():
+    """D33, measured live 2026-09-04. Android Studio's generated id was
+    `android_studio_panda_4_2025_3_4_patch_1` — the `.desktop` Name with the
+    release in it — and its binary alias was `studio`, so nothing a person would
+    say could reach it. The planner emitted `android_studio` 3x and
+    `android_studio_panda_4` once; every one failed closed.
+
+    A vendor that installs to `.../<app-name>/bin/<exe>` has written the known
+    name into the path already."""
+    from friday.tools.apps import APPS
+
+    for spoken, exe in (
+        ("android_studio", "studio"),
+        ("intellij_idea", "idea"),
+        ("pycharm", "pycharm"),
+        ("webstorm", "webstorm"),
+        ("dataspell", "dataspell"),
+    ):
+        assert spoken in APPS, f"{spoken} unreachable"
+        assert APPS[spoken].argv[0].endswith(f"/bin/{exe}")
+
+
+def test_the_path_alias_drops_filesystem_furniture_and_ambiguity():
+    """The rule must not turn `/usr/bin/discord` into an app called `usr`, and
+    must not resolve an alias that two different entries claim. Measured:
+    `/usr/lib/jvm/java-26-openjdk/bin/{jshell,jconsole}` produce ONE candidate
+    alias for TWO entries, and picking either silently would be the `setdefault`
+    hazard `argv_sha256` exists to catch (ADR-120). Ambiguous is dropped."""
+    from friday.tools.apps import APPS
+
+    for furniture in ("usr", "local", "opt", "bin", "lib", "jre", "jvm", "share"):
+        assert furniture not in APPS
+
+    assert "java_26_openjdk" not in APPS  # ambiguous: jshell AND jconsole
+    # ...while both entries themselves remain reachable under their own ids.
+    assert "openjdk_java_26_shell" in APPS
+    assert "openjdk_java_26_console" in APPS

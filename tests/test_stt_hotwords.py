@@ -49,3 +49,32 @@ def test_hotwords_still_carry_the_g12_control_vocabulary():
     low = config.STT_HOTWORDS.lower()
     for word in ("wifi", "brightness", "clipboard", "dictation", "workspace"):
         assert word in low, f"{word!r} missing from STT_HOTWORDS (D26)"
+
+
+def test_no_hotword_is_a_near_miss_of_an_app_the_enum_cannot_serve():
+    """D33. "Android Studio", "IntelliJ IDEA", "PyCharm" and "WebStorm" were all
+    in this list while the enum held only `android_studio_panda_4_2025_3_4_patch_1`
+    and friends — the `.desktop` Name with the release baked in. Whisper was
+    being biased toward names the enum structurally could not deliver, and the
+    floor test above could not see it: the count was over 20 either way.
+
+    A hotword that is not an id but IS the prefix of one is the signature of
+    exactly that — the app is there, under a name nobody says. A control word
+    ("wifi", "brightness") is not a prefix of any app id, so it does not trip
+    this; measured clean against the live list."""
+    enum = set(schema.PARAM_SCHEMA["open_app"]["app"]["values"])
+
+    stranded = {}
+    for word in config.STT_HOTWORDS.split(","):
+        s = _slug(word)
+        if not s or s in enum:
+            continue
+        near = sorted(k for k in enum if k.startswith(s + "_"))
+        if near:
+            stranded[word.strip()] = near[:3]
+
+    assert not stranded, (
+        f"hotwords name apps the enum cannot serve under that name: {stranded} "
+        "— the id is derived from the .desktop Name or the binary, and neither "
+        "is reliably what a person says (D33)"
+    )

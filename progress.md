@@ -5658,6 +5658,92 @@ property is why this session was a grep and not a bisect.
 
 ---
 
+## 2026-09-04 (mic, cont.) — **D33 FIXED (ADR-122), and the kitty question is answered by systemd, not by memory.**
+
+### The kitty ambiguity: closed, and not by guessing
+
+The owner could not say whether they closed PID 32201, and added something more
+useful than an answer: *"i think foot and kitty open the same thing… one time I
+tried to make kitty UI like Foot, and from then on, I can't seem to distinguish
+the difference."* **So a window count cannot tell a foot from a kitty on this
+machine**, and four terminals were launched in that session.
+
+Asked the system instead:
+
+```
+$ systemctl --user show friday -p KillMode -p Type -p WatchdogUSec -p NeedDaemonReload -p Restart
+NeedDaemonReload=no
+Type=notify
+Restart=always
+WatchdogUSec=10s
+KillMode=process
+```
+
+**`KillMode=process` is live in systemd, not merely in the unit file** — which is
+M16's whole point, and the exact check that caught the watchdog having never
+fired. A restart therefore cannot kill a child by cgroup, so whatever happened
+to 32201 was not `KillMode`. Combined with kitty 32774 surviving a restart at the
+same PID, **D29/ADR-114 is proven at both the mechanism and the observed level
+and nothing further is owed.**
+
+**Method note worth keeping:** `hyprctl clients | grep -c '^Window'` was the
+evidence in this experiment, and on this machine a themed kitty is
+indistinguishable from foot *to the owner*, so a count cannot say which
+terminal survived. Match on the class or the PID, never on the count.
+
+### D33 — an app id is not a name anyone says
+
+Fixed per the owner's requirement — *"just the name they are known with… just
+android studio should also be just fine, no need to full name."*
+
+A third alias source in `build_apps`: an `argv[0]` shaped
+`.../<app-name>/bin/<exe>` supplies `app_key(<app-name>)`. A vendor that installs
+that way has already written the known name into the path.
+
+```
+android_studio    <- .../Toolbox/apps/android-studio/bin/studio     NEW
+intellij_idea     <- .../Toolbox/apps/intellij-idea/bin/idea        NEW
+pycharm / webstorm / dataspell                                      already existed
+java_26_openjdk   <- jshell AND jconsole            AMBIGUOUS -> dropped, not resolved
+usr / local / jre / lib                             FURNITURE  -> excluded
+```
+
+Enum **165 → 167**.
+
+**A dotted-version strip was measured and rejected** — it is clean (changes
+exactly 5 ids, **0** collisions) but yields `android_studio_panda_4`, which is
+still not what the owner asked for, and shipping both would be two mechanisms
+for one job. The measurement is written into ADR-122 so it is not redone; it is
+the ready-made fix if the version churn in a *primary* id ever matters, because
+an id that changes on every IDE update orphans its approval (OQ-69).
+
+### The test that could not see it, and the one that now can
+
+`tests/test_stt_hotwords.py` counts hotwords resolving to an enum id against a
+floor of 20 and **passed throughout** — "Android Studio", "IntelliJ IDEA",
+"PyCharm" and "WebStorm" were all stranded and the count cleared 20 anyway. The
+new assertion is the defect's signature rather than a second hand-maintained
+list: **a hotword that is not an id but IS the prefix of one.** Control words
+(`wifi`, `brightness`, `clipboard`) prefix no app id, so it costs nothing —
+measured 0 hits against the live list. Reverting the path alias turns it red.
+
+### Gates
+
+```
+pytest      618 -> 621, rc=0
+eval        64/64 (100%), regressions 0
+grammars    byte-identical      (they never enumerated param values -- ADR-097 --
+                                 which is why two more ids cost nothing)
+adversarial 13 passed
+enum        165 -> 167
+```
+
+Four mutations demonstrated RED: dropping the alias loop, dropping the furniture
+exclusion, accepting an ambiguous alias, and reverting the fix against the new
+hotword test.
+
+---
+
 ## >>> START HERE: NEXT SESSION (written **2026-09-03, last-3**, after D31 was proven live) <<<
 
 **Read this whole block before touching anything. Everything below is measured;

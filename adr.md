@@ -5740,3 +5740,103 @@ demonstrated RED: deleting the fold, and applying it unconditionally.
 `android_studio` still fails, and that is a different defect — **D33**, the
 version string baked into a generated id. No spelling of "Android Studio" folds
 to `android_studio_panda_4_2025_3_4_patch_1`.
+
+## ADR-122 — An app's id is the name it is known by: a vendor path supplies what the Name and the binary cannot (D33)
+
+**Date:** 2026-09-04
+**Status:** Accepted, shipped
+
+### Context
+
+Measured at a microphone, 2026-09-04:
+
+```
+09:22:28  E_TOOL_NOTFOUND: app 'android_studio' not installed
+09:22:46  E_TOOL_NOTFOUND: app 'android_studio' not installed
+09:23:21  E_TOOL_NOTFOUND: app 'android_studio_panda_4' not installed
+09:25:53  E_TOOL_NOTFOUND: app 'android_studio' not installed
+```
+
+The id is `android_studio_panda_4_2025_3_4_patch_1`. It comes from the
+`.desktop` `Name`, which JetBrains Toolbox writes as
+`Name=Android Studio Panda 4 2025.3.4 Patch 1`. Nobody says that. The planner
+guessed the two things a person would guess, four times, and every one failed
+closed against a correct, closed enum.
+
+**An id is generated from one of two sources and neither is reliably the spoken
+name.** `app_key(Name)` carries whatever the vendor put in the Name — a release,
+a codename, a build number; ten of the 165 ids carry a version. The
+binary-basename alias `build_apps` already adds is an abbreviation as often as
+not: IntelliJ IDEA's binary is `idea`, Android Studio's is `studio`.
+
+**Four of those application names were already in `STT_HOTWORDS`** — "Android
+Studio", "IntelliJ IDEA", "PyCharm", "WebStorm" — so Whisper was being biased
+toward names the enum structurally could not serve. That is FR-139's coupling
+failing in the opposite direction from D31, and the existing hotword test could
+not see it: it counts hotwords that resolve, with a floor of 20, and the count
+cleared 20 either way.
+
+### Decision
+
+**Owner, 2026-09-04:** *"Just the name they are known with… just android studio
+should also be just fine, no need to full name."*
+
+A third alias source in `build_apps`: when `argv[0]` is an absolute path shaped
+`.../<app-name>/bin/<exe>`, add `app_key(<app-name>)`. A vendor that installs
+that way has already written the known name into the path.
+
+Two exclusions, both measured rather than guessed:
+
+- **Filesystem furniture** — `/usr/bin/discord` would otherwise create an
+  application called `usr`. `_GENERIC_PATH_PARENTS` drops `usr`, `local`, `opt`,
+  `bin`, `lib`, `jre`, `jvm`, `share` and the rest.
+- **Ambiguity is dropped, not resolved.**
+  `/usr/lib/jvm/java-26-openjdk/bin/{jshell,jconsole}` produce one candidate
+  alias for two different entries. Taking the first would be exactly the
+  `setdefault` collision that `argv_sha256` exists to catch (ADR-120), so an
+  alias claimed by more than one entry is not added at all. Both entries stay
+  reachable under their own ids.
+
+Result: enum **165 → 167**. `android_studio` and `intellij_idea` are new;
+`pycharm`, `webstorm` and `dataspell` already existed because their binaries
+happen to be their names.
+
+### Rejected
+
+**Strip a dotted version from the Name before `app_key`.** Measured and it is
+clean — it changes exactly 5 ids and introduces **zero** collisions, giving
+`intellij_idea`, `pycharm`, `webstorm`, `dataspell` and
+`android_studio_panda_4`. It was not shipped because it does not reach the
+owner's actual requirement: `android_studio_panda_4` is still not "Android
+Studio", the codename is not a version and no version rule removes it. The path
+rule reaches all five, so shipping both would be two mechanisms for one job.
+The measurement is recorded here so the next session does not redo it — if the
+version churn in the *primary* id ever matters (an id that changes on every IDE
+update orphans its approval — OQ-69), this is the ready-made fix.
+
+**A hand-written alias table.** Explicit and collision-free, and it is the
+duplication D31 punished: a second list naming applications, maintained by hand,
+going stale the moment something is installed.
+
+**Prefix matching in the validator.** `android_studio` is a unique prefix of
+exactly one id, so it would resolve — and `brow` would resolve to `browser`,
+which `test_the_spelling_fold_is_not_a_fuzzy_matcher` forbids and ADR-097
+rejected twice. Widening the id set is a different act from loosening the match.
+
+### The test that could not see this, and the one that now can
+
+`tests/test_stt_hotwords.py` counted hotwords resolving to an enum id against a
+floor of 20 and passed throughout. The new assertion is the signature of this
+defect rather than a second list: **a hotword that is not an id but IS the
+prefix of one** means the app is present under a name nobody says. Control words
+(`wifi`, `brightness`, `clipboard`) prefix no app id, so they do not trip it —
+verified against the live list, 0 hits. Reverting the path alias turns it red.
+
+### Evidence
+
+`pytest` **618 → 621**. `eval` **64/64, regressions 0**. Grammars
+**byte-identical** (they never enumerated param values — ADR-097 — which is why
+two more ids cost nothing). `test_adversarial` **13 passed**. Enum **165 → 167**.
+Four mutations demonstrated RED: dropping the loop, dropping the furniture
+exclusion, accepting an ambiguous alias, and reverting the fix against the new
+hotword test.
