@@ -28,6 +28,43 @@ def test_hard_ban_rejects_dangerous_commands():
         assert_not_banned(["echo", "$(whoami)"])
 
 
+def test_wrapper_prefixes_do_not_walk_through_the_denylist():
+    """F5. Only `argv[0]` was inspected, so anything that executes a following
+    command hid the real binary from the gate. Every argv below PASSED before
+    2026-09-04 and each one is measured, not invented — the first three are
+    verbatim from the audit, and the `foot -e` shape is 15 of the 165 live
+    app entries."""
+    for argv in (
+        ["/usr/bin/distrobox-enter", "-n", "box", "--", "bash"],
+        ["env", "nohup", "rm", "-rf", "/home/x"],
+        ["env", "sudo", "pacman", "-Rns", "base"],
+        ["foot", "-e", "bash"],
+        ["flatpak", "run", "--command=sh", "org.x.App"],
+        ["timeout", "5", "systemctl", "poweroff"],
+    ):
+        with pytest.raises(PolicyRejected):
+            assert_not_banned(argv)
+
+
+def test_wrapper_resolution_does_not_break_the_real_app_table():
+    """The other half of F5, and the reason the fix is safe to ship: tightening
+    this gate must not silently delete apps. `desktop.scan` runs every scanned
+    entry through `assert_not_banned`, so a false positive here removes an id
+    from the enum — and the eval fixtures name scanned ids. Measured
+    2026-09-04: 0 of the 165 argvs carry a banned token past index 0."""
+    from friday.tools.apps import APPS
+
+    for key, app in APPS.items():
+        assert_not_banned(list(app.argv))  # must not raise, for any of them
+
+    # The specific shapes that made the "check every remaining token" choice
+    # look risky, and do not fire.
+    assert_not_banned(["env", "DESKTOPINTEGRATION=false", "/usr/bin/todoist", "--no-sandbox"])
+    assert_not_banned(["foot", "-e", "/usr/bin/distrobox", "enter", "debian-box"])
+    assert_not_banned(["foot", "-e", "btop"])
+    assert_not_banned(["flatpak", "run", "org.x.App"])
+
+
 def test_hard_ban_allows_safe_tools():
     assert_not_banned(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"])
     assert_not_banned(["brightnessctl", "set", "+5%"])

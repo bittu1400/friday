@@ -29,6 +29,29 @@ reverting — which is now line six of the definition of done. Report:
 **`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
 Decisions: **ADR-117**.
 
+**>>> 2026-09-04: PHASE 3 IS OPEN, AND ITS TWO SECURITY ITEMS SHIPPED FIRST.
+F4 and F5 are FIXED (ADR-119), standalone, ahead of the `Capability` refactor.**
+**F4:** invariant #3's *"minimal explicit env, no exceptions"* had **five**
+exceptions — `clipboard` ×2, `typer` ×2 and `proactive.notifier` inherited all
+50 of the daemon's variables, `NOTIFY_SOCKET` included. `friday/tools/env.py` is
+new and holds `SUBPROCESS_ENV`; all six sites now pass it, and it was **probed
+live with a control that fails** (`wl-paste`/`notify-send` work under it, both
+fail under `env -i`). **F5:** the denylist inspected `argv[0]` only, so
+`distrobox-enter -- bash`, `env nohup rm -rf ~` and `foot -e bash` all passed.
+A wrapper at the head now means **every remaining token is checked**, `--opt=value`
+split on the first `=` — a case **the test found and the design missed**
+(`flatpak run --command=sh` runs a shell; the basename of `--command=sh` is
+`--command=sh`). **Measured before shipping, because `desktop.scan` calls this
+gate and a false positive DELETES an app: 0 of 165 argvs carry a banned token
+past index 0, enum 165 → 165.** `pytest` **608 → 616**, `eval` still 64/64,
+grammars byte-identical, **eight mutations demonstrated RED**.
+**Two Phase 3 policy decisions are recorded and not yet built (ADR-120):
+`open_app` ships FIRST_USE for ALL 165 ids — the owner's call over the safer
+plumbing-only option — and every other gate freezes bit-for-bit. OQ-69 is the
+measurement that answers whether the confirm burden is tolerable, and the eval
+gate structurally cannot: its fixtures score the planner's output, not what the
+turn does with it.** <<<**
+
 **>>> 2026-09-03 (last, 2): D31 — "ONLY THE FIVE PRE-CONFIGURED APPS EVER
 OPENED." The owner was right and the audit table proved it in one query:
 `open_app` has run with browser/terminal/editor/video/vlc and NOTHING ELSE, a
@@ -137,16 +160,18 @@ one TALKS TO.**
   688 ms, in `balanced`). Whisper pads to a 30-second window. **Streaming or
   chunked STT gains nothing**, and that killed a latency target that had already
   been committed to.
-- **F5** (wrapper prefixes `env`/`flatpak`/`distrobox-enter` pass the ban list)
-  and **F4** (one explicit subprocess env) are **Phase 3** work, deliberately.
+- ~~**F5** (wrapper prefixes `env`/`flatpak`/`distrobox-enter` pass the ban list)
+  and **F4** (one explicit subprocess env)~~ — **BOTH FIXED 2026-09-04, ADR-119**,
+  shipped standalone ahead of the `Capability` refactor because neither depends
+  on it and both already had a test under them (M2, M4).
 - **F22, F16, F17, F18, F19, F24, F25** are deferred with reasons in
   design §11.
 
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-118. Questions still owed: OQ-68, OQ-57, OQ-59, OQ-60, OQ-61,
-OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
+**Decisions ADR-098…ADR-120. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
+OQ-61, OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
 **ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
 went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
 CLOSED** (D3 proven live 2026-09-02 night), **OQ-64 is CLOSED**
@@ -240,7 +265,7 @@ Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
 **Gate numbers, all re-run 2026-09-03 (last) after M6 and M7 landed:**
-`uv run pytest` **608 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
+`uv run pytest` **616 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
@@ -845,9 +870,13 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  118 ADRs
-                      (ADR-001..ADR-118; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  120 ADRs
+                      (ADR-001..ADR-120; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
+                      ADR-119 is F4+F5 -- one explicit subprocess env, and a
+                      denylist that follows a wrapper to the command it runs.
+                      ADR-120 records the two Phase 3 policy calls (FIRST_USE on
+                      for all 165; every other gate frozen bit-for-bit).
                       ADR-118 is D31: a named program wins over its category,
                       and every list naming a capability widens together.
                       ADR-110/111/112 are the 2026-09-02 evening verification
@@ -1064,7 +1093,7 @@ just eval               # eval fixtures -> pass count (currently 64; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 608
+just test               # full unit + adversarial + injection suite (pytest -q). 616
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -1231,4 +1260,9 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "`git checkout -- <file>` puts the mutation back" | Only on a file with **no uncommitted work in it.** Reverting an M6-style mutation that way took an uncommitted hotword change with it, and the next full-suite run failed a test that had passed standalone sixty seconds earlier — which reads exactly like test pollution and is not. Copy the file aside and copy it back, or commit before you mutate (ADR-116, amended). |
 | "The ADR found three frozen sites, so there were three" | ADR-097 widened the app enum and named "three sites frozen at Phase 1". **There were five** — the planner prompt and `STT_HOTWORDS` were both still naming the same five apps, and either one alone stops a scanned app ever launching. A month of `action_audit` proves none did (D31). **An enumeration in an ADR is what the author found, not what exists.** Widening a capability means widening every list that names it: the enum, the prompt, the hotwords, the eval fixtures, the chat persona. |
 | "The registry is generated now, so the coupling is handled" | ADR-042 wrote down in 2026-08-26 that *"the hotwords list is coupled to the registry — a new app must be added there too"*. ADR-097 then replaced the registry with a generated enum and did not touch the hotwords. **A coupling recorded in prose is not a coupling anything enforces** — it is a note that predicts the defect and does not prevent it. `tests/test_stt_hotwords.py` exists because of this. |
+| "Only `argv[0]` can be dangerous, the rest are arguments" | `env`, `flatpak`, `distrobox-enter`, `timeout`, `nohup` and **every terminal emulator** execute an arbitrary FOLLOWING command, so a denylist that reads one token proved nothing about what runs. `foot -e bash` passed while bare `bash` was banned, and 15 of the 165 live app ids are `foot -e <something>` (F5, ADR-119). And it is reachable from real files: `~/.local/share/applications` is user-writable and already holds an `env`-prefixed entry. |
+| "Write a proper resolver for each wrapper's options" | Five option grammars — `env` has NAME=VALUE plus -i/-u/-C/-S, `timeout` takes a duration first, `nice` takes -n, `systemd-run` takes properties — each able to be subtly wrong **in the direction of letting something through**, because a resolver that mis-skips one option hands the denylist the wrong token and reports a pass. Checking every remaining token needs no grammar and is strictly stronger (ADR-119). |
+| "The basename check catches the binary" | Not when the binary is on the right of an `=`. `flatpak run --command=sh org.x.App` runs a shell and `Path("--command=sh").name` is `"--command=sh"`. **The test found this; the design did not** — the same shape as ADR-114a's `--uri=%u`, which an anchored `^%[a-zA-Z]$` never matched. Split on the first `=` and check both halves. |
+| "Tightening a gate is always safe — worst case it blocks too much" | `desktop.scan` runs every scanned entry through `assert_not_banned`, so a false positive there **deletes an id from the app enum**, and the eval fixtures name scanned ids. A stricter ban list can therefore turn `eval` red by removing an app rather than by rejecting one. Measure the whole table against the new rule BEFORE shipping it: 0 of 165 carried a banned token, enum 165 → 165 (ADR-119). |
+| "The finding says these call sites skip the ban list, so wire them to it" | Two of the five carry free text — a reminder message, a dictated sentence — and `BANNED_SUBSTRINGS` holds `;`, `\|`, `>` and backtick. Wiring them up silently drops a notification whose message contains a semicolon. `argv[0]` there is a `which()` result for a code-owned constant and can never be banned, so the check is dead code that can only false-positive. The substring rules exist for shell-string safety and there is no shell (ADR-119). |
 | "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02 and is **165** today, because ADR-097 generates the enum from the machine's XDG desktop entries — it moves whenever an application is installed. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose.** State the shape, and date the observation. |

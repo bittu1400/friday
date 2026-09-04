@@ -4,7 +4,9 @@
 `wl-paste` / `wl-copy`. Text is passed to `wl-copy` on STDIN, never as an argv
 element — so arbitrary clipboard content (pipes, semicolons, backticks) is
 copied verbatim and never parsed as a command. subprocess is argv-list,
-shell=False, bounded timeout (invariant #3).
+shell=False, bounded timeout, and — since 2026-09-04, audit F4 — the one
+explicit `SUBPROCESS_ENV` rather than the daemon's whole environment
+(invariant #3, all four clauses).
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import shutil
 import subprocess
 
 from .. import config
+from .env import SUBPROCESS_ENV
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +35,7 @@ def read_clipboard(timeout_s: float = 2.0) -> str | None:
             text=True,
             timeout=timeout_s,
             check=False,
+            env=SUBPROCESS_ENV,
         )
         return res.stdout
     except Exception as exc:
@@ -55,6 +59,7 @@ def set_clipboard(text: str, timeout_s: float = 2.0) -> bool:
             stderr=subprocess.DEVNULL,
             timeout=timeout_s,
             check=False,
+            env=SUBPROCESS_ENV,
         )
         return res.returncode == 0
     except Exception as exc:

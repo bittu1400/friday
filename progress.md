@@ -5357,10 +5357,164 @@ citation check      clean against the known-good exception list
 
 ---
 
+## 2026-09-04 — **PHASE 3 OPENED: F4 AND F5 ARE FIXED AND SHIPPED STANDALONE** (ADR-119). Four owner decisions taken (ADR-119, ADR-120, OQ-69).
+
+**No microphone was involved.** The owner took jobs 1 and 2 (D29/ADR-114 and
+the D32 sample) at the microphone in parallel; this block is the code half.
+
+### The ground, re-verified before touching anything
+
+```
+pytest              608 passed, rc=0
+eval                64/64 (100%), known-failing 0, regressions 0
+selftest            10/10 PASS, rc=0    (llm_on_gpu 7010 MiB, unit_deployed clean)
+bootstrap --check   11/11 PASS
+grammars            byte-identical
+tmp*/ dirs          0                   (ADR-115 still holds)
+```
+
+**The daemon is NEWER than the code and needed no restart** — the trap the
+previous START HERE block warned about, checked rather than assumed:
+
+```
+daemon started:            Thu Sep  3 17:30:52 2026
+last friday/*.py commit:   2026-09-03 11:16:25 +0545
+friday.service cgroup:     1 PID (the daemon; no launched app was alive)
+```
+
+### The four decisions, asked up front in one batch (working agreement rule 2)
+
+| | question | answer |
+| :-- | :-- | :-- |
+| 1 | F4/F5 standalone, or inside the Capability refactor? | **standalone first** |
+| 2 | F5: how strict on wrapper prefixes? | **resolve through wrappers** |
+| 3 | `open_app` FIRST_USE — ship on, or plumb only? | **ON for all 165** (owner overrode the recommendation) |
+| 4 | Reproduce the five confirms exactly, or trim the Settings noise too? | **freeze exactly** |
+
+1 and 2 are **ADR-119** and shipped in this commit. 3 and 4 are **ADR-120**,
+recorded now so the refactor does not re-litigate them, and 3 raised **OQ-69**
+(is a per-app first-use confirm tolerable in daily use — a measurement the eval
+gate structurally cannot answer, because the fixtures score the planner's
+output and not what the turn does with it).
+
+### F4 — the invariant with five exceptions
+
+Invariant #3 says *"minimal explicit env. **No exceptions.**"* One call site
+passed `env=`. Five did not, and inherited all **50** variables of the daemon's
+environment — `NOTIFY_SOCKET` included, which lets a child talk to systemd as if
+it were `friday.service`.
+
+`friday/tools/env.py` is new and holds `SUBPROCESS_ENV`; it is
+`registry._build_app_env` **moved unchanged**, with `registry._APP_ENV` left as
+an alias so the ten already-compliant sites did not move. `clipboard` ×2,
+`typer` ×2 and `proactive.notifier` now pass it.
+
+**Probed live, with a control that proves the probe can fail:**
+
+```
+wl-paste --list-types  under SUBPROCESS_ENV : connected OK
+notify-send            under SUBPROCESS_ENV : OK (toast appeared)
+wl-paste --list-types  under env -i         : failed as expected
+notify-send            under env -i         : failed as expected
+```
+
+`ydotool` was deliberately not probed live — it types into the focused window,
+and a probe that types into whatever the owner has open is not a probe. It is
+covered by a checkable fact instead: **`YDOTOOL_SOCKET` is absent from
+`/proc/<MainPID>/environ`**, so ydotool has always used its compiled default and
+inherits nothing for the socket; `XDG_RUNTIME_DIR`, which that default is built
+from, is in `SUBPROCESS_ENV`.
+
+**The ban-list half of F4's finding text was deliberately NOT applied.**
+`argv[0]` at those five is a `which()` result for a code-owned constant and can
+never be banned, while `BANNED_SUBSTRINGS` would reject a reminder message
+containing a semicolon and a dictated sentence containing a pipe — silently.
+A check that can only false-positive is not a control.
+
+### F5 — the denylist that inspected one token
+
+```
+BEFORE                                                    AFTER
+PASSES: ['env','python3','/tmp/x.py']                     PASSES  (on purpose)
+PASSES: ['flatpak','run','org.x.App']                     PASSES
+PASSES: ['/usr/bin/distrobox-enter','-n','box','--','bash']  BLOCKED
+PASSES: ['env','nohup','rm','-rf','/home/x']              BLOCKED
+PASSES: ['foot','-e','bash']                              BLOCKED
+PASSES: ['flatpak','run','--command=sh','org.x.App']      BLOCKED
+```
+
+**The `--opt=value` case was found by the test, not by the design.** The first
+implementation checked bare token basenames and `flatpak run --command=sh` sailed
+through, because the basename of `"--command=sh"` is `"--command=sh"`. That is
+the anchors-are-the-bug shape from ADR-114a, arriving a second time.
+
+**A per-wrapper option grammar was rejected**, and this is the reasoning worth
+keeping: `env` alone has `NAME=VALUE` plus `-i`/`-u`/`-C`/`-S`, `timeout` takes a
+duration first, `nice` takes `-n`, `systemd-run` takes properties — five parsers,
+each able to be wrong **in the direction of letting something through**. When the
+head is a wrapper, every remaining token is checked instead: no grammar, strictly
+stronger.
+
+**Measured against the live table BEFORE committing to that**, because
+`desktop.scan` runs every scanned entry through this gate, so a false positive
+**deletes an app from the enum** and the eval fixtures name scanned ids:
+
+```
+entries whose argv carries a BANNED_BINARIES token past index 0 :   0
+entries whose argv[0] is a wrapper                              :  18
+argv tokens containing '='                                      :   8  (none banned)
+enum size before / after                                        : 165 / 165
+```
+
+Terminals are on the wrapper list because `-e` is the same escape: **15 of the
+165 live ids are `foot -e <something>`**.
+
+### Eight mutations, each watched turn the suite RED, each reverted
+
+Definition of done, line six. Reverted by copy-aside/copy-back, never
+`git checkout --` (ADR-116, amended).
+
+```
+ban.py       delete the wrapper-resolution block   -> 1 failed
+ban.py       WRAPPER_BINARIES emptied              -> 1 failed
+ban.py       drop the --opt=value split            -> 1 failed
+clipboard.py delete env=SUBPROCESS_ENV (read)      -> 1 failed
+clipboard.py delete env=SUBPROCESS_ENV (write)     -> 1 failed
+typer.py     delete env=SUBPROCESS_ENV (wtype)     -> 1 failed
+typer.py     delete env=SUBPROCESS_ENV (ydotool)   -> 1 failed
+notifier.py  delete env=SUBPROCESS_ENV             -> 1 failed
+```
+
+### Gates after
+
+```
+pytest      616 passed, rc=0     (608 + 6 in tests/test_subprocess_env.py + 2 in test_action_surface.py)
+eval        64/64 (100%), regressions 0
+grammars    byte-identical
+selftest    10/10 PASS, rc=0
+enum        165, unchanged
+```
+
+Four existing tests moved from `registry._build_app_env` to
+`env._build_subprocess_env` (`tests/test_registry.py` ×2,
+`tests/test_hypr_dispatch.py` ×2); their assertions are unchanged.
+
+---
+
 ## >>> START HERE: NEXT SESSION (written **2026-09-03, last-3**, after D31 was proven live) <<<
 
 **Read this whole block before touching anything. Everything below is measured;
 nothing in it is belief.**
+
+> **AMENDED 2026-09-04.** Job 0 was re-run and is green; the daemon was checked
+> and is NEWER than the code, so no restart was needed. **Job 3's F4 and F5 are
+> DONE** — shipped standalone ahead of the Capability refactor (**ADR-119**), and
+> the two Phase 3 policy questions underneath it are answered and recorded
+> (**ADR-120**: `open_app` ships FIRST_USE for all 165, everything else freezes;
+> **OQ-69** is its measurement). **Gate numbers below are stale by one line:
+> `pytest` is now 616, not 608.** Jobs 1 (D29/ADR-114) and 2 (D32) are unchanged
+> and still owed to a microphone — see the 2026-09-04 block above for what the
+> code half did.
 
 ### The state in seven lines
 

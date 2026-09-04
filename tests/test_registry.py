@@ -62,7 +62,7 @@ def test_env_passes_session_vars_when_present(monkeypatch) -> None:
     monkeypatch.setenv("XDG_RUNTIME_DIR", "/run/user/1000")
     monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus")
     monkeypatch.setenv("DISPLAY", ":0")
-    from friday.tools.registry import _build_app_env
+    from friday.tools.env import _build_subprocess_env as _build_app_env
 
     env = _build_app_env()
     assert env["WAYLAND_DISPLAY"] == "wayland-1"
@@ -81,7 +81,7 @@ def test_env_omits_session_vars_when_absent(monkeypatch) -> None:
     monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
-    from friday.tools.registry import _build_app_env
+    from friday.tools.env import _build_subprocess_env as _build_app_env
 
     # LANG is unconditional, unlike the session vars: it has a code-owned
     # fallback ("C.UTF-8") because a console app in the "C" locale exits 1 and

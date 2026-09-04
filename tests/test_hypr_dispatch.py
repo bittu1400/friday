@@ -19,6 +19,7 @@ import pytest
 from friday.errors import PolicyRejected
 from friday.llm.schema import PARAM_SCHEMA, WORKSPACE_ENUM
 from friday.tools import registry
+from friday.tools import env as env_mod
 
 
 def test_workspace_switch_uses_the_lua_dispatcher():
@@ -72,10 +73,10 @@ def test_the_tool_env_carries_the_instance_signature(monkeypatch):
     """Without it hyprctl says "is hyprland running?" and exits 1 — the same
     class of defect as the missing DISPLAY that made every "Opened X." a lie."""
     monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "probe_sig")
-    env = registry._build_app_env()
+    env = env_mod._build_subprocess_env()
     assert env["HYPRLAND_INSTANCE_SIGNATURE"] == "probe_sig"
 
 
 def test_the_tool_env_omits_what_the_session_does_not_have(monkeypatch):
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
-    assert "HYPRLAND_INSTANCE_SIGNATURE" not in registry._build_app_env()
+    assert "HYPRLAND_INSTANCE_SIGNATURE" not in env_mod._build_subprocess_env()

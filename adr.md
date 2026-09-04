@@ -5434,3 +5434,234 @@ must reject. The enum stays closed.
 **Pushing harder on the canonical ids in the prompt.** That is the phrasing that
 caused D31. Re-teaching the category collapse to keep two fixtures green would
 trade the owner's actual complaint for a green number.
+
+## ADR-119 — One explicit environment for every subprocess, and the ban list follows a wrapper to the command it runs (F4, F5)
+
+**Date:** 2026-09-04
+**Status:** Accepted, shipped
+**Supersedes nothing. Precedes the Phase 3 refactor deliberately.**
+
+### Context
+
+Two of the five items in the Phase 3 row of `design-2026-09-02.md` are security
+findings that have nothing to do with the `Capability` record: **F4** (one
+explicit subprocess env) and **F5** (wrapper prefixes walk through the binary
+denylist). Both land on the tool layer, both were measured on this machine in
+the 2026-09-02 audit, and both had been open since.
+
+**F4.** Invariant #3 reads *"argv list, shell=False, minimal explicit env,
+bounded timeout. **No exceptions.**"* Exactly one call site passed `env=` — the
+executor's detached app launch. Five did not: `clipboard.read_clipboard`,
+`clipboard.set_clipboard`, `typer` (the wtype and ydotool branches) and
+`proactive.notifier.notify`. They inherited the daemon's whole environment,
+which on this machine is 50 variables including `NOTIFY_SOCKET` (a child holding
+it can talk to systemd as if it were `friday.service`), the `WATCHDOG_*` pair,
+and `JOURNAL_STREAM`. An invariant with five unlabelled exceptions is a
+preference.
+
+**F5.** `assert_not_banned` inspected `Path(argv[0]).name` and nothing else, so
+anything that executes a *following* command hid the real binary from the gate.
+Measured, verbatim from the audit:
+
+```
+  PASSES: ['env', 'python3', '/tmp/x.py']
+  PASSES: ['flatpak', 'run', 'org.x.App']
+  PASSES: ['/usr/bin/distrobox-enter', '-n', 'box', '--', 'bash']
+  blocked: ['pkexec', 'gparted']
+```
+
+This is reachable from real files, not only in theory: `~/.local/share/applications`
+is user-writable and already holds an `env`-prefixed entry (`todoist`), so part
+of the argv Friday executes is determined by files this project does not write.
+
+### Decision
+
+**Ship F4 and F5 as their own commit, before the Capability refactor** (owner's
+choice, 2026-09-04). Both lines already had a test under them from ADR-117 —
+`test_subprocess_gets_the_minimal_explicit_env_only` (M4) and
+`test_banned_argv_is_denied_at_dispatch` (M2) — so the baseline existed, the
+diff is small, and a security fix does not ride on an eight-day refactor that
+could stall.
+
+**F4: one module, `friday/tools/env.py`, exporting `SUBPROCESS_ENV`.** It is
+`registry._build_app_env` moved unchanged; `registry._APP_ENV` is now an alias,
+so the ten call sites that already used it did not move. The five
+non-compliant sites now pass `env=SUBPROCESS_ENV`.
+
+**F5: when `argv[0]` is a wrapper, check every remaining token.** A new
+`WRAPPER_BINARIES` set names the binaries that execute an arbitrary following
+command — `env`, `flatpak`, `distrobox-enter`, `nohup`, `timeout`,
+`systemd-run`, `unshare`, `ssh` and friends — **plus the terminal emulators**,
+because `-e` is the same escape and 15 of the 165 live app ids are
+`foot -e <something>`. `--opt=value` tokens are split on the first `=` and the
+right-hand side checked too, because `flatpak run --command=sh org.x.App` runs
+a shell and the basename of `"--command=sh"` is `"--command=sh"`.
+
+### Why not a per-wrapper option grammar
+
+This was the alternative the owner was offered and it is the one that looks
+correct. `env` alone has `NAME=VALUE` assignments plus `-i`, `-u`, `-C` and
+`-S`; `timeout` takes a duration first; `nice` takes `-n`; `systemd-run` takes
+properties. That is five parsers, each able to be subtly wrong **in the
+direction of letting something through** — a resolver that mis-skips one option
+hands the denylist the wrong token and reports a pass. Checking every remaining
+token needs no grammar, is strictly stronger, and can only false-positive when
+a wrapper is handed a banned *name as data*, which for a wrapper is the
+dangerous case anyway.
+
+**Measured before committing to it, against the live 165-id table:**
+
+```
+  entries whose argv carries a BANNED_BINARIES token past index 0:  0
+  entries whose argv[0] is a wrapper:                              18
+  argv tokens containing '=':                                       8   (none banned)
+  enum size before / after:                                   165 / 165
+```
+
+So nothing on this machine changes, which matters more than it sounds:
+`desktop.scan` runs every scanned entry through `assert_not_banned`, so a false
+positive here **deletes an id from the enum**, and the eval fixtures name
+scanned ids. `tests/test_action_surface.py::test_wrapper_resolution_does_not_break_the_real_app_table`
+runs the whole table through the gate for exactly this reason.
+
+### Rejected
+
+**Ban the wrapper binaries outright at `argv[0]`.** Strictest and simplest, and
+it breaks a real installed app: `todoist` is `('env', 'DESKTOPINTEGRATION=false',
+'/usr/bin/todoist', '--no-sandbox')`. It would need an exception list, which is
+the option grammar again wearing a different hat.
+
+**Check every argv element unconditionally**, wrapper or not. Cheap, catches
+wrappers nobody enumerated — and false-positives on any legitimate free text
+that happens to contain a banned name. `assert_not_banned` is also reached with
+argv carrying the one audited free-text exception (`youtube_search.query`,
+ADR-027), so widening the *binary* rule to all tokens everywhere trades a real
+hole for a real regression.
+
+### What this deliberately does NOT fix
+
+**`python3` is still not banned**, so `env python3 /tmp/x.py` still passes. That
+is not an oversight. Banning interpreters breaks legitimate `.desktop` entries,
+and the threat here is not the model — invariant #2 means the model emits an id
+from a closed enum and never an argv. The exposure is *a desktop file the owner's
+own machine supplied*, and the correct control for "this argv came from outside
+our control" is the risk tier plus `argv_sha256`, which is Phase 3 §3.3 and is
+now scheduled to ship ON (see ADR-120). A denylist is the wrong shape for it.
+
+**The ban list is not applied to the five call sites' argv.** F4's finding text
+notes they also skip `assert_not_banned`. They are not wired to it, and should
+not be: `argv[0]` at those five is a `shutil.which()` result for a code-owned
+constant and can never be banned, while `BANNED_SUBSTRINGS` would reject a
+reminder message containing a semicolon or a dictated sentence containing a
+pipe — the notification would silently vanish. The substring rules exist for
+shell-string safety and there is no shell here. A check that can only
+false-positive is not a control.
+
+### Evidence
+
+`pytest` **608 → 616**. `just eval` **64/64, regressions 0**. Grammars
+**byte-identical**. `selftest` **10/10 rc=0**. Enum **165, unchanged**.
+
+Live, under `SUBPROCESS_ENV` alone and with a control that proves the probe can
+fail:
+
+```
+  wl-paste --list-types   under SUBPROCESS_ENV: connected OK
+  notify-send             under SUBPROCESS_ENV: OK (toast appeared)
+  wl-paste --list-types   under env -i (control): failed as expected
+  notify-send             under env -i (control): failed as expected
+```
+
+`ydotool` was NOT probed live — it types into the focused window, and a probe
+that types into whatever the owner has open is not a probe. It is covered by
+reasoning that is checkable: `YDOTOOL_SOCKET` is **absent** from the daemon's
+own `/proc/<MainPID>/environ`, so ydotool has always used its compiled default
+and inherits nothing for the socket; `XDG_RUNTIME_DIR`, which that default is
+built from, is in `SUBPROCESS_ENV`.
+
+**Eight mutations applied, each watched turn the suite RED, each reverted**
+(definition of done, line six):
+
+```
+  ban.py   delete the wrapper-resolution block            -> 1 failed
+  ban.py   WRAPPER_BINARIES emptied                       -> 1 failed
+  ban.py   drop the --opt=value split                     -> 1 failed
+  clipboard.py  delete env=SUBPROCESS_ENV  (read)         -> 1 failed
+  clipboard.py  delete env=SUBPROCESS_ENV  (write)        -> 1 failed
+  typer.py      delete env=SUBPROCESS_ENV  (wtype)        -> 1 failed
+  typer.py      delete env=SUBPROCESS_ENV  (ydotool)      -> 1 failed
+  notifier.py   delete env=SUBPROCESS_ENV                 -> 1 failed
+```
+
+Reverted by copy-aside/copy-back, never `git checkout --` — that takes
+uncommitted work in the same file with it (ADR-116, amended).
+
+### Cost
+
+`tests/test_subprocess_env.py` is new (6 tests) and two tests joined
+`tests/test_action_surface.py`. Four existing tests moved from
+`registry._build_app_env` to `env._build_subprocess_env`; their assertions are
+unchanged.
+
+---
+
+## ADR-120 — `open_app` becomes FIRST_USE for all 165 ids, and the Phase 3 refactor changes no other behaviour
+
+**Date:** 2026-09-04
+**Status:** Accepted, NOT yet implemented — this records the decision so the
+refactor does not have to re-litigate it.
+
+### Context
+
+Two Phase 3 criteria contradict each other as written. §3.5 says the derived
+risk tiers must reproduce the five hand-coded confirms **exactly** — that is
+what `tests/test_confirm_arming.py` is for (ADR-117, M1). §3.3 says the current
+gate over all 28 `Settings`-category entries is noise and *"that noise goes"*,
+and makes `open_app` FIRST_USE, which is a live behaviour change for 165 ids.
+Both cannot be true in one commit whose contract is *"behaviour did not change"*.
+
+### Decision (owner, 2026-09-04)
+
+**(a) `open_app` ships FIRST_USE for all 165 ids.** Not the plumbing-only
+option, and not the T2/T3-only middle path. The first launch of every
+application asks once, records the approval with its `argv_sha256`, and never
+asks again for that argv.
+
+**(b) Everything else freezes.** The derived tiers reproduce clipboard ×2,
+wifi-off, window-close and the settings gate bit-for-bit.
+`tests/test_confirm_arming.py` and `tests/test_panic_gate.py` must pass
+**untouched** through the refactor. Trimming the 28-Settings gate down to the
+13 + 5 table of §3.3 is a separate commit with its own ADR, after.
+
+### Why (a) rather than the safer plumbing-only option
+
+The reason the safer option was recommended is that a behaviour change inside a
+refactor makes a real regression and an intended change indistinguishable. The
+owner took the risk knowingly, and the arithmetic is on their side: FIRST_USE is
+the control that actually closes what ADR-119 left open. `desktop.app_key`
+derives an id from the `.desktop` `Name`, and `scan()` resolves a key collision
+with `setdefault` — first wins — so two applications can normalise to one id,
+and an uninstall-then-install can hand a stored approval to a **different
+binary**. `argv_sha256` is what notices. Shipping the table without turning it
+on leaves that door open for another phase, and this project's own record is
+that a control which exists but is not switched on is a control nobody has
+tested: ADR-058's dictation wake-pause was decided and never implemented (D14),
+and the systemd watchdog was committed and had never fired.
+
+**The cost is named and accepted:** ~85 first-use confirms accumulate over
+normal use of the machine, and the eval gate cannot see them — the fixtures
+score the planner's output, not the turn's dispatch, so 64/64 will stay 64/64
+whether this works or not. Whether the burden is tolerable in daily use is a
+measurement, not an argument: **OQ-69**.
+
+### Rejected
+
+**Plumb it and leave `open_app` ungated.** Zero live change and a clean
+contract, and it defers the only part a human can feel.
+
+**FIRST_USE for T2/T3 only (18 apps).** Gates the risky end, leaves daily use
+untouched — and leaves the `app_key` collision unguarded for the 85 T1 apps,
+which is where the collision actually lives.
+
+**Trim the Settings noise in the same commit.** Fewer commits, and it destroys
+the one property that makes the refactor reviewable.

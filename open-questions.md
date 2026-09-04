@@ -1714,3 +1714,34 @@ months.)_
 
 
 
+
+---
+
+### OQ-69 — Is a first-use confirm per application tolerable in daily use?
+**Decider:** USER · **Blocks:** nothing (it can be turned off in one field) ·
+**Status:** OPEN (raised 2026-09-04 by ADR-120)
+
+ADR-120 turns `open_app` FIRST_USE for all 165 ids: the first launch of each
+application asks once, records the approval with its `argv_sha256`, and never
+asks again for that argv. The owner chose this over the plumbing-only option
+knowing the cost, because `argv_sha256` is the only thing that notices when
+`desktop.app_key`'s `setdefault` collision quietly hands a stored approval to a
+different binary.
+
+**The eval gate cannot answer this.** The 64 fixtures score the planner's
+output — action id and params — not what the turn then does with it, so the gate
+reads 64/64 whether the confirm handshake works, annoys, or never fires. Same
+blindness as D23, where seven turn types completed writing no audit row and the
+gap produced a confident wrong diagnosis.
+
+**What would answer it:** a week of ordinary use after the refactor lands, then
+`SELECT COUNT(*) FROM approvals` against the `open_app` rows in `action_audit`.
+If approvals ≈ distinct apps launched and the confirms stopped after the first
+of each, the mechanism works. If the count keeps climbing, `argv_sha256` is
+churning — an app whose argv changes on update would re-ask every time, which is
+correct behaviour that nobody would tolerate.
+
+**Default if the owner declines to decide:** leave it on. Turning it off is one
+field on the capability record, and a control that was never switched on is a
+control nobody has tested — ADR-058's dictation wake-pause (D14) and the systemd
+watchdog are both this project's own evidence for that.

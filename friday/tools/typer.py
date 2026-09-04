@@ -24,6 +24,7 @@ import shutil
 import subprocess
 
 from .. import config
+from .env import SUBPROCESS_ENV
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ def type_text(text: str) -> bool:
                 stderr=subprocess.DEVNULL,
                 timeout=timeout_s,
                 check=False,
+                env=SUBPROCESS_ENV,
             )
             if res.returncode == 0:
                 return True
@@ -102,6 +104,11 @@ def type_text(text: str) -> bool:
                 stderr=subprocess.PIPE,
                 timeout=timeout_s,
                 check=False,
+                # F4. YDOTOOL_SOCKET is absent from the daemon's own
+                # environment (measured), so ydotool used its compiled default
+                # before this line existed and still does; XDG_RUNTIME_DIR,
+                # which the default path is built from, is in SUBPROCESS_ENV.
+                env=SUBPROCESS_ENV,
             )
             if res.returncode == 0:
                 return True

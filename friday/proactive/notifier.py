@@ -11,6 +11,7 @@ import shutil
 import subprocess
 
 from .. import config
+from ..tools.env import SUBPROCESS_ENV
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +36,9 @@ def notify(title: str, message: str, urgency: str = "normal") -> bool:
             stderr=subprocess.DEVNULL,
             timeout=2.0,
             check=False,
+            # F4: DBUS_SESSION_BUS_ADDRESS is in here, which is the only var
+            # notify-send actually needs to reach the notification daemon.
+            env=SUBPROCESS_ENV,
         )
         return res.returncode == 0
     except Exception as exc:
