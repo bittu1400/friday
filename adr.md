@@ -5665,3 +5665,78 @@ which is where the collision actually lives.
 
 **Trim the Settings noise in the same commit.** Fewer commits, and it destroys
 the one property that makes the refactor reviewable.
+
+## ADR-121 — The planner may spell an app id the way a human says it (D34)
+
+**Date:** 2026-09-04
+**Status:** Accepted, shipped
+
+### Context
+
+Measured at a microphone, 2026-09-04 09:25:11:
+
+```
+E_TOOL_NOTFOUND: app 'easy-effects' not installed, failing closed to none
+```
+
+`easy_effects` is in the enum. `easy-effects` is not, and never can be:
+`desktop.app_key` is `[^a-z0-9]+ -> "_"` after casefold, so it produces
+underscores and only underscores. A real installed application was unreachable
+by a hyphen.
+
+**The planner has to guess the spelling and this is structural, not a prompt
+bug.** The GBNF grammar has never enumerated param values (ADR-097 — that is
+why widening the enum 5 → 165 cost zero prompt tokens), and `prompt.py` lists
+only the common ids and names the rule for the rest. So the model hears
+"Easy Effects", is told ids look like `easy_effects`, and writes the separator
+it thinks is right. One of the two separators loses the app.
+
+### Decision
+
+When `open_app.app` misses the enum, retry **once** with `desktop.app_key(value)`
+— the same function that generated every id in the set — and accept only if the
+folded form is an exact member.
+
+### Why this is not the fuzzy matcher that is permanently rejected
+
+A fuzzy or substring matcher resolves `"browser; rm -rf ~"` to `browser`, and
+AS-8 must reject. That has been refused twice and is refused again here. This is
+different in kind: `app_key` is a **whitelist** — casefold, then everything
+outside `[a-z0-9]` becomes `_` — and the result is then subjected to the *same
+exact match against the same closed set*. It cannot invent a member. Verified,
+and each is a test:
+
+```
+  "browser; rm -rf ~"  -> browser_rm_rf   not an id -> rejected  (AS-8)
+  "/bin/sh"            -> bin_sh          not an id -> rejected  (AS-7)
+  "../../etc/passwd"   -> etc_passwd      not an id -> rejected
+  "brаve" (Cyrillic а) -> br_ve           not an id -> rejected  (AS-9)
+  "brow" / "browserr"  -> unchanged       not an id -> rejected  (no prefix, no near-miss)
+```
+
+The enum stays closed, the match stays exact, and invariant #2 is untouched —
+the model still emits an opaque id from a closed set and code still builds argv.
+What widens is only which *spellings of an existing id* are accepted.
+
+### The rejection must still name what the planner emitted
+
+Folding unconditionally (`value = app_key(value)`) also fails closed and is
+therefore invisible to a security test — it survived the first mutation round.
+It is still wrong: `E_TOOL_NOTFOUND` would then log `easy_effects` for an input
+of `easy-effects` and **hide the defect that was actually there**. A fail-closed
+path that logs what it rejected is what turned two microphone sessions into a
+grep instead of a bisect (2026-09-03's `jin_browser`, and this one). The raw
+value is what `AppNotInstalledError.app_name` carries, and there is now an
+assertion on it, which is the only thing that kills that mutation.
+
+### Evidence
+
+`pytest` **616 → 618**. `eval` **64/64, regressions 0**. Grammars
+**byte-identical**. `test_adversarial.py` **13 passed**. Two mutations
+demonstrated RED: deleting the fold, and applying it unconditionally.
+
+### What it does NOT fix
+
+`android_studio` still fails, and that is a different defect — **D33**, the
+version string baked into a generated id. No spelling of "Android Studio" folds
+to `android_studio_panda_4_2025_3_4_patch_1`.

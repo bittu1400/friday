@@ -114,3 +114,48 @@ def test_ordinary_app_is_not_confirmed() -> None:
         "open my browser", StubClient(_plan("browser")), request_id="t", dry_run=True,
     ))
     assert r.pending is None, "an ordinary app must not ask for confirmation"
+
+
+def test_the_planner_may_spell_an_app_id_the_way_a_human_says_it():
+    """D34, measured live 2026-09-04. The planner heard "Easy Effects" and
+    emitted `easy-effects`; the enum holds `easy_effects` and the turn failed
+    closed, losing a real installed application. It has to guess the spelling —
+    the grammar never enumerates param values (ADR-097) and the prompt lists
+    only the common ids — so the validator folds the candidate through
+    `desktop.app_key`, the same function that generated every id."""
+    from friday.llm.validate import _validate_params as validate_params
+
+    for spoken in ("easy-effects", "Easy Effects", "EASY_EFFECTS", "easy effects"):
+        assert validate_params("open_app", {"app": spoken})["app"] == "easy_effects"
+
+    # An id that is already exact is untouched, and takes the fast path.
+    assert validate_params("open_app", {"app": "zen_browser"})["app"] == "zen_browser"
+
+
+def test_the_spelling_fold_is_not_a_fuzzy_matcher():
+    """The fold is `app_key`, which is a WHITELIST — casefold, then `[^a-z0-9]+`
+    to underscore — so the adversarial fixtures still fail closed. A substring
+    or fuzzy matcher would resolve the first of these to `browser`, which is
+    exactly why one is permanently rejected (AS-8, ADR-097)."""
+    from friday.llm.validate import AppNotInstalledError
+    from friday.llm.validate import _validate_params as validate_params
+
+    for hostile in (
+        "browser; rm -rf ~",   # AS-8 -> browser_rm_rf
+        "/bin/sh",             # AS-7 -> bin_sh
+        "../../etc/passwd",    # -> etc_passwd
+        "brаve",          # AS-9, Cyrillic a -> br_ve
+        "brow",                # a real id's PREFIX must not resolve
+        "browserr",            # nor a near-miss
+    ):
+        with pytest.raises(AppNotInstalledError) as exc:
+            validate_params("open_app", {"app": hostile})
+
+        # The rejection must name what the planner ACTUALLY emitted, not the
+        # folded form. `E_TOOL_NOTFOUND: app 'jin_browser' not installed` is
+        # what turned a session of bisecting into a grep on 2026-09-03, and
+        # again on 2026-09-04 — folding before reporting would have logged
+        # `easy_effects` for an input of `easy-effects` and hidden the defect
+        # that was actually there. Applying the fold unconditionally still
+        # fails closed, so only this assertion catches it.
+        assert exc.value.app_name == hostile

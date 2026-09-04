@@ -5501,6 +5501,163 @@ Four existing tests moved from `registry._build_app_env` to
 
 ---
 
+## 2026-09-04 (mic) — **D29/ADR-114 IS PROVEN. D32 IS REFUTED AND REPLACED BY D33 + D34.** ADR-121.
+
+The owner ran jobs 1 and 2 at the microphone while the F4/F5 work went on. Both
+answered, and job 2 answered something other than the question it was asked.
+
+### Job 1 — D29 / ADR-114, the last item this project owed a microphone
+
+The precondition nobody had ever checked was checked: **kitty was inside
+`friday.service`'s cgroup**, so it is a valid subject (Discord is not — it
+escapes into `app-discord-<pid>.scope`).
+
+```
+$ pgrep -x kitty
+32201
+$ cat /sys/fs/cgroup/.../friday.service/cgroup.procs
+15829      <- the daemon
+32201      <- kitty, IN the cgroup
+32210
+32213
+```
+
+Then, across a restart:
+
+```
+$ hyprctl clients | grep -c '^Window'       5
+$ systemctl --user restart friday
+$ sleep 3; hyprctl clients | grep -c '^Window'; pgrep -x kitty
+5
+32774
+$ systemctl --user restart friday
+$ sleep 3; hyprctl clients | grep -c '^Window'; pgrep -x kitty
+5
+32774
+```
+
+**kitty 32774 was launched by daemon 32619 at 09:20:53 and was still alive after
+the restart that produced daemon 33073 at 09:21:17** — same PID either side,
+window count unchanged at 5. Corroborated from the system afterwards:
+`NRestarts: 0` (so every restart was manual, not the watchdog) and the daemon's
+own start time.
+
+```
+2026-09-04 09:20:53  open_app {"app":"kitty"}  allowed ok  402 ms
+MainPID 33073, started Fri Sep  4 09:21:17 2026
+```
+
+**ADR-114 holds. `KillMode=process` does what it was shipped to do.**
+
+**One thing is NOT resolved and is being asked rather than guessed:** the
+earlier kitty, PID **32201**, does not appear in the post-restart `pgrep`. Either
+the owner closed it, or a restart killed it. The rows cannot separate those two
+and one sentence to the owner can — the same call as D31's four "vanished" apps,
+where guessing would have produced a defect that did not exist.
+
+### Job 2 — D32 was asked about STT and answered about the enum
+
+Eight two-word names spoken, four already in `STT_HOTWORDS` and four not, so
+that the hotword's contribution could be seen. Result:
+
+```
+09:22:10  open_app {"app":"zen_browser"}     ok  409 ms     <- in hotwords
+09:22:18  open_app {"app":"librewolf"}       ok  404 ms     <- in hotwords
+09:23:40  open_app {"app":"editor"}          ok  401 ms     <- "Visual Studio Code"
+09:24:00  open_app {"app":"github_desktop"}  ok  411 ms     <- NOT in hotwords
+09:24:27  open_app {"app":"proton_vpn"}      ok  401 ms     <- NOT in hotwords
+
+E_TOOL_NOTFOUND: app 'android_studio' not installed              x3
+E_TOOL_NOTFOUND: app 'android_studio_panda_4' not installed      x1
+E_TOOL_NOTFOUND: app 'easy-effects' not installed                x1
+```
+
+**"Zen Browser" and "LibreWolf" — the two utterances D32 was written from — both
+worked today.** Two-word names in hotwords: fine. Two-word names *not* in
+hotwords: also fine. **D32's stated cause is refuted**: STT delivered every one
+of these correctly, and the previous session's `jin_browser` / `wolf_studio`
+were flakiness, not a systematic compound-name failure. n was 2.
+
+**The two real failures are enum defects, and neither is STT.**
+
+- **D34 — a hyphen where the generator makes an underscore.** The planner
+  emitted `easy-effects`; `easy_effects` is in the enum. `app_key` is
+  `[^a-z0-9]+ -> "_"`, so a hyphen can never be an id, and the model has to
+  *guess* the spelling because the grammar never enumerates values (ADR-097) and
+  the prompt lists only the common ids. **FIXED, ADR-121**: a miss on
+  `open_app.app` retries once through `app_key` itself and accepts only an exact
+  member. Not a fuzzy matcher — `app_key` is a whitelist, so AS-7/8/9 all still
+  reject, each with a test.
+
+- **D33 — a generated id carries the `.desktop` Name's version string.** The
+  real id is `android_studio_panda_4_2025_3_4_patch_1`. The planner emitted
+  `android_studio` three times and `android_studio_panda_4` once; both are the
+  sensible guess and neither can ever match. **OPEN — the fix is an owner
+  decision.** Ten ids carry a version and five are JetBrains Toolbox:
+
+```
+   android_studio_panda_4_2025_3_4_patch_1
+   dataspell_2026_1_1
+   intellij_idea_2026_1_2
+   pycharm_2026_1_2
+   webstorm_2026_1_2
+   fcitx_5, fcitx_5_configuration, fcitx_5_migration_wizard
+   openjdk_java_26_console, openjdk_java_26_shell
+```
+
+  **Four of those application names are already in `STT_HOTWORDS`** — "Android
+  Studio", "IntelliJ IDEA", "PyCharm", "WebStorm". Whisper is being biased
+  toward names the enum structurally cannot deliver. And the id **changes on
+  every IDE update**, so anything keyed to it churns — which is OQ-69's
+  `argv_sha256` churn scenario arriving before the feature does.
+
+### Two other things the journal answered, both benign
+
+**The audit row with no `stage_timings` was ADR-065 working.** `v7` planned
+`open_app` at 09:23:49 and wrote no audit row; an unmatched `github_desktop` row
+appeared at 09:24:00. The journal explains it in one line:
+
+```
+09:23:49  v7 stage_timings ... plan_ms=1819 action=open_app
+09:23:52  confirm armed: GitHub Desktop (30s)
+09:23:58  capture start source=ptt
+09:24:00  v8 TTFA 1260 ms          <- the confirm answered, then dispatched
+```
+
+`plan_ms=1819` against a ~1050 ms norm is **two** planner calls: the action only
+appeared once history was included, so it was confirmed rather than dispatched.
+Exactly ADR-065. Not a defect, and `github_desktop` is not a `confirm=True` id.
+
+**The 28-Settings gate's noise is now measured, not asserted.** §3.3 of the
+design calls it noise; the live table shows **28 gated ids covering ~14 actual
+programs**, because most are in twice under two spellings —
+`qt5_settings`/`qt5ct`, `bluetooth_manager`/`blueman_manager`,
+`fcitx_5_configuration`/`fcitx5_configtool`, `thunar_preferences`/`thunar_settings`.
+That trim stays a separate commit after the refactor (ADR-120).
+
+### Unresolved loose end
+
+**"Bulk Rename" produced `action=none` with no `E_TOOL_NOTFOUND` at all**
+(`v11`, 09:25:30) — the planner did not attempt an id, so there is nothing to
+grep. `bulk_rename` is in the enum. Diagnosing it needs the `heard=` line, and
+`FRIDAY_DEBUG` was off. One utterance, noted rather than theorised about.
+
+### Gates after D34
+
+```
+pytest      616 -> 618, rc=0
+eval        64/64 (100%), regressions 0
+grammars    byte-identical
+adversarial 13 passed
+```
+
+Two mutations demonstrated RED: deleting the `app_key` fold, and applying it
+unconditionally — the second fails closed too, so only the assertion that
+`AppNotInstalledError.app_name` carries the **raw** value kills it. That
+property is why this session was a grep and not a bisect.
+
+---
+
 ## >>> START HERE: NEXT SESSION (written **2026-09-03, last-3**, after D31 was proven live) <<<
 
 **Read this whole block before touching anything. Everything below is measured;

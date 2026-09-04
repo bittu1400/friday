@@ -29,6 +29,24 @@ reverting — which is now line six of the definition of done. Report:
 **`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
 Decisions: **ADR-117**.
 
+**>>> 2026-09-04 (mic): D29/ADR-114 IS PROVEN — THIS PROJECT NOW OWES A
+MICROPHONE NOTHING — AND D32 IS REFUTED.** kitty was confirmed inside
+`friday.service`'s `cgroup.procs` (the precondition four sessions never checked)
+and survived a restart at the same PID with the window count unchanged;
+`NRestarts: 0`, so the restarts were manual. **D32 said two-word app names die
+in STT. They do not:** "Zen Browser" → `zen_browser` and "LibreWolf" →
+`librewolf` — *the exact two utterances D32 was written from* — both worked, as
+did `github_desktop` and `proton_vpn`, **neither of which is in the hotwords**.
+n was 2 and it was flakiness. **What the re-run actually found is two enum
+defects a "blame STT" reading would have buried: D34** (the planner emitted
+`easy-effects`; `app_key` only ever makes `easy_effects`; a real app was
+unreachable by one character — **FIXED, ADR-121**, by folding a miss through
+`app_key` itself, which is a whitelist and so AS-7/8/9 still reject) **and D33**
+(the id is `android_studio_panda_4_2025_3_4_patch_1`, a `.desktop` `Name` with
+its version in it — ten such ids, five of them JetBrains, **four of their names
+already in `STT_HOTWORDS`**, and the id changes on every update. **OPEN, owner's
+decision.**). `pytest` 616 → 618. <<<**
+
 **>>> 2026-09-04: PHASE 3 IS OPEN, AND ITS TWO SECURITY ITEMS SHIPPED FIRST.
 F4 and F5 are FIXED (ADR-119), standalone, ahead of the `Capability` refactor.**
 **F4:** invariant #3's *"minimal explicit env, no exceptions"* had **five**
@@ -170,7 +188,7 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-120. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
+**Decisions ADR-098…ADR-121. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
 OQ-61, OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
 **ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
 went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
@@ -204,10 +222,12 @@ below and one live measurement.**
 | **D26** | fixed; **efficacy unproven — OQ-57** |
 | **D27** | **NEW, FIXED 2026-09-02** — `import onnxruntime` phones home to `*.events.data.microsoft.com`. `ORT_DISABLE_TELEMETRY=1` (**ADR-112**) |
 | **D28** | **NEW, FIXED 2026-09-02** — `pytest -q` crashed at session finish; `Daemon.close()` leaked a PortAudio stream (**ADR-111**) |
-| **D29** | **NEW, FIXED 2026-09-02** — every app Friday launched died with the daemon. Children inherit `friday.service`'s cgroup and `KillMode` defaulted to `control-group`, so a stop/restart SIGKILLed the lot — with `Restart=always` + `WatchdogSec=10s` behind it. `KillMode=process` (**ADR-114**). Real, proven, **and NOT the defect the owner reported.** Also fixed: embedded XDG field codes reached the binary (`--uri=%u`), **ADR-114a** |
+| **D29** | **NEW, FIXED 2026-09-02, and PROVEN LIVE 2026-09-04** — kitty was confirmed inside `friday.service`'s `cgroup.procs` (the precondition four sessions never checked), then survived a restart with the same PID and an unchanged window count. `NRestarts: 0`, so every restart was manual. **This project now owes a microphone nothing.** Originally: every app Friday launched died with the daemon. Children inherit `friday.service`'s cgroup and `KillMode` defaulted to `control-group`, so a stop/restart SIGKILLed the lot — with `Restart=always` + `WatchdogSec=10s` behind it. `KillMode=process` (**ADR-114**). Real, proven, **and NOT the defect the owner reported.** Also fixed: embedded XDG field codes reached the binary (`--uri=%u`), **ADR-114a** |
 | **D30** | **NEW, FIXED 2026-09-02 — THIS is "Friday says launching X and nothing opens."** `PrivateTmp=yes` gave the daemon an empty `/tmp`. Chromium keeps its singleton SOCKET in `/tmp` and only a SYMLINK to it under `$HOME`, so a Friday-launched Brave saw the shared lock, could not reach the socket, and exited **0 in ~50 ms** with no window — announced as a successful launch. Directive removed **and `/tmp` added to `ReadWritePaths=`** — removing it alone leaves `/tmp` visible but READ-ONLY under `ProtectSystem=strict`, which still breaks the socket connect and sent `tempfile` into the repo (**ADR-115**). **FIXED, AND CONFIRMED BY THE OWNER 2026-09-03** — *"i check with open brave, and it worked."* The `action_audit` row corroborates: post-fix `open_app{browser}` is **401 ms** (the 400 ms grace timed out, so the process was alive) against **49-119 ms** for the life of the project. **D30 is CLOSED** |
 | **D31** | **NEW, FIXED 2026-09-03** — *"only the pre-configured five apps opened… firefox didn't open."* **True, and the audit table proved it in one query: in the life of the project `open_app` has run with browser(26), terminal(5), editor(5), video(2), vlc(1) and NOTHING ELSE**, a month after ADR-097 widened the enum (**165 ids as scanned 2026-09-03**, a generated number — M19). The executor is innocent — **every one of those 165 `argv[0]`s resolves to a real executable** and none was ever reached. **Two Phase-1 artifacts ADR-097 left behind, each sufficient alone.** (1) The prompt's *"a spoken brand name maps to its id"* — written so "Brave"→`browser` — generalised to the whole category: `firefox`→**browser**, `neovim`/`vim`→**editor**, and `"zen browser"`→`'zen'`, not in the enum, fails closed, nothing opens. **The five canonical ids were eating their own categories.** (2) `STT_HOTWORDS` still named the same five apps — **D26's exact shape, fourth Phase-1 artifact** after the eval fixtures (D16), the chat persona (D24/F2) and the G12 control words (D26). Fixed: a named program now wins over its category (19/23 → 22/23), twenty app names added to the hotwords (**p95 651 ms, miss 4/20 — no cost**), E61-E64 added, E23/E24 made action-only. **ADR-118. PROVEN LIVE BY VOICE the same day** — eleven turns, `firefox`/`discord`/`obsidian`/`kitty`/`vlc` at 402-412 ms, four of them scanned ids never dispatched before. **D31 is CLOSED.** The four apps that were gone eight minutes later had been **closed by the owner** — asked, not guessed (*"Yes, I closed them."*). The compound-name residue is D32 |
-| **D32** | **NEW, OPEN 2026-09-03** — **a two-word app name does not survive STT, and a hotword does not fix it.** *"LibreWolf"* reached the planner as `wolf_studio`, *"Zen Browser"* as `jin_browser`; the enum correctly rejected both and the journal named them (`E_TOOL_NOTFOUND: app 'jin_browser' not installed, failing closed to none`). **Both words were already in `STT_HOTWORDS`** — which is the finding: a hotword biases decoding toward a token sequence, it does not repair one the acoustic model split in the wrong place. These are not near-misses of a rare word, they are plausible two-word phrases. Measured live: **single-word 4/4, two-word 0/2** (n=6, so a shape not a law). **Do NOT open this by adding the other ~145 names** — they would not have changed either turn. Widen the sample first: `progress.md`'s START HERE job 3 |
+| **D32** | **REFUTED 2026-09-04 at the microphone. NOT a defect.** The claim was *"a two-word app name does not survive STT"*, from n=2. Re-run with eight names, four in `STT_HOTWORDS` and four not: **"Zen Browser" → `zen_browser` (409 ms) and "LibreWolf" → `librewolf` (404 ms) both worked** — the exact two utterances D32 was written from — as did `github_desktop` and `proton_vpn`, **neither of which is in the hotwords**. STT delivered every one correctly. The 2026-09-03 `jin_browser` / `wolf_studio` were flakiness at n=2, not a systematic split. **What the session DID find is two enum defects that a "blame STT" reading would have hidden: D33 and D34.** Do not re-open D32; re-read this row first |
+| **D33** | **NEW, OPEN 2026-09-04** — **a generated app id carries the `.desktop` `Name`'s version string, so the app is unspeakable.** The real id is `android_studio_panda_4_2025_3_4_patch_1`. The planner emitted `android_studio` (×3) and `android_studio_panda_4` (×1) — the sensible guess both times — and every one failed closed. **Ten ids carry a version; five are JetBrains Toolbox** (`intellij_idea_2026_1_2`, `pycharm_2026_1_2`, `webstorm_2026_1_2`, `dataspell_2026_1_1`, Android Studio), plus `fcitx_5*` and `openjdk_java_26_*`. **Four of those application names are already in `STT_HOTWORDS`** — Whisper is biased toward names the enum structurally cannot deliver, which is FR-139's coupling failing in the other direction. And the id **changes on every IDE update**, so anything keyed to it churns — OQ-69's `argv_sha256` churn scenario arriving before the feature. **The fix is an owner decision** (strip version tokens in `app_key`, key off the `.desktop` filename, or an alias table) and is not defaulted |
+| **D34** | **NEW, FIXED 2026-09-04** — **a hyphen where the id generator makes an underscore.** `E_TOOL_NOTFOUND: app 'easy-effects' not installed`, while `easy_effects` sat in the enum. `app_key` is `[^a-z0-9]+ → "_"` after casefold, so a hyphen can never be an id — and the planner must **guess** the spelling, because the GBNF grammar has never enumerated param values (ADR-097) and the prompt lists only the common ids. A real installed application was unreachable by one character. **ADR-121:** a miss on `open_app.app` retries once through `desktop.app_key` — the same function that generated every id — and accepts only an exact member. **This is not the fuzzy matcher that is permanently rejected:** `app_key` is a WHITELIST, so `"browser; rm -rf ~"` → `browser_rm_rf`, `"/bin/sh"` → `bin_sh`, Cyrillic `"brаve"` → `br_ve`, and a prefix like `"brow"` stays `"brow"` — none is an id, all still reject (AS-7/8/9, each a test). `pytest` 616 → 618 |
 
 **What is fixed, and what that does NOT mean.** `is_affirmation` normalises STT
 punctuation, head-matches with a negative-word veto, and a `_DECLINE` set
@@ -265,7 +285,7 @@ Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
 **Gate numbers, all re-run 2026-09-03 (last) after M6 and M7 landed:**
-`uv run pytest` **616 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
+`uv run pytest` **618 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
@@ -870,8 +890,8 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  120 ADRs
-                      (ADR-001..ADR-120; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  121 ADRs
+                      (ADR-001..ADR-121; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
@@ -1093,7 +1113,7 @@ just eval               # eval fixtures -> pass count (currently 64; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 616
+just test               # full unit + adversarial + injection suite (pytest -q). 618
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo
@@ -1260,6 +1280,10 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "`git checkout -- <file>` puts the mutation back" | Only on a file with **no uncommitted work in it.** Reverting an M6-style mutation that way took an uncommitted hotword change with it, and the next full-suite run failed a test that had passed standalone sixty seconds earlier — which reads exactly like test pollution and is not. Copy the file aside and copy it back, or commit before you mutate (ADR-116, amended). |
 | "The ADR found three frozen sites, so there were three" | ADR-097 widened the app enum and named "three sites frozen at Phase 1". **There were five** — the planner prompt and `STT_HOTWORDS` were both still naming the same five apps, and either one alone stops a scanned app ever launching. A month of `action_audit` proves none did (D31). **An enumeration in an ADR is what the author found, not what exists.** Widening a capability means widening every list that names it: the enum, the prompt, the hotwords, the eval fixtures, the chat persona. |
 | "The registry is generated now, so the coupling is handled" | ADR-042 wrote down in 2026-08-26 that *"the hotwords list is coupled to the registry — a new app must be added there too"*. ADR-097 then replaced the registry with a generated enum and did not touch the hotwords. **A coupling recorded in prose is not a coupling anything enforces** — it is a note that predicts the defect and does not prevent it. `tests/test_stt_hotwords.py` exists because of this. |
+| "It came back as the wrong id, so STT mis-heard it" | Read the id it emitted before blaming the microphone. `easy-effects` and `android_studio` are not mis-hearings — they are the planner spelling a name correctly against an enum that spells it differently (D34) or cannot spell it at all (D33). D32 was written from two mis-hearings at n=2 and generalised to "two-word names die in STT"; the re-run at n=8 landed both of those same names correctly and found two enum defects instead. **`E_TOOL_NOTFOUND` names the id, and the id says which layer failed.** |
+| "Fold the value before reporting it, the error is the same either way" | It fails closed either way, so no security test can tell — that mutation survived the first round. It is still wrong: logging `easy_effects` for an input of `easy-effects` hides the defect that is actually there. A fail-closed path that logs **what it rejected** is what turned two microphone sessions into a grep instead of a bisect. Assert on the RAW value (ADR-121). |
+| "The id is generated from the machine, so it is right" | It is generated from the `.desktop` `Name`, and JetBrains Toolbox writes the version into it: the id for Android Studio is `android_studio_panda_4_2025_3_4_patch_1`. Nobody says that, the planner cannot guess it, and **it changes on every IDE update** — so an approval or alias keyed to it churns. Four of those application names are in `STT_HOTWORDS`, so Whisper is being biased toward names the enum cannot deliver (D33). |
+| "Widening what the planner may spell is fuzzy matching, and that is banned" | Only if the widening can invent a member. `app_key` is a **whitelist** — casefold, then `[^a-z0-9]+` to `_` — and its output is subjected to the same exact match against the same closed set, so `"browser; rm -rf ~"` becomes `browser_rm_rf` and still rejects, and `"brow"` never resolves to `browser`. A substring matcher fails all three of those. Check what the transform CAN produce before filing it under the banned idea (ADR-121). |
 | "Only `argv[0]` can be dangerous, the rest are arguments" | `env`, `flatpak`, `distrobox-enter`, `timeout`, `nohup` and **every terminal emulator** execute an arbitrary FOLLOWING command, so a denylist that reads one token proved nothing about what runs. `foot -e bash` passed while bare `bash` was banned, and 15 of the 165 live app ids are `foot -e <something>` (F5, ADR-119). And it is reachable from real files: `~/.local/share/applications` is user-writable and already holds an `env`-prefixed entry. |
 | "Write a proper resolver for each wrapper's options" | Five option grammars — `env` has NAME=VALUE plus -i/-u/-C/-S, `timeout` takes a duration first, `nice` takes -n, `systemd-run` takes properties — each able to be subtly wrong **in the direction of letting something through**, because a resolver that mis-skips one option hands the denylist the wrong token and reports a pass. Checking every remaining token needs no grammar and is strictly stronger (ADR-119). |
 | "The basename check catches the binary" | Not when the binary is on the right of an `=`. `flatpak run --command=sh org.x.App` runs a shell and `Path("--command=sh").name` is `"--command=sh"`. **The test found this; the design did not** — the same shape as ADR-114a's `--uri=%u`, which an anchored `^%[a-zA-Z]$` never matched. Split on the first `=` and check both halves. |

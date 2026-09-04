@@ -25,6 +25,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from ..tools.desktop import app_key
 from .schema import PARAM_SCHEMA
 
 
@@ -127,6 +128,28 @@ def _validate_params(name: str, params_in: dict[str, Any]) -> dict[str, str]:
         if rule["kind"] == "enum":
             # AS-7 "/bin/sh", AS-8 "browser; rm -rf ~", AS-9 confusables:
             # none of these are members of the closed set, so all reject.
+            if value not in rule["values"] and name == "open_app" and key == "app":
+                # D34, measured live 2026-09-04: the planner said "Easy Effects"
+                # and emitted `easy-effects`, which failed closed while
+                # `easy_effects` sat in the enum. It has to GUESS the id spelling
+                # — the grammar never enumerates values (ADR-097) and the prompt
+                # lists only the common ones — so a hyphen where the generator
+                # produced an underscore loses a real application.
+                #
+                # The retry runs the candidate through `desktop.app_key`, the
+                # SAME function that produced every id in the set, and then does
+                # the same exact match. That is not fuzzy matching (permanently
+                # rejected, twice): `app_key` is a whitelist — casefold, then
+                # `[^a-z0-9]+` to "_" — so every adversarial fixture still fails
+                # closed, verified: "browser; rm -rf ~" -> `browser_rm_rf`,
+                # "/bin/sh" -> `bin_sh`, a Cyrillic-confusable "brаve" ->
+                # `br_ve`. None is an id, so AS-7/8/9 reject exactly as before.
+                # The enum stays closed and the match stays exact; only the
+                # spelling the planner is allowed to use widens.
+                folded = app_key(value)
+                if folded in rule["values"]:
+                    value = folded
+
             if value not in rule["values"]:
                 if name == "open_app" and key == "app":
                     raise AppNotInstalledError(
