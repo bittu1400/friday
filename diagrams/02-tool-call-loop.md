@@ -111,13 +111,77 @@ internet steering a local action.**
 Direct actions never enter the untrusted zone at all:
 
 ```
-  utterance --> TURN 1 --> validate --> execute --> outcome --> speech
-                                            |
-                                            +-- speech is composed by
-                                                TEMPLATE from the tool's
-                                                exit status, not by the
-                                                LLM.  See ADR-009.
+  utterance --> TURN 1 --> validate --> GATE --> handler --> outcome --> speech
+                                          |         |
+                                          |         +-- HANDLERS[name], or the
+                                          |             ONE shared subprocess
+                                          |             body when the lookup
+                                          |             misses.  No handler
+                                          |             re-asks either gate
+                                          |             question.
+                                          |
+                                          +-- ONE panic check + ONE confirm
+                                              decision, both read off
+                                              Capability.risk_for(params).
+                                              Phase 3 criterion 3.5.
+                                                |
+                                                +-- speech is composed by
+                                                    TEMPLATE from the tool's
+                                                    exit status, not by the
+                                                    LLM.  See ADR-009.
 ```
+
+## The gate, expanded (Phase 3 criteria 3.5 / 3.9, ADR-124)
+
+Both answers come from ONE field.  Until 2026-09-04 they came from five
+hand-coded `if plan.name == ...` branches and eight hand-written
+`config.is_disabled()` blocks — and **three of those five could be deleted
+with all 581 tests passing** (M1), which is invariant #10 enforced by code
+nothing was watching.
+
+```
+      validated plan
+            |
+            v
+   +--------+---------+     engaged     +------------------------+
+   |  PANIC SWITCH    |---------------->| audit row: disabled    |
+   |  every tier      |                 | speak "I'm switched    |
+   |  above NONE      |                 |        off."           |
+   +--------+---------+                 +------------------------+
+            | disarmed
+            v
+   +--------+---------+
+   | risk_for(params) |    NONE / LOW ------------> run it
+   +--------+---------+
+            |
+            +-- ALWAYS ------> ask, EVERY time
+            |                  "Are you sure you want to <describe>?"
+            |
+            +-- FIRST_USE ---> approved for this subject AND this argv?
+            |                     yes -> run it, as LOW
+            |                     no  -> "<ask> I'll remember."
+            |                              |
+            |                              +-- yes -> record the grant,
+            |                              |          THEN run
+            |                              +-- no  -> store nothing;
+            |                                         it asks again next time
+            |
+            +-- NAMED -------> ask, naming the consequence.  No capability
+                               uses this tier yet; it exists for the
+                               filesystem work (Phase 4b), where "are you
+                               sure?" is not informed consent without
+                               saying WHICH file moves WHERE.
+```
+
+Two orderings are load-bearing and each has a test:
+
+- **the panic check runs BEFORE the approval write.**  Reversing them leaves
+  the whole suite green — the launch is still blocked and the line is still
+  "I'm switched off." — while the machine comes back on having quietly
+  agreed to something.  Found by mutation, 2026-09-04.
+- **the grant is keyed to `sha256(argv)`, not to the id.**  `desktop.app_key`
+  resolves a collision with `setdefault`, first wins, so an
+  uninstall-then-install can rebind an id to a different binary.
 
 Templates for Phase 1:
 

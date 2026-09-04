@@ -4,6 +4,15 @@ One turn at a time. Ever. A second request while not `IDLE` is rejected
 with an audible "one moment" and dropped — it is never queued behind a
 turn the user has already stopped caring about.
 
+**The `needs confirm` / `safe` branch below is unchanged in SHAPE and changed
+in ORIGIN** (2026-09-04, Phase 3 criterion 3.5, ADR-124). It used to be five
+hand-coded `if plan.name == ...` branches in `turn.py`; it is now one call to
+`gate._confirm_question`, which reads `Capability.risk_for(params)`. Nothing
+about the FSM moved — `tests/test_confirm_arming.py` passes untouched, which is
+how that is known rather than believed. One tier is newly reachable at this
+branch: `open_app` is `FIRST_USE`, so an application never approved before takes
+the `needs confirm` edge ONCE and the `safe` edge every time after.
+
 ```
                               +----------+
                 +------------>|   IDLE   |<-------------------+

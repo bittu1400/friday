@@ -6135,6 +6135,7 @@ cd /home/bittusah/Projects/Personal/Intern/friday
 .venv/bin/python -m friday.eval_harness                  # 81/81 (100%), regressions 0
 .venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
 .venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+powerprofilesctl get                                     # MUST be `balanced`
 .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # MUST stay clean
 ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
 .venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"      # generated; 167 on 2026-09-04
@@ -6177,6 +6178,47 @@ capability is now: one `Capability(...)` in `friday/capabilities.py`, one
 handler row in `friday/handlers.py`, and >=2 eval fixtures.** Everything else
 follows, and four separate tests fail if you forget a piece.
 
+### Asked and answered this session: "can any model be swapped in?"
+
+**No — but only one of the four constraints is about how good the model is.**
+Full answer in **`gemma-brief.md` §12**, decision in **ADR-126**. Short form:
+
+1. **It must be a GGUF `llama-server` serves.** `client.py` POSTs a top-level
+   `"grammar"` field — a llama.cpp extension, not OpenAI schema. An endpoint
+   that ignores it does not error: every turn fails closed to `action=none`.
+   That is invariant #1's only enforcement.
+2. **It must fit.** Measured live 2026-09-04: **8151 total, 7010 held, 726
+   free.** "Also 12B" is not a sizing argument — Gemma's KV is cheap because 40
+   of 48 layers are sliding-window; a dense model of equal size uses more.
+3. **A reasoning model llama.cpp does not recognise leaks thought into
+   `content`**, which goes to history, audit rows and the speakers. That is
+   invariant #7, not a slowdown. `--reasoning off` is in `REQUIRED_FLAGS`.
+4. **It must clear `just eval` at 81/81, zero regressions** — and that number
+   finally means something. It was 28 at the last swap, which is what D16 cost.
+
+**Three edit sites, all config:** the unit's `--model`, the `justfile`'s
+`model :=` (pinned equal by a test), and `bootstrap.py`'s sha256 pin. Nothing
+else in the tree knows a model exists.
+
+**What no gate sees, and it is the whole risk:** chat quality (all 81 fixtures
+score the planner; no fixture reads a reply) and verbosity, which is latency —
+the last swap cost chat p50 7177 ms and correctness was never the problem.
+
+### The docs were re-synced to the tree at the end of this session
+
+Every doc below now matches the code as committed. Do not re-derive:
+
+| doc | what changed |
+| :-- | :-- |
+| `architecture.md` | the module tree gains `gate.py`, `handlers.py` and `store/approvals.py`; `capabilities.py`'s entry lists every field AND its consumer; `turn.py`'s entry says 246 lines and "no per-capability branch"; migrations list `004_approvals.sql`, schema v4 |
+| `spec.md` | **FR-144 … FR-149** — the derived hotwords, both prompt regions, the derived gate, the handler table, the fixture obligation, and FIRST_USE |
+| `threat-model.md` | `approvals` is a new **asset** in §1, with the three properties that keep a stored "yes" honest; the change log carries the mutation that found the panic-vs-write ordering unpinned |
+| `diagrams/01,02,04` | 02's single-turn path gains the GATE box and a full expansion of the four tiers; 04 gains approvals as a zone-1 input with its own threat/control pair; 01 records that the confirm branch changed ORIGIN, not shape. **These were the definition-of-done miss in the two Phase 3 commits** — the rule says a contradicted diagram is fixed in the SAME commit, and it was not |
+| `docs/reality-check.md` | every `open_app` row in §A now carries the one-time confirm; **§G1 is the ninety-second live check** for step 1 below |
+| `gemma-brief.md` | **§12**, the model-swap contract |
+| `README.md` | 653 / 81 / 86 test files, and Phase 3 in the status block |
+| `open-questions.md` | OQ-68 survives the refactor, smaller — one field, not a string constant |
+
 ### What Phase 3 changed that a reader will trip over
 
 - `friday/turn.py` no longer holds the confirm handshake or the handlers. They
@@ -6189,6 +6231,23 @@ follows, and four separate tests fail if you forget a piece.
 - `tests/fixtures/system_policy.txt` is the byte-for-byte baseline of
   `SYSTEM_POLICY`. Regenerate it ONLY with an ADR saying what changed, and
   re-run `just eval` in the same commit.
+
+### If `selftest` says rc=2 and `bootstrap --check` says FAILED
+
+**Check the power profile first, before reading anything else.** It happened at
+the end of this session: the machine had dropped to `power-saver` on its own,
+`power_profile` WARNed, `selftest` returned 2 `[DEGRADED]` and
+`bootstrap --check` treats any WARN as a FAIL. Nothing was broken.
+
+```bash
+powerprofilesctl set balanced      # both gates go green again immediately
+```
+
+`balanced` is the target profile (ADR-087) and it is worth **−406 ms of STT and
+−127 ms of planner on every turn**. Two external audits benchmarked in
+`power-saver` without noticing, and it silently reversed one of their verdicts.
+The correctness gates (`pytest`, `eval`, the grammars) are unaffected by the
+profile; **any LATENCY number measured in `power-saver` is void.**
 
 ### The trap this session walked into, so the next one does not
 

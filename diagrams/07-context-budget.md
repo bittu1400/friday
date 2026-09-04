@@ -4,6 +4,16 @@ Every region has a hard cap enforced in code. Truncation happens per
 region, with a visible marker, in a fixed priority order. Policy text is
 never truncated — if the budget cannot fit policy, the turn fails closed.
 
+> **The `600` in the bar below is the DESIGN allocation and the live value is
+> `1401`** (measured 2026-09-04). The overage is real and it is affordable:
+> 1401 + 300 + 1500 + 4500 + 1000 = 8701 against an 8192 window, but the
+> untrusted region is present ONLY on grounding turns and the conversation ring
+> is a cap rather than a floor, so no single turn assembles all five at maximum.
+> The prefix is also already cached (`cache_n 1222` of 1235, `gemma-brief.md`
+> §5), so the policy region costs prompt-processing time once, not per turn.
+> **Do not "fix" this by compressing the prompt inside another change** — see
+> the SYSTEM POLICY note below for why that is its own commit.
+
 ```
    token 0                                                        8192
      |                                                              |
@@ -11,7 +21,8 @@ never truncated — if the budget cannot fit policy, the turn fails closed.
      | SYSTEM | MEMORY  | UNTRUS | CONVERSATION   | RSVD  | OUTPUT  |
      | POLICY | DIGEST  | -TED   | HISTORY        | slack | reserve |
      |        |         | DATA   |                |       |         |
-     |  600   |   300   |  1500  |     4500       |  292  |   1000  |
+     | 1401*  |   300   |  1500  |     4500       |  292  |   1000  |
+     |  *live |         |        |                |       |         |
      +--------+---------+--------+----------------+-------+---------+
       never    trim by   hard     evict oldest     -       hard stop
       trim     priority  cap      turn pairs               at 1000
@@ -22,11 +33,30 @@ never truncated — if the budget cannot fit policy, the turn fails closed.
 ## Region rules
 
 ```
-   SYSTEM POLICY        600 tok   Static. Identity, action contract,
-                                  refusal rules. Compiled at startup,
-                                  asserted <= 600 by a unit test.
-                                  If it grows past 600 the test fails
-                                  and the build fails.
+   SYSTEM POLICY       1401 tok   Static. Identity, action contract,
+                                  refusal rules. MEASURED 2026-09-04 via
+                                  llama-server /tokenize -- the "600, and
+                                  a unit test fails past it" written here
+                                  was aspirational and no such test ever
+                                  existed. What DOES exist since Phase 3
+                                  criterion 3.3 is stronger and different:
+                                  the block is DERIVED, one `summary` per
+                                  capability, and the whole 5381-character
+                                  string is pinned byte-for-byte against
+                                  tests/fixtures/system_policy.txt.
+
+                                  It grew because it had to: ADR-118's
+                                  twelve-line open_app paragraph is the D31
+                                  fix, and E61-E64 test it. Compressing it
+                                  is deliberately its own commit (ADR-125)
+                                  -- inside a behaviour-freeze refactor an
+                                  intended change and a regression look
+                                  identical. Design §1.2's real ceiling is
+                                  ~40 capabilities, after which the fix is
+                                  to GROUP them (system.*, window.*, ...)
+                                  and let the planner choose a family then
+                                  a member. Because `summary` is a field,
+                                  that is a rendering change, not a rewrite.
 
    MEMORY DIGEST        300 tok   From SQLite. Deterministic selection:
                                   ORDER BY (pinned DESC, updated_at DESC)

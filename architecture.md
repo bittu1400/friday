@@ -45,31 +45,85 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
      daemon.py              the voice loop: PTT/Wake -> capture -> STT -> turn ->
                             speak, barge-in, confirm-first voice handshake, DND/signoff
      config.py              typed config, fixed paths, panic switch, wake/AEC/VAD/speaker constants
-     capabilities.py        ONE RECORD PER CAPABILITY (Phase 3 §1, ADR-123). `Risk`
-                            (5 tiers) + frozen `Capability` + the 25 actions in one
-                            ORDERED tuple -- the order is load-bearing, because
-                            `ACTIONS` is `tuple(PARAM_SCHEMA)` and the committed
-                            grammars enumerate names in that sequence. `risk` is
+     capabilities.py        ONE RECORD PER CAPABILITY (Phase 3 §1; ADR-123,
+                            ADR-124, ADR-125). `Risk` (5 tiers) + frozen
+                            `Capability` + the 25 actions in one ORDERED tuple --
+                            the order is load-bearing, because `ACTIONS` is
+                            `tuple(PARAM_SCHEMA)` and the committed grammars
+                            enumerate names in that sequence. `risk` is
                             `Risk | Callable[[Params], Risk]`: three of the five
-                            live confirm gates key on a PARAM value, not the action
-                            (`system_wifi` off, `hypr_window` close, `open_app`
-                            Settings), which design §1's flat field could not
-                            express. `risk` has NO DEFAULT (criterion 3.8).
-                            DERIVED SO FAR: `PARAM_SCHEMA` and therefore both
-                            grammars. STILL HAND-WRITTEN, one per remaining
-                            criterion: the prompt regions (3.3), the confirm
-                            decision + panic gate (3.5), eval fixtures (3.6),
-                            `STT_HOTWORDS` + `describe_action` (3.7)
+                            live confirm gates key on a PARAM value, not the
+                            action (`system_wifi` off, `hypr_window` close,
+                            `open_app` Settings), which design §1's flat field
+                            could not express.
+                            FIELDS AND THEIR CONSUMERS -- every one has a test:
+                              id, params  -> PARAM_SCHEMA -> both grammars (3.2)
+                              risk        -> the confirm decision AND the panic
+                                             gate, in `gate.py` (3.5, 3.8)
+                              summary     -> SYSTEM_POLICY's action block, VERBATIM
+                                             and byte-identical (3.3)
+                              persona     -> CHAT_SYSTEM's toolset sentence (3.3)
+                              ask         -> the spoken confirm question, verbatim
+                              describe    -> what the held PendingAction records
+                              subject     -> (kind, subject, argv) a FIRST_USE
+                                             approval is keyed to (3.9)
+                              examples    -> >=2 utterances that MUST exist in
+                                             tests/fixtures/eval.jsonl (3.6)
+                              hotwords    -> config.STT_HOTWORDS, derived (3.7)
+                            `risk`, `summary` and `persona` have NO DEFAULT: a
+                            capability that omits one does not construct.
+                            `examples` DOES default to `()`, on purpose, so that
+                            forgetting it is possible and
+                            `tests/test_fixture_obligation.py` is the thing that
+                            catches it.
+                            NOT derived, deliberately (ADR-125): the phrasing in
+                            `habits.describe_action` (the OBLIGATION is derived,
+                            the hundred lines of tuned prose are not), and
+                            `summary`'s length
      errors.py              Outcome enum + error taxonomy codes (spec §4)
-     turn.py                one turn: utterance -> plan -> execute -> outcome
-                            (TurnResult); execute-first (ADR-009). Also owns
-                            `resolve_pending`, the ONE confirm resolver both
-                            UIs call (ADR-069) — it was two copies until the
-                            TUI's crashed on every G12 action (audit C1).
-                            Returns `str | None` since ADR-075: `None` means
-                            the answer was neither a yes nor a no, so the
-                            pending has been cancelled + audited and the CALLER
-                            must run the same text as a fresh command
+     turn.py                one turn: utterance -> plan -> GATE -> handler ->
+                            outcome (TurnResult); execute-first (ADR-009). 246
+                            lines since criterion 3.4 (was 941). It owns the
+                            two-pass plan (ADR-065), the gate call, and the ONE
+                            shared body every subprocess capability dispatches
+                            through. It holds NO per-capability branch --
+                            `tests/test_handler_table.py` fails if one appears.
+                            The single exemption is `plan.name == "none"`, which
+                            is ADR-065's re-plan trigger: a property of the plan,
+                            not a capability. Re-exports every name that moved,
+                            because ~30 test files and both UIs import from here
+     gate.py                the derived gate + the confirm handshake (3.5, 3.9).
+                            `_panic_blocked` -- one panic check for every tier
+                            above NONE, replacing eight hand-written
+                            `config.is_disabled()` blocks (F1's fix, finished).
+                            `_confirm_question` -- the confirm decision, read off
+                            `risk_for(params)`, replacing five hand-coded
+                            branches, THREE of which could be deleted with the
+                            whole suite green (M1). `_record_approval` -- writes a
+                            FIRST_USE grant, and ONLY from a completed handshake,
+                            and only AFTER the panic check (design §3.2; that
+                            ordering survived its first mutation, so it has a
+                            test named after it). Also owns `PendingAction`,
+                            `TurnResult`, `is_affirmation`/`is_decline`, and
+                            `resolve_pending`, the ONE confirm resolver both UIs
+                            call (ADR-069) -- it was two copies until the TUI's
+                            crashed on every G12 action (audit C1). Returns
+                            `str | None` since ADR-075: `None` means the answer
+                            was neither a yes nor a no, so the pending has been
+                            cancelled + audited and the CALLER must run the same
+                            text as a fresh command.
+                            PATCH HERE, NOT VIA `friday.turn`: `friday.turn`
+                            re-exports these names, and rebinding a re-export
+                            does not reach the caller -- two tests proved it
+     handlers.py            one handler per capability + `HANDLERS`, the table the
+                            turn looks into (3.4). `TurnContext` carries what a
+                            handler may reach and nothing more. A handler runs
+                            only AFTER both gates pass, so NO handler checks
+                            `config.is_disabled()` and NO handler asks a
+                            question -- if you are writing either, it belongs in
+                            `risk`. Capabilities with a `Subprocess` spec are
+                            deliberately absent: they share one body in `turn.py`
+                            and the lookup MISSING is what selects it
      dialogue.py            in-RAM session dialogue ring buffer (ADR-048)
      logging_config.py      structured JSON logging, 10MB x 5 rotation, redaction (FR-43)
      selftest.py            unified 10-subsystem sanity & health check CLI (G9, F28,
@@ -95,7 +149,19 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
                             lines. The param vocabularies are re-exported here so
                             `from friday.llm.schema import WORKSPACE_ENUM` keeps
                             working, but they are DECLARED with the record
-       prompt.py            SYSTEM POLICY + <preferences> digest assembly
+       prompt.py            SYSTEM POLICY + <preferences> digest assembly. BOTH
+                            prompt regions are DERIVED from `capabilities.py`
+                            (3.3): the action block is one `summary` per
+                            capability and comes out BYTE-IDENTICAL to the
+                            hand-written string it replaced (5381 chars, 1401
+                            tokens, pinned against
+                            `tests/fixtures/system_policy.txt`); the chat
+                            persona's toolset sentence is one `persona` clause
+                            per capability and is the one region deliberately
+                            REWORDED, because the old prose grouped clauses in an
+                            order the record does not have. That closes F2 by
+                            CONSTRUCTION -- the persona had denied an ability the
+                            schema had twice, months apart
        validate.py          strict parse, fail-closed. A miss on `open_app.app`
                             retries ONCE through `desktop.app_key` -- the same
                             function that generated every id -- and accepts only an
@@ -179,7 +245,8 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        db.py                connection, WAL, single-writer (FR-50..53);
                             0600 on the DB AND its -wal/-shm sidecars;
                             migrations are transactional + idempotent
-       migrations/          001_init.sql, 002_reminders.sql, 003_notes.sql (forward only)
+       migrations/          001_init.sql, 002_reminders.sql, 003_notes.sql,
+                            004_approvals.sql (forward only; schema v4)
        prefs.py             slug+alias keys, CRUD, inert digest rendering
        audit.py             redacted dispatch records + retention sweep
                             (audit, summaries, TERMINAL reminders; never notes,
@@ -188,6 +255,22 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        summarizer.py        session dialogue distillation into summary (ADR-050)
        reminders.py         SQLite reminder & timer store (G11)
        notes.py             SQLite quick notes store (G12)
+       approvals.py         the FIRST_USE allowlist (criterion 3.9, design §3.3).
+                            A grant is written ONLY by a completed confirm
+                            handshake -- no planner output reaches this table --
+                            and the subject is a closed-enum id, never free text.
+                            Keyed to `argv_sha256`, NOT to the id alone:
+                            `desktop.app_key` resolves a collision with
+                            `setdefault`, first wins, so an uninstall-then-install
+                            can hand a stored approval to a DIFFERENT binary. An
+                            approval whose fingerprint no longer matches does not
+                            apply and Friday asks again. NEVER swept by retention
+                            (user intent, like a preference). With no store the
+                            tier degrades to asking EVERY time, which is the safe
+                            direction: a grant that cannot be recorded must not
+                            be assumed. Revocation is keyboard-only and the CLI
+                            is not built yet (`just approvals`, Phase 7,
+                            FR-122/ADR-103); `forget`/`reset` exist on the store
 
      ui/
        tui.py               textual app, mode indicator, confirm prompt
@@ -302,8 +385,11 @@ Guarantees (as actually implemented 2026-08-26; see ADR-067d):
   `spec.timeout_s` was dead config until this landed
 - never retried for `reversible` or `irreversible` risk classes
 - returns a typed `Outcome`, never raises to the caller
-- audit rows are written by the CALLERS (`turn.py` dispatch tail and
-  `turn.resolve_pending`), not by the executor itself. Until the hardening
+- audit rows are written by the CALLERS (`turn.py`'s dispatch tail, the
+  handlers in `handlers.py`, and `gate.resolve_pending`), not by the executor
+  itself. Since criterion 3.5 the DISABLED row is written in ONE place --
+  `gate._panic_blocked` -- for every capability, rather than in eight
+  hand-written blocks. Until the hardening
   phase (ADR-067b, landed 2026-08-29) the confirm paths and web_search wrote
   none; `tests/test_audit_contract.py` now walks the schema and asserts
   exactly one row per executed dispatch
@@ -317,9 +403,11 @@ string being appended to.
 
 ```
    +--------------------------------------------------+
-   | SYSTEM POLICY            static, <=600 tok        |
+   | SYSTEM POLICY            static, 1401 tok         |
    |   identity, action contract, refusal rules        |
-   |   asserted by a unit test; build fails if over    |
+   |   DERIVED: the action block is one `summary` per  |
+   |   capability, assembled byte-identical and pinned |
+   |   against tests/fixtures/system_policy.txt        |
    +--------------------------------------------------+
    | <preferences>            <=300 tok                |
    |   editor=code                                     |
@@ -345,6 +433,56 @@ Preference rendering is `key=value` inside a fence — never prose. A
 preference must never be able to read as a system instruction; that is
 the durable-injection vector (a preference written once steers every
 future turn).
+
+**The `<=600 tok` figure in that box was wrong for months and is now
+measured.** `SYSTEM_POLICY` is **1401 tokens** (llama-server's `/tokenize`,
+2026-09-04). It was re-baselined from 1298 in ADR-123 because ADR-118's
+`open_app` paragraph — the D31 fix — grew it the day before Phase 3 opened, and
+"meet the number" would have meant compressing the exact text that fixed a live
+defect. Compressing it is deliberately a **separate, measurable commit**
+(ADR-125): inside a behaviour-freeze refactor, a regression and an intended
+change are indistinguishable.
+
+---
+
+## 4a. Adding a capability
+
+Phase 3 exists so that this list is short and so that forgetting a piece fails
+the suite rather than shipping. All of it (ADR-123, ADR-124, ADR-125):
+
+```
+   1.  friday/capabilities.py   one Capability(...) in _ALL.
+                                id, params, risk, summary, persona are
+                                REQUIRED -- no defaults, it will not construct.
+                                ask/describe only if the tier confirms;
+                                subject only for FIRST_USE; hotwords if there
+                                is a word the user must SAY to reach it.
+   2.  friday/handlers.py       one HANDLERS row -- unless it is a plain
+                                subprocess, in which case a tools/registry.py
+                                spec instead, and the turn's shared body runs
+                                it. Never both.
+   3.  tests/fixtures/eval.jsonl   >=2 fixtures, then `just eval` and
+                                `just eval-baseline`. A NEW fixture that fails
+                                is never a regression (F23), so read the rate
+                                and the `unbaselined failures` line, not the
+                                exit code.
+   4.  just grammar             regenerate. The .gbnf diff is the review:
+                                nothing else should have moved.
+```
+
+Four tests fail if a piece is missing: `test_capabilities.py` (the required
+fields), `test_handler_table.py` (reachable exactly one way),
+`test_fixture_obligation.py` (>=2 examples, each an actual fixture) and
+`test_prompt.py` (the assembled prompt matches the record).
+
+**What you do NOT touch:** `PARAM_SCHEMA`, either `.gbnf`, `SYSTEM_POLICY`'s
+action block, `CHAT_SYSTEM`'s toolset sentence, the confirm branches, the panic
+gate, or `STT_HOTWORDS`. All seven are derived. If you find yourself editing one
+by hand, the capability record is missing a field.
+
+**Two things are still hand-written on purpose** (ADR-125):
+`habits.describe_action`'s phrasing chain — the obligation to have phrasing is
+derived, the tuned prose is not — and `summary`'s length.
 
 ---
 

@@ -28,10 +28,23 @@ attacker-influenceable and must be treated as hostile input.
   #     STT transcript          may be misheard                       #
   #     typed text              may be pasted from anywhere           #
   #     stored preferences      written in a past session             #
+  #     stored APPROVALS       a FIRST_USE grant from a past session  #
+  #                            (criterion 3.9).  Voice GRANTS; only   #
+  #                            the keyboard revokes.                  #
   #                                                                   #
   #   Threat: a mis-transcription ("delete" heard for "select").      #
   #   Control: destructive class requires TYPED confirmation, never   #
   #            a spoken "yes".                                        #
+  #                                                                   #
+  #   Threat: a stored approval outliving what it approved — an       #
+  #           uninstall-then-install rebinding an app id to another   #
+  #           binary, because `desktop.app_key` resolves a collision  #
+  #           with `setdefault`, first wins.                          #
+  #   Control: the grant is keyed to sha256(argv).  A fingerprint     #
+  #            that no longer matches does not apply and Friday asks  #
+  #            again.  The row is written ONLY by a completed confirm #
+  #            handshake — no planner output can create one — and the #
+  #            panic switch blocks the WRITE, not merely the launch.  #
   #                                                                   #
   #####################################################################
               |

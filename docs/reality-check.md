@@ -120,6 +120,21 @@ Then either:
 
 Legend: **C?** = requires a spoken/typed "yes" confirmation before it acts.
 
+> **EVERY `open_app` ROW BELOW GAINED A ONE-TIME CONFIRM ON 2026-09-04.**
+> `open_app` is `Risk.FIRST_USE` for every id (ADR-120, live under ADR-124
+> criterion 3.9). The FIRST time an application is opened, Friday asks
+> *"Do you want me to open X? I'll remember."*; say yes and it never asks
+> again for that application — unless the binary behind its id changes, which
+> the `sha256(argv)` fingerprint notices. So on a machine with a populated
+> `approvals` table these rows read exactly as written; on a fresh one, expect
+> one extra yes per application, once.
+>
+> **Whether that is tolerable is OQ-69 and it is measured HERE, not by a
+> test** — `just eval` scores the planner's output, not what the turn does
+> with it, so 81/81 reads 81/81 either way. Live with it for a week, then
+> `sqlite3 ~/.local/share/friday/memory.db 'SELECT COUNT(*) FROM approvals;'`.
+> The fallback if it is intolerable is one edit to `_open_app_risk` (ADR-120).
+
 ### A1. Launch apps (`open_app`) — the five curated semantic ids
 
 **The title of this section used to end "and nothing else", and that was the
@@ -1045,3 +1060,26 @@ cannot see the FIRST_USE confirm burden that ADR-120 turns on, because its
 fixtures score the planner's output and not what the turn does with it. That is
 **OQ-69**, and it is answered by a week of ordinary use plus
 `SELECT COUNT(*) FROM approvals`.
+
+### G1. Added 2026-09-04 (later) — the first row Phase 3 put back on this list
+
+`open_app` FIRST_USE went LIVE with ADR-124 and **has never fired at a
+microphone**. The running daemon predates it. This is now the first thing to do
+at the machine, and it is ninety seconds:
+
+| step | say / run | expect |
+| :-- | :-- | :-- |
+| 1 | `systemctl --user restart friday` | the new code is actually running — **ask systemd, do not assume**; the last four sessions' worth of "the fix is committed so the fix is running" is why |
+| 2 | *"open discord"* | **"Do you want me to open Discord? I'll remember."** — NOT a launch |
+| 3 | *"yes"* | Discord opens, and one row appears in `approvals` |
+| 4 | *"open discord"* again | it opens with **NO question** |
+| 5 | `sqlite3 ~/.local/share/friday/memory.db 'SELECT kind, subject, argv_sha256, approved_at FROM approvals;'` | exactly one row, `kind='app'`, `subject='discord'` |
+
+**If step 4 still asks**, the store is not reaching the turn rather than the
+tier being wrong: `Daemon.__init__` builds `self._approvals` from the same `db`
+the scheduler uses, so a daemon with neither audit nor prefs has `None` — and
+FIRST_USE then degrades to asking every time, deliberately, because a grant that
+cannot be recorded must not be assumed.
+
+**If step 2 launches without asking**, check `approvals` first: a row for
+`discord` from an earlier attempt is the boring explanation.

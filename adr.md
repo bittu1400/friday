@@ -6173,3 +6173,82 @@ with `git checkout -- friday/turn.py` discarded the entire uncommitted 3.4
 rewrite — the exact trap ADR-116's amendment names, walked into anyway. Copy
 the file aside and copy it back; `git checkout` is only safe on a file with no
 uncommitted work in it.
+
+
+## ADR-126 — What a model swap is actually coupled to: four constraints, three edit sites, and one thing the gate still cannot see
+
+**Date:** 2026-09-04 · **Status:** ACCEPTED (documentation of an existing
+contract; no code changed)
+
+### Context
+
+Asked directly whether any model could be dropped in and work, "within the range
+of the model". The repo had no answer written down: `gemma-brief.md` covered
+*this* model exhaustively and ADR-090 covered *that* swap, but nothing said what
+the next one costs. That gap is the same shape as ADR-042's hotword coupling —
+a real constraint living only in someone's head until it bites.
+
+### Decision
+
+The coupling is **four constraints**, and it is recorded as `gemma-brief.md`
+§12 in full. Only the fourth is about model quality.
+
+1. **It must be a GGUF that `llama-server` serves.** `friday/llm/client.py`
+   POSTs a top-level `"grammar"` field to `/v1/chat/completions`. That is a
+   llama.cpp server extension, not OpenAI schema. It is half of invariant #5
+   and the whole of invariant #1 — `final.gbnf` locks the grounding turn's
+   action name to `"none"`. An endpoint that ignores `grammar` does not error:
+   it returns prose, `validate()` rejects it, and **every turn fails closed to
+   `action=none`.** Fail-safe, and still a broken assistant.
+2. **It must fit 8151 MiB with `llama-server` holding ~7010** — measured live
+   2026-09-04, reproducing §4's 740 MiB at `-np 1`. And "also 12B" is not a
+   sizing argument: Gemma's KV is cheap because 40 of 48 layers are
+   sliding-window, so a **dense** model of equal size uses MORE. Decode is
+   bandwidth-bound: `tok/s ≈ 272 / weights_GB`.
+3. **A reasoning model llama.cpp does not recognise is an invariant-#7
+   violation, not a slowdown.** `client.py` reads `message["content"]` and
+   nothing else; unrecognised thought lands *in* `content`, which goes to
+   history, audit rows and the speakers (FR-26/57). `--reasoning off` is in
+   `REQUIRED_FLAGS` and `tests/test_model_config.py` fails without it.
+   `--reasoning-format none` does the opposite of what it sounds like.
+4. **It must clear `just eval` at 81/81 with zero regressions** — and that
+   number now means something. It was **28** at the last swap, which is exactly
+   what D16 cost: two models scored 28/28 while emitting `action=none` for
+   "copy that to the clipboard". Criterion 3.6 makes ≥2 fixtures per capability
+   structural, so a passing swap has been measured against every capability.
+
+**Three edit sites, and they are all config:** the unit's `--model` line, the
+`justfile`'s `model :=` (pinned EQUAL to the unit by
+`test_serve_recipe_and_unit_load_the_same_model` — two copies of one config is
+C1's shape and it has drifted before), and `scripts/bootstrap.py`'s `ModelSpec`
+sha256, which makes `just bootstrap --check` fail on a stale hash by design.
+
+**Nothing else knows a model exists.** The app enum, the registry, the executor,
+the ban list, the approvals table, `STT_HOTWORDS`, the audit schema, the gate
+and the handler table are all model-independent. `friday/capabilities.py` is the
+contract; the model is one consumer of the prompt derived from it.
+
+### What the gate still cannot see, stated because it is the whole risk
+
+- **Chat quality.** All 81 fixtures score the planner. `chat` routes to
+  `llm/chat.py` and no fixture reads a reply — and chat is *why* Gemma is here.
+- **Verbosity, which is latency.** TTFA includes synthesizing the whole reply
+  (n=38, ADR-094): the last swap's real cost was chat p50 **7177 ms**, not
+  correctness. `_MAX_CHARS = 200` caps it in code since F6, but capping is not
+  the same as a model that is brief.
+- **The confirm handshake.** OQ-69's blind spot, unchanged.
+
+### Consequences
+
+A swap is cheap and its risk is concentrated in the two things no gate measures.
+The procedure in §12 ends with *"then judge chat BY EAR, because no gate does"*,
+and that sentence is the point of this ADR.
+
+### Rejected
+
+Writing a chat-quality gate now. It needs a rubric and a judge, both of which
+are new machinery in the exact place this repo has been burned by proxies
+(`gpu_arch` passing through a GPU outage; `wake-bench` printing "0 hits" whether
+the mic was live or dead). One line of honest prose beats a check that cannot
+fail. If a future swap makes chat regression a recurring cost, that is when it
+earns its build.

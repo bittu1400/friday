@@ -487,3 +487,114 @@ Bench artefacts (6.3 GB, outside the repo on purpose):
 
 **No code, service file, or model configuration was changed in this round.
 `just selftest` 8/8 before and after.**
+
+---
+
+## 12. Swapping the model — what is actually coupled, and what is not
+
+**Added 2026-09-04, in answer to a direct question: "can any model be switched
+in and it will work out just fine, within the range of the model?"**
+
+**No — but the boundary is sharp, and only one of the four constraints is about
+how good the model is.** Everything below is read off the code in this tree, not
+recalled. Decision recorded as **ADR-126**.
+
+### The four constraints, in the order they bite
+
+**1. It must be a GGUF that `llama-server` serves. This one is hard.**
+
+`friday/llm/client.py` POSTs to `/v1/chat/completions` with a top-level
+`"grammar"` field. That field is a **llama.cpp server extension** — it is not in
+the OpenAI schema, and no OpenAI-compatible endpoint that is not llama.cpp will
+honour it. It is also **half of invariant #5** and the whole of invariant #1:
+`final.gbnf` locks the grounding turn's action name to `"none"`, which is what
+makes web content structurally unable to steer a local action (ADR-008, T1).
+
+An endpoint that silently ignores `grammar` does **not** fail loudly. It returns
+unconstrained prose, `validate()` rejects it, and every turn fails closed to
+`action=none` — Friday becomes politely useless rather than dangerous. That is
+the fail-safe direction, and it is still a broken assistant. **So: any GGUF
+llama.cpp can load. Not "any model".**
+
+**2. It must fit the envelope, and the envelope is small.**
+
+Measured live 2026-09-04 while writing this: **8151 MiB total, 7010 MiB held by
+llama-server, 726 MiB free** — which reproduces §4's 740 MiB at `-np 1` within
+driver noise. §3 is the part people get wrong: Gemma's KV is cheap *because* 40
+of its 48 layers are sliding-window. **A dense-attention model of the same
+parameter count uses MORE KV, not the same**, so "it is also 12B" is not a
+sizing argument. Decode is bandwidth-bound at ~272 GB/s, so
+`tok/s ≈ 272 / weights_GB` — a bigger model is slower in a way no flag recovers.
+
+**3. Reasoning models are an invariant-#7 hazard, not a performance question.**
+
+`--reasoning off` is in `REQUIRED_FLAGS` and `tests/test_model_config.py` fails
+without it. The reason is in `client.py`: it reads
+`body["choices"][0]["message"]["content"]` and nothing else. If llama.cpp does
+not recognise a model's thinking template, the thought lands **in `content`** —
+and `content` goes to history, to audit rows, and to the speakers. That is
+FR-26/FR-57, invariant #7, "raw model output is NEVER written to disk".
+
+Note the trap already in CLAUDE.md: `--reasoning-format none` does the *opposite*
+of what it sounds like. Use `--reasoning off`.
+
+**4. It must clear the gate — and the gate is much wider than it was.**
+
+`just eval` was **28 fixtures** the last time a model was swapped, and D16 is
+what that cost: two models scored 28/28 while emitting `action=none` for "copy
+that to the clipboard". It is now **81 fixtures, ≥2 per capability, enforced by
+`tests/test_fixture_obligation.py`** (criterion 3.6). A swap that holds 81/81
+with zero regressions has been measured against every capability, which was
+never true before.
+
+**What the gate still cannot see, and it is three things:**
+
+- **chat quality.** Every fixture scores the planner. `chat` routes to
+  `llm/chat.py` and no fixture reads a reply. Gemma was adopted *for* chat
+  (§7), so this is not a corner case — judge it by ear.
+- **verbosity, which is latency.** TTFA includes synthesizing the whole reply
+  (n=38, ADR-094). `_MAX_CHARS = 200` truncates in code since F6, so a chatty
+  model is capped rather than slow — but it is capped mid-sentence.
+- **the confirm handshake.** Same blind spot as OQ-69.
+
+### What is NOT coupled, and this is most of the system
+
+Nothing in the app enum, the registry, the executor, the ban list, the
+approvals table, `STT_HOTWORDS`, the audit schema, the gate, or the handler
+table knows a model exists. `friday/capabilities.py` is the contract, and the
+model is one consumer of the derived prompt. **A swap touches config, not code.**
+
+### The procedure — three edit sites, then the gate
+
+```bash
+# 1. the unit  — deploy/systemd/friday-llm.service, the --model line
+# 2. the recipe — justfile, `model :=`   (test_model_config.py pins these EQUAL:
+#                 two copies of one config is C1's shape, and it has drifted)
+# 3. the pin    — scripts/bootstrap.py, the ModelSpec sha256 + url
+#                 (`just bootstrap --check` FAILS on a stale hash — by design)
+
+systemctl --user daemon-reload && systemctl --user restart friday-llm
+.venv/bin/python -m friday.selftest            # llm_on_gpu must PASS, 10/10
+.venv/bin/python -m friday.eval_harness        # 81/81, regressions 0
+# then judge chat BY EAR, because no gate does
+```
+
+`REQUIRED_FLAGS` — `--parallel 1`, `-fa on`, `--reasoning off`,
+`--n-gpu-layers 99` — stay. Each is load-bearing and each has silently defaulted
+to the wrong thing at least once on this machine (ADR-090).
+
+### The short answer
+
+| model | verdict |
+| :-- | :-- |
+| another GGUF, ≤ the VRAM envelope, non-reasoning, 81/81 | **drop-in.** Three config edits, no code |
+| a reasoning GGUF llama.cpp handles | works, **but verify no thought reaches `content`** before trusting it — invariant #7 |
+| a reasoning GGUF llama.cpp does NOT handle | **do not** — it leaks thought to disk and to the speakers |
+| a larger GGUF | measure, do not reason: 726 MiB free, and a dense model's KV is bigger than Gemma's, not equal |
+| anything not served by llama-server | **no.** No `grammar` field means invariant #1 has no enforcement and every turn fails closed |
+| a smaller/weaker GGUF | loads fine, and `just eval` is where you find out — that is what the 81 fixtures are for |
+
+**The honest caveat.** "Passes 81/81" is a much stronger claim than it was at 28,
+and it is still a claim about the *planner*. The last swap's real cost was not
+correctness, it was **verbosity** (chat p50 7177 ms, ADR-094) — which no gate in
+this repository measures, and which a user notices within one turn.

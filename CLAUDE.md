@@ -959,6 +959,10 @@ evidence, not defaults. A dependency added without this drill is not done.
                       ADR-125 is the handler table, the fixture obligation and
                       the derived hotword list (3.4/3.6/3.7) -- and says which
                       two things were deliberately NOT derived, and why.
+                      ADR-126 is the model-swap contract: what is coupled
+                      (the `grammar` field, the VRAM envelope, thought
+                      leakage, the eval gate) and what is not (everything
+                      else -- a swap touches config, not code).
                       ADR-118 is D31: a named program wins over its category,
                       and every list naming a capability widens together.
                       ADR-110/111/112 are the 2026-09-02 evening verification
@@ -1001,7 +1005,11 @@ evidence, not defaults. A dependency added without this drill is not done.
                       the 2026-08-26 audit.  A SNAPSHOT: its line numbers are
                       stale and some point into deleted code.  Read its
                       fix-status table (bottom), not its line numbers.
-   gemma-brief.md     the model question, verified: Gemma 4 12B's exact
+   gemma-brief.md     the model question, verified.  **Its §12 (new 2026-09-04)
+                      answers "can any model be swapped in?" -- four
+                      constraints, three edit sites, and the two things the
+                      81-fixture gate still cannot see.  Read it BEFORE
+                      touching the model line.**  Also: Gemma 4 12B's exact
                       identity + SHA256 pins, the hardware envelope, the
                       architecture (40/48 sliding-window -- this is the fact
                       that drives everything), the MEASURED headroom table for
@@ -1362,6 +1370,9 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The basename check catches the binary" | Not when the binary is on the right of an `=`. `flatpak run --command=sh org.x.App` runs a shell and `Path("--command=sh").name` is `"--command=sh"`. **The test found this; the design did not** — the same shape as ADR-114a's `--uri=%u`, which an anchored `^%[a-zA-Z]$` never matched. Split on the first `=` and check both halves. |
 | "Tightening a gate is always safe — worst case it blocks too much" | `desktop.scan` runs every scanned entry through `assert_not_banned`, so a false positive there **deletes an id from the app enum**, and the eval fixtures name scanned ids. A stricter ban list can therefore turn `eval` red by removing an app rather than by rejecting one. Measure the whole table against the new rule BEFORE shipping it: 0 of 165 carried a banned token, enum 165 → 165 (ADR-119). |
 | "The finding says these call sites skip the ban list, so wire them to it" | Two of the five carry free text — a reminder message, a dictated sentence — and `BANNED_SUBSTRINGS` holds `;`, `\|`, `>` and backtick. Wiring them up silently drops a notification whose message contains a semicolon. `argv[0]` there is a `which()` result for a code-owned constant and can never be banned, so the check is dead code that can only false-positive. The substring rules exist for shell-string safety and there is no shell (ADR-119). |
+| "It is an OpenAI-compatible endpoint, so it will work" | The `grammar` field `friday/llm/client.py` POSTs is a **llama.cpp server extension**, not OpenAI schema. An endpoint that ignores it does not error — it returns unconstrained prose, the validator rejects it, and every turn fails closed to `action=none`. Invariant #1 is enforced by `final.gbnf` locking the action name to `"none"`; without grammar support there is nothing enforcing it, and Friday is politely useless rather than dangerous. **"Any GGUF llama.cpp serves" is the boundary, not "any model"** (ADR-126). |
+| "It is also a 12B, so it will fit" | Not a sizing argument. Gemma's KV is cheap because **40 of its 48 layers are sliding-window**; a dense-attention model of the same parameter count uses MORE KV, not the same. Measured live 2026-09-04: 8151 MiB total, 7010 held, **726 free**. And decode is bandwidth-bound — `tok/s ≈ 272 / weights_GB` — so a bigger model is slower in a way no flag recovers (`gemma-brief.md` §3, §12). |
+| "The swap passed 81/81, so it is safe" | 81 fixtures score the **planner**. `chat` routes to `llm/chat.py` and **no fixture reads a reply** — and chat is why Gemma is here at all. The last swap's real cost was not correctness, it was verbosity: chat p50 **7177 ms**, because TTFA includes synthesizing the whole reply. Judge chat by ear; no gate in this repository measures it (ADR-126). |
 | "The test patches the function, so the stub is in effect" | Not through a re-export. Criterion 3.4 moved `confirm_preference` to `friday/gate.py` and `friday.turn` re-exports it; `monkeypatch.setattr(turn_mod, "confirm_preference", fake)` rebinds a name **nothing calls**, because `gate.resolve_pending` resolves its own module global. Two tests went green-to-red on the split and told the truth. Patch where the function is DEFINED. |
 | "The suite is green, so the approval flow is right" | Recording a FIRST_USE grant BEFORE the panic check left **all 641 tests passing** — the launch is still blocked by the executor and the line is still "I'm switched off." What changes is that the machine comes back on **having quietly agreed to something**. Design §3.2 says the switch blocks the approval WRITE and nothing was watching that sentence. Found by mutation, 2026-09-04; it is F1's shape one layer in. |
 | "The fixture failed, so tune the prompt" | Or the fixture is wrong. E80 "put my address on the clipboard" returned `none` — **correctly**, because "my address" is a referent Friday does not have. That is E29 exactly, where the incumbent "passed" by overwriting the clipboard with the literal word "that". A fixture encodes a belief; check the belief before scoring anything against it. |

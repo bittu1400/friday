@@ -59,14 +59,22 @@ persistence, voice out, voice in, search, conversation, service) and G10–G13
 (wake word + AEC + VAD + barge-in, proactive scheduler, action surface,
 speaker verification).
 
-Post-audit Phase 1 ("Stop Lying") and Phase 2 ("Make it Measurable") are both
-COMPLETE. Phase 2's last item — one proven hands-free capture — landed
-2026-09-02: five wake captures, all ended by Silero at 2.3-3.7 s, none reaching
-the 15 s cap. D3 is fixed live and OQ-39 is closed.
+Post-audit Phase 1 ("Stop Lying"), Phase 2 ("Make it Measurable") and **Phase 3
+("Make it Extensible") are all COMPLETE.** Phase 2's last item — one proven
+hands-free capture — landed 2026-09-02: five wake captures, all ended by Silero
+at 2.3-3.7 s, none reaching the 15 s cap. D3 is fixed live and OQ-39 is closed.
+
+**Phase 3 closed 2026-09-04.** One record — `friday/capabilities.py` — now
+drives the param schema, both grammars, the planner prompt's action block, the
+chat persona's toolset sentence, the confirm decision, the panic gate, the eval
+fixture obligation and `STT_HOTWORDS`. **Adding a capability is one
+`Capability(...)`, one handler row, and ≥2 eval fixtures**; four separate tests
+fail if you forget a piece. The safety net is that `SYSTEM_POLICY` assembles
+**byte-identical** and both grammars still regenerate byte-for-byte.
 
 ```text
-.venv/bin/python -m pytest   627 passed, rc=0 (83 test files in tests/)
-just eval                 64/64, regressions 0 (100%)
+.venv/bin/python -m pytest   653 passed, rc=0 (86 test files in tests/)
+just eval                 81/81, regressions 0 (100%)
 just test-injection       20/20 blocked
 just test-egress          8 passed (a real egress check since ADR-110)
 just selftest             10/10 PASS, rc=0 (incl. power profile and unit-deploy drift)
@@ -88,7 +96,23 @@ passes and a live-voice pass found defects that unit tests missed when they bypa
 - **Launch fixes (ADR-113/114/115), 2026-09-02 night:** the post-wake pause budget went 3.0 → 5.0 s and an abandoned capture now skips STT and the turn entirely (ADR-113, OQ-64); launched apps stopped dying with the daemon (`KillMode=process`, ADR-114, D29); and **`PrivateTmp=yes` was removed** (ADR-115, D30) — it gave the daemon an empty `/tmp`, so a Brave it launched could not reach the Chromium singleton socket in the real `/tmp` and exited 0 in ~50 ms with no window while the launch was announced as successful. **D30/ADR-115 was confirmed by the owner on 2026-09-03** — the browser opens, and the audit row agrees (401 ms, the healthy signature, against 49-119 ms for the life of the project). **ADR-113 was proven live the same morning**: a marginal wake (score 0.543) opened a speechless capture and the journal reads `capture abandoned: no speech within 5.0s` at +4.985 s, with no STT line and no TTFA after it — the turn was skipped, not merely shortened. **ADR-114 was proven live 2026-09-04** — and it took five sessions because of ordering and subject choice: the launch must come BEFORE the restart, and the app must actually be inside the service cgroup (`kitty` is; Discord moves itself into `app-discord-<pid>.scope` and proves nothing). kitty survived a restart at the same PID, and `systemctl show` reports `KillMode=process` live rather than merely committed. **This project now owes a microphone nothing.**
 - **Mutation audit of the test suite (ADR-116) and its fixes (ADR-117), 2026-09-03:** 85 defects were injected into the source one at a time and the full suite run against each — **56 killed, 29 survived, score 66 %**. The suite turned out to test *functions, not wiring*: three of the five confirm gates could have their branch deleted from `turn.py` with all 581 tests passing, `assert_not_banned(argv)` could be removed from the executor with the adversarial and injection suites green, and `SpeakerVerifier.verify()` was called by no test in the repository. **All five tier-1 gaps are now closed (ADR-117)**, each proven by applying its mutation and watching the suite turn red. That practice is now line six of the definition of done. **Tier 2 followed the same day (M6, M7):** the eval gate could be made to always exit 0 and the self-test's FAIL path could stop producing exit 1 — the two gates every session is told to trust — and both are now pinned (`tests/test_eval_gate.py` is new). What is left is tier 3, M8–M11, which is depth behind walls that still stand. Report: `test-audit-2026-09-03.md`.
 - **The app enum was reachable in principle and not in practice (D31–D34, ADR-118/121/122), 2026-09-03 → 2026-09-04.** A month after the enum was widened from 5 ids to every installed application, `action_audit` still held `open_app` rows for **only those five** — the requests never reached the executor. ADR-097 had widened one list and left two at Phase 1: the planner prompt (so "firefox" resolved to `browser` and Brave opened) and `STT_HOTWORDS`. Both fixed and **proven live by voice**. Three more defects fell out of testing it properly: **D32** was raised from n=2 and **refuted at n=8** the next day (two-word names are fine; "Zen Browser" and "LibreWolf" both landed); **D34**, the planner writing `easy-effects` where the generator makes `easy_effects`, fixed by folding a miss through `app_key` itself — a whitelist, so the adversarial fixtures still reject; and **D33**, an id of `android_studio_panda_4_2025_3_4_patch_1` taken straight from a `.desktop` `Name`, fixed by taking the known name from the vendor path and **proven live at 410 ms**.
-- **Phase 3 opened (ADR-119/120/123), 2026-09-04.** Its two security items shipped first and standalone: **F4**, invariant #3's "minimal explicit env, no exceptions" had *five* exceptions inheriting the daemon's whole environment including `NOTIFY_SOCKET`; and **F5**, the binary denylist inspected `argv[0]` only, so `distrobox-enter -- bash`, `env nohup rm -rf ~` and `foot -e bash` all walked through it. Then the capability record itself: `friday/capabilities.py` holds `Risk` and a frozen `Capability` for all 25 actions, `PARAM_SCHEMA` is now a view over it, and **the proof the move changed nothing is that `just grammar` still reproduces both committed `.gbnf` byte-for-byte** — reordering two capabilities fails that test. Criteria 3.1, 3.2 and 3.8 are done; 3.3, 3.5, 3.6, 3.7 and 3.9 are not.
+- **Phase 3 opened (ADR-119/120/123), 2026-09-04.** Its two security items shipped first and standalone: **F4**, invariant #3's "minimal explicit env, no exceptions" had *five* exceptions inheriting the daemon's whole environment including `NOTIFY_SOCKET`; and **F5**, the binary denylist inspected `argv[0]` only, so `distrobox-enter -- bash`, `env nohup rm -rf ~` and `foot -e bash` all walked through it. Then the capability record itself: `friday/capabilities.py` holds `Risk` and a frozen `Capability` for all 25 actions, `PARAM_SCHEMA` is now a view over it, and **the proof the move changed nothing is that `just grammar` still reproduces both committed `.gbnf` byte-for-byte** — reordering two capabilities fails that test. Criteria 3.1, 3.2 and 3.8 landed there.
+
+- **Phase 3 closed (ADR-124/125), 2026-09-04.** Both prompt regions are derived
+  and `SYSTEM_POLICY` comes out byte-identical (5381 chars, 1401 tokens, pinned
+  against a committed fixture); the confirm decision and the panic gate are read
+  off `Capability.risk`, deleting five hand-coded branches and eight
+  `config.is_disabled()` blocks — **`tests/test_confirm_arming.py` passes
+  untouched**, which is how "nothing moved" is known rather than believed;
+  `turn.py` is **941 → 246 lines** around a handler table; every capability owes
+  ≥2 eval fixtures (**64 → 81, still 100 %**); and `STT_HOTWORDS` is derived as a
+  superset of the list it replaces. **`open_app` is now FIRST_USE and live** — an
+  application you have never opened asks once, and the grant is keyed to a
+  SHA-256 of its argv, because the id generator resolves collisions first-wins.
+  Fifteen mutations turned the suite red; **one survived** — recording an
+  approval while the panic switch was engaged left everything green, and now has
+  a test named after it. **Whether asking once per app is tolerable is OQ-69, and
+  no test can answer it.**
 - **Verification pass (ADR-110/111/112):** the phases above were then checked against the machine rather than against their own write-ups, and three claims did not survive. `just test-egress` still could not observe a connection, so it was rewritten as a real guard over `socket.getaddrinfo`/`socket.socket.connect` with a demonstrated FAIL path (ADR-110). `pytest -q` had been crashing at session finish on a leaked PortAudio stream (ADR-111). And the new egress check immediately found that **`import onnxruntime` transmits to Microsoft telemetry on import** — on Linux, with no inference, on every daemon start for the life of the project; fixed with `ORT_DISABLE_TELEMETRY=1` (ADR-112).
 
 **On "local-first":** it is true, and it was not fully true before 2026-09-02.
