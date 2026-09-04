@@ -62,3 +62,20 @@
 {"id":"E62","utt":"open neovim","expect":{"name":"open_app","params":{"app":"neovim"}},"note":"D31: emitted editor. The editor category ate its competitor"}
 {"id":"E63","utt":"open kitty","expect":{"name":"open_app","params":{"app":"kitty"}},"note":"D31 guard: the terminal category must not eat kitty"}
 {"id":"E64","utt":"open zen browser","expect":{"name":"open_app","params":{"app":"zen_browser"}},"note":"D31: emitted the shortened id 'zen', which is not in the enum, so it failed closed and nothing opened"}
+{"id":"E65","utt":"put youtube on the screen","expect":{"name":"open_youtube","params":{}},"note":"3.6: a second phrasing per capability. The first (E-series) said 'open youtube', which the enum name gives away for free"}
+{"id":"E66","utt":"play some jazz on youtube","expect":{"name":"youtube_search","params":{}},"note":"3.6: music playback is youtube_search, not none (the D19 class)"}
+{"id":"E67","utt":"stop remembering my browser choice","expect":{"name":"forget_preference","params":{}},"note":"3.6: 'forget' is not in the utterance"}
+{"id":"E68","utt":"wake me in half an hour","expect":{"name":"set_reminder","params":{"seconds":"1800"}},"note":"3.6: a duration in words, not digits, and no 'timer'/'remind' keyword"}
+{"id":"E69","utt":"is anything set to go off","expect":{"name":"list_reminders","params":{}},"note":"3.6: no 'timer' or 'reminder' word at all"}
+{"id":"E70","utt":"forget that alarm I set","expect":{"name":"cancel_reminder","params":{}},"note":"3.6: 'forget' here means cancel_reminder, NOT forget_preference"}
+{"id":"E71","utt":"let's talk later","expect":{"name":"set_dnd","params":{}},"note":"3.6: D20's phrasing. Qwen invented message/seconds params on this no-param action"}
+{"id":"E72","utt":"you can start talking again","expect":{"name":"resume_dnd","params":{}},"note":"3.6"}
+{"id":"E73","utt":"the screen is too dark","expect":{"name":"system_brightness","params":{"direction":"up"}},"note":"3.6: a complaint, not an imperative. The 2026-08-25 defect was a builder GUESSING the direction"}
+{"id":"E74","utt":"turn the wifi back on","expect":{"name":"system_wifi","params":{"state":"on"}},"note":"3.6: the ungated half of the conditional tier, so the fixture set covers both branches of _wifi_risk"}
+{"id":"E75","utt":"switch to my second workspace","expect":{"name":"hypr_workspace","params":{"workspace":"2"}},"note":"3.6: an ordinal in words"}
+{"id":"E76","utt":"open my config","expect":{"name":"file_open","params":{}},"note":"3.6"}
+{"id":"E77","utt":"note that the landlord called","expect":{"name":"create_note","params":{}},"note":"3.6"}
+{"id":"E78","utt":"what have I written down","expect":{"name":"read_notes","params":{}},"note":"3.6: no 'note' keyword"}
+{"id":"E79","utt":"read out what I copied","expect":{"name":"clipboard_read","params":{}},"note":"3.6: no 'clipboard' keyword"}
+{"id":"E80","utt":"put see you at six on my clipboard","expect":{"name":"clipboard_set","params":{}},"note":"3.6. The first draft was \"put my address on the clipboard\" and the planner answered none -- correctly, because \"my address\" is a referent Friday does not have, exactly like D16/E29 where refusing was right and the FIXTURE was wrong. Copying needs text the utterance actually carries"}
+{"id":"E81","utt":"stop dictation","expect":{"name":"dictation_mode","params":{"action":"stop"}},"note":"3.6: the other half of the enum; the first fixture only covered start"}

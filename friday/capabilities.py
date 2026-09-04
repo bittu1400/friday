@@ -21,7 +21,14 @@ filled one derivation at a time so each step keeps the contract visible:
     SHIPPED   the risk tier for all 25 actions             (criterion 3.8)
     SHIPPED   both prompt regions                          (criterion 3.3)
     SHIPPED   the confirm decision and the panic gate      (criterion 3.5)
-    next      eval fixtures, hotwords, describe_action     (3.6, 3.7)
+    SHIPPED   the handler table                            (criterion 3.4)
+    SHIPPED   the fixture obligation and the hotwords      (3.6, 3.7)
+
+Phase 3 is complete. What is NOT derived, deliberately and in writing:
+`habits.describe_action`'s phrasing chain (the obligation is derived; the
+hundred lines of tuned prose are not) and `summary`'s length (compressing the
+twelve-line `open_app` paragraph that fixed D31 is its own measurable commit).
+Both are ADR-125.
 
 **The contract for the whole phase**: if `just grammar` stops reproducing the
 committed `.gbnf` byte-for-byte, or `just eval` moves off 64/64 with zero
@@ -116,6 +123,27 @@ class Capability:
     #: with `setdefault` — first wins — so an uninstall-then-install can hand a
     #: stored approval to a DIFFERENT binary (design §3.3).
     subject: Callable[[Params], tuple[str, str, tuple[str, ...]]] | None = None
+    #: At least two utterances that MUST exist in `tests/fixtures/eval.jsonl`
+    #: with this action (criterion 3.6). The fixture file stays the source of
+    #: truth — generating it from here would move `just eval` off its baseline
+    #: inside a refactor whose whole contract is that behaviour did not, making
+    #: an intended change and a regression indistinguishable (owner, 2026-09-04).
+    #: Two, not one, because a single fixture measures the easy end: D16 shipped
+    #: 28 fixtures that could not see 20 of the 28 actions, and the ten
+    #: scanned-app fixtures of D31 were all programs whose names ARE their ids.
+    examples: tuple[str, ...] = ()
+    #: Words the USER must say to reach this capability, biasing Whisper
+    #: (criterion 3.7). Hand-written lists went stale twice at a microphone:
+    #: D26 (no G12 vocabulary at all, so "wifi" came back as wife / weapon /
+    #: way / life on four consecutive turns) and D31 (ADR-097 widened the app
+    #: enum and left this at the same five apps for a month). ADR-042 wrote the
+    #: coupling down in prose in 2026-08-26 and prose prevented nothing.
+    #:
+    #: `open_app` holds the twenty names the owner picked on 2026-09-03, NOT
+    #: the whole enum: whether the remaining ~145 join them is OQ-68, which
+    #: says in terms not to spend a session choosing a number. Answering it is
+    #: now editing one field.
+    hotwords: tuple[str, ...] = ()
 
     def risk_for(self, params: Params) -> Risk:
         """The tier for this invocation. Code, never a model judgement."""
@@ -230,6 +258,10 @@ _ALL: Final[tuple[Capability, ...]] = (
             "those by choosing none. params: {}"
         ),
         persona=None,
+        examples=(
+            'delete everything in my home folder',
+            'run rm -rf /',
+        ),
     ),
     Capability(
         "chat",
@@ -243,6 +275,10 @@ _ALL: Final[tuple[Capability, ...]] = (
             "machine. params: {}"
         ),
         persona=None,
+        examples=(
+            'hey',
+            'how are you doing today',
+        ),
     ),
     Capability(
         "open_app",
@@ -274,6 +310,39 @@ _ALL: Final[tuple[Capability, ...]] = (
         ask=lambda p: f"Do you want me to {_open_app_describe(p)}?",
         describe=_open_app_describe,
         subject=_open_app_subject,
+        examples=(
+            'open my browser',
+            'open firefox',
+        ),
+        hotwords=(
+            'Brave',
+            'foot',
+            'terminal',
+            'Visual Studio Code',
+            'VLC',
+            'mpv',
+            'Neovim',
+            'Firefox',
+            'Zen Browser',
+            'LibreWolf',
+            'Discord',
+            'Spotify',
+            'Obsidian',
+            'Anytype',
+            'Claude',
+            'Thunar',
+            'Kitty',
+            'PyCharm',
+            'WebStorm',
+            'IntelliJ IDEA',
+            'Android Studio',
+            'Zed',
+            'Todoist',
+            'Thunderbird',
+            'btop',
+            'Heroic',
+            'Timeshift',
+        ),
     ),
     # Egress. The ONLY tool that reaches the network, and a turn that consumes
     # its results is grammar-locked to action=none (invariant #1).
@@ -287,6 +356,15 @@ _ALL: Final[tuple[Capability, ...]] = (
             "the world. params: {\"query\": text}"
         ),
         persona="search the web for real-world facts",
+        examples=(
+            "what's the weather in Bangalore",
+            'who won the cricket match yesterday',
+        ),
+        hotwords=(
+            'web search',
+            'Arch Linux',
+            'Kathmandu',
+        ),
     ),
     Capability(
         "open_youtube",
@@ -296,6 +374,13 @@ _ALL: Final[tuple[Capability, ...]] = (
             "open YouTube's front page. params: {}"
         ),
         persona="open YouTube",
+        examples=(
+            'open youtube',
+            'put youtube on the screen',
+        ),
+        hotwords=(
+            'YouTube',
+        ),
     ),
     Capability(
         "youtube_search",
@@ -308,6 +393,14 @@ _ALL: Final[tuple[Capability, ...]] = (
             "{\"query\": text}"
         ),
         persona="search or play things on YouTube",
+        examples=(
+            'put on some lo-fi',
+            'play some jazz on youtube',
+        ),
+        hotwords=(
+            'lo-fi',
+            'jazz',
+        ),
     ),
     Capability(
         "remember_preference",
@@ -318,6 +411,13 @@ _ALL: Final[tuple[Capability, ...]] = (
             "params: {\"key\": text, \"value\": text}"
         ),
         persona="remember a preference",
+        examples=(
+            'call me Subham from now on',
+            'remember that I like dark mode',
+        ),
+        hotwords=(
+            'dark theme',
+        ),
     ),
     Capability(
         "forget_preference",
@@ -327,6 +427,10 @@ _ALL: Final[tuple[Capability, ...]] = (
             "the user asks to forget a preference. params: {\"key\": text}"
         ),
         persona="forget a preference",
+        examples=(
+            'forget my music preference',
+            'stop remembering my browser choice',
+        ),
     ),
     Capability(
         "set_reminder",
@@ -339,6 +443,14 @@ _ALL: Final[tuple[Capability, ...]] = (
             "params: {\"seconds\": text, \"message\": text}"
         ),
         persona="set a timer or reminder",
+        examples=(
+            'set a timer for five minutes',
+            'wake me in half an hour',
+        ),
+        hotwords=(
+            'timer',
+            'reminder',
+        ),
     ),
     Capability(
         "list_reminders",
@@ -348,6 +460,10 @@ _ALL: Final[tuple[Capability, ...]] = (
             "the user asks what reminders or timers are active. params: {}"
         ),
         persona="list active timers",
+        examples=(
+            'what timers do I have',
+            'is anything set to go off',
+        ),
     ),
     # No params, deliberately. `id` used to be declared here as required text,
     # which made the tool unusable: reminder ids are `rem_<hex8>` and are never
@@ -364,6 +480,10 @@ _ALL: Final[tuple[Capability, ...]] = (
             "the user asks to cancel or remove a timer or reminder. params: {}"
         ),
         persona="cancel a timer",
+        examples=(
+            'cancel my timer',
+            'forget that alarm I set',
+        ),
     ),
     Capability(
         "set_dnd",
@@ -374,6 +494,13 @@ _ALL: Final[tuple[Capability, ...]] = (
             "\"be quiet\". params: {}"
         ),
         persona="enter quiet mode",
+        examples=(
+            'be quiet for a while',
+            "let's talk later",
+        ),
+        hotwords=(
+            'quiet mode',
+        ),
     ),
     Capability(
         "resume_dnd",
@@ -384,6 +511,13 @@ _ALL: Final[tuple[Capability, ...]] = (
             "{}"
         ),
         persona="leave quiet mode",
+        examples=(
+            'okay you can resume now',
+            'you can start talking again',
+        ),
+        hotwords=(
+            'resume',
+        ),
     ),
     Capability(
         "system_volume",
@@ -395,6 +529,15 @@ _ALL: Final[tuple[Capability, ...]] = (
             "\"unmute\"}"
         ),
         persona="change the volume",
+        examples=(
+            'turn the volume up',
+            'mute the sound',
+        ),
+        hotwords=(
+            'volume',
+            'mute',
+            'unmute',
+        ),
     ),
     Capability(
         "system_brightness",
@@ -405,6 +548,13 @@ _ALL: Final[tuple[Capability, ...]] = (
             "{\"direction\": \"up\" | \"down\"}"
         ),
         persona="change screen brightness",
+        examples=(
+            'dim the screen',
+            'the screen is too dark',
+        ),
+        hotwords=(
+            'brightness',
+        ),
     ),
     Capability(
         "system_media",
@@ -416,6 +566,16 @@ _ALL: Final[tuple[Capability, ...]] = (
             "\"previous\" | \"stop\"}"
         ),
         persona="control media playback",
+        examples=(
+            'pause the music',
+            'skip to the next track',
+        ),
+        hotwords=(
+            'media',
+            'pause',
+            'next track',
+            'previous track',
+        ),
     ),
     Capability(
         "system_wifi",
@@ -428,6 +588,14 @@ _ALL: Final[tuple[Capability, ...]] = (
         persona="turn Wi-Fi on or off",
         ask=lambda p: "Are you sure you want to turn off Wi-Fi?",
         describe=lambda p: "turn off Wi-Fi",
+        examples=(
+            'turn off wifi',
+            'turn the wifi back on',
+        ),
+        hotwords=(
+            'Wi-Fi',
+            'wifi',
+        ),
     ),
     Capability(
         "hypr_workspace",
@@ -438,6 +606,13 @@ _ALL: Final[tuple[Capability, ...]] = (
             "params: {\"workspace\": \"1\"…\"10\"}"
         ),
         persona="switch workspaces",
+        examples=(
+            'go to workspace 3',
+            'switch to my second workspace',
+        ),
+        hotwords=(
+            'workspace',
+        ),
     ),
     Capability(
         "hypr_window",
@@ -452,6 +627,13 @@ _ALL: Final[tuple[Capability, ...]] = (
         persona="manage windows (focus, fullscreen, close)",
         ask=lambda p: "Are you sure you want to close the active window?",
         describe=lambda p: "close active window",
+        examples=(
+            'close this window',
+            'make this window fullscreen',
+        ),
+        hotwords=(
+            'fullscreen',
+        ),
     ),
     Capability(
         "file_open",
@@ -462,6 +644,10 @@ _ALL: Final[tuple[Capability, ...]] = (
             "my todo\"). params: {\"alias\": text}"
         ),
         persona="open a registered file",
+        examples=(
+            'open my todo',
+            'open my config',
+        ),
     ),
     Capability(
         "create_note",
@@ -472,6 +658,13 @@ _ALL: Final[tuple[Capability, ...]] = (
             "note ...\"). params: {\"content\": text}"
         ),
         persona="take a note",
+        examples=(
+            'take a note that the milk expires on friday',
+            'note that the landlord called',
+        ),
+        hotwords=(
+            'notes',
+        ),
     ),
     Capability(
         "read_notes",
@@ -482,6 +675,10 @@ _ALL: Final[tuple[Capability, ...]] = (
             "{}"
         ),
         persona="read your notes",
+        examples=(
+            'read my notes',
+            'what have I written down',
+        ),
     ),
     # Reading the clipboard ALOUD puts its contents into whatever room Friday
     # is in — a copied password or 2FA code included. Speaking it because the
@@ -499,6 +696,13 @@ _ALL: Final[tuple[Capability, ...]] = (
         persona="read the clipboard",
         ask=lambda p: "Do you want me to read your clipboard aloud?",
         describe=lambda p: "read the clipboard aloud",
+        examples=(
+            "what's in my clipboard",
+            'read out what I copied',
+        ),
+        hotwords=(
+            'clipboard',
+        ),
     ),
     Capability(
         "clipboard_set",
@@ -511,6 +715,10 @@ _ALL: Final[tuple[Capability, ...]] = (
         persona="copy text to the clipboard",
         ask=lambda p: "Are you sure you want to overwrite your clipboard?",
         describe=lambda p: "overwrite clipboard",
+        examples=(
+            'copy hello world to the clipboard',
+            'put see you at six on my clipboard',
+        ),
     ),
     Capability(
         "dictation_mode",
@@ -521,9 +729,32 @@ _ALL: Final[tuple[Capability, ...]] = (
             "dictation\"). params: {\"action\": \"start\" | \"stop\"}"
         ),
         persona="type dictation",
+        examples=(
+            'start dictation',
+            'stop dictation',
+        ),
+        hotwords=(
+            'dictation',
+        ),
     ),
 )
 
 CAPABILITIES: Final[Mapping[str, Capability]] = MappingProxyType(
     {c.id: c for c in _ALL}
 )
+
+
+def stt_hotwords() -> str:
+    """Every capability's `hotwords`, deduplicated, in record order.
+
+    A comma-separated string because that is what `faster_whisper` takes. It is
+    a SUPERSET of the hand-written list it replaces — `tests/test_stt_hotwords.py`
+    asserts that — so the STT bias does not move in the commit that derives it.
+    Adding a capability now adds its vocabulary; forgetting to is the D26/D31
+    defect and there is no longer a second list to forget.
+    """
+    seen: dict[str, None] = {}
+    for cap in _ALL:
+        for word in cap.hotwords:
+            seen.setdefault(word, None)
+    return ", ".join(seen)

@@ -12,6 +12,7 @@ import pytest
 
 from friday import daemon as daemon_mod
 from friday import turn as turn_mod
+from friday import gate as gate_mod
 from friday.audio.state import State
 from friday.audio.stt import Transcript
 from friday.daemon import Daemon
@@ -177,7 +178,10 @@ def test_confirm_handshake_yes_writes(monkeypatch):
         return "Okay, I'll remember that."
     # Both UIs resolve a confirm through turn.resolve_pending (audit C1 fix),
     # so the preference write is patched where it is now looked up.
-    monkeypatch.setattr(turn_mod, "confirm_preference", fake_confirm)
+    # `confirm_preference` lives in `friday.gate` since criterion 3.4 split the
+    # confirm handshake out of `turn.py`; `friday.turn` re-exports it, and
+    # patching a re-export does not reach the caller. Patch where it is DEFINED.
+    monkeypatch.setattr(gate_mod, "confirm_preference", fake_confirm)
 
     d = _daemon()
 
@@ -213,7 +217,10 @@ def test_confirm_timer_not_orphaned_by_answer_press(monkeypatch):
         return "Okay."
     # Both UIs resolve a confirm through turn.resolve_pending (audit C1 fix),
     # so the preference write is patched where it is now looked up.
-    monkeypatch.setattr(turn_mod, "confirm_preference", fake_confirm)
+    # `confirm_preference` lives in `friday.gate` since criterion 3.4 split the
+    # confirm handshake out of `turn.py`; `friday.turn` re-exports it, and
+    # patching a re-export does not reach the caller. Patch where it is DEFINED.
+    monkeypatch.setattr(gate_mod, "confirm_preference", fake_confirm)
 
     d = _daemon()
 

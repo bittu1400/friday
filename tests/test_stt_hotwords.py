@@ -78,3 +78,47 @@ def test_no_hotword_is_a_near_miss_of_an_app_the_enum_cannot_serve():
         "— the id is derived from the .desktop Name or the binary, and neither "
         "is reliably what a person says (D33)"
     )
+
+
+# --- criterion 3.7: the list is DERIVED, and is a superset of the last one ---
+
+
+#: The hand-written `STT_HOTWORDS` exactly as it stood at commit cb5836f, the
+#: last one before the derivation. The criterion is "superset of today's", so
+#: this is what "today's" was. It is a frozen historical value: do NOT edit it
+#: to make a change pass — a word disappearing from the bias is the D26/D31
+#: defect, and this list is the only thing that would notice.
+_HAND_WRITTEN = (
+    "Brave, foot, terminal, Visual Studio Code, VLC, mpv, Neovim, Arch Linux, "
+    "Kathmandu, lo-fi, jazz, YouTube, dark theme, web search, "
+    "Wi-Fi, wifi, volume, mute, unmute, brightness, workspace, fullscreen, "
+    "clipboard, dictation, notes, timer, reminder, quiet mode, media, "
+    "pause, resume, next track, previous track, "
+    "Firefox, Zen Browser, LibreWolf, Discord, Spotify, Obsidian, Anytype, "
+    "Claude, Thunar, Kitty, PyCharm, WebStorm, IntelliJ IDEA, Android Studio, "
+    "Zed, Todoist, Thunderbird, btop, Heroic, Timeshift"
+)
+
+
+def test_the_derived_list_is_a_superset_of_the_hand_written_one():
+    from friday.capabilities import stt_hotwords
+
+    before = {w.strip() for w in _HAND_WRITTEN.split(",") if w.strip()}
+    after = {w.strip() for w in stt_hotwords().split(",") if w.strip()}
+    assert before <= after, f"the derivation DROPPED: {sorted(before - after)}"
+
+
+def test_every_hotword_belongs_to_a_capability():
+    """The other direction, and the reason the list can be trusted now: a word
+    that biases Whisper toward nothing Friday can do is noise in the decoder,
+    and there is no second list where one could hide."""
+    from friday.capabilities import CAPABILITIES, stt_hotwords
+
+    owned = {w for c in CAPABILITIES.values() for w in c.hotwords}
+    assert {w.strip() for w in stt_hotwords().split(",")} == owned
+
+
+def test_config_uses_the_derived_list_unless_the_environment_overrides_it():
+    from friday.capabilities import stt_hotwords
+
+    assert config.STT_HOTWORDS == stt_hotwords()

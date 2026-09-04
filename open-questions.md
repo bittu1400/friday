@@ -917,6 +917,17 @@ is the guard that catches that (D33).
 consequence rather than a decision. Do not spend a session choosing a number
 that a refactor is about to delete.
 
+**THAT REFACTOR LANDED 2026-09-04 (ADR-125) and this question survives it,
+smaller.** `config.STT_HOTWORDS` is now `capabilities.stt_hotwords()`, the union
+of each capability's `hotwords` field. `open_app` holds the owner's twenty
+names, and the derived list is asserted to be a SUPERSET of the hand-written
+one, so the STT bias did not move in the commit that derived it. The owner's
+call 2026-09-04 was explicitly to keep the twenty as data rather than answer
+this question by fiat inside a behaviour-freeze refactor. **Answering it is now
+editing one field** — `CAPABILITIES["open_app"].hotwords` — and the measurement
+it still needs is unchanged: `just bench-stt` in `balanced` against p95
+713-804 ms and miss 4/20.
+
 `tests/test_stt_hotwords.py` asserts a floor of 20 app names, not a specific
 list, so answering this question does not require editing a test.
 

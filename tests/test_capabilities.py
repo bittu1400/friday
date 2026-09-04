@@ -148,3 +148,27 @@ def test_every_summary_and_persona_clause_reaches_its_prompt():
         assert f"\n  {cid:<21}{cap.summary}\n" in SYSTEM_POLICY, cid
         if cap.persona:
             assert cap.persona in CHAT_SYSTEM, cid
+
+
+def test_describe_action_covers_every_capability():
+    """Criterion 3.7 / audit F21. `habits.describe_action` is a chain of
+    `elif tool_id == ...`, and a capability it does not name returns None — so
+    the habits miner silently drops it and the daemon's re-ask has nothing to
+    say. That is how `web_search`'s branch stayed permanently unreachable: the
+    miner reads `action_audit`, and nothing was writing a web_search row (H1).
+
+    The chain itself is not derived from this record, deliberately: rewriting a
+    hundred lines of tuned phrasing inside a behaviour-freeze refactor would
+    change what Friday says while the gate that watches for changes cannot see
+    it. What IS derived is the obligation — a new capability with no phrasing
+    fails here.
+    """
+    from friday.store.habits import describe_action
+
+    # `none` and `chat` never reach the executor, so no audit row and nothing
+    # to mine. Every other capability must have phrasing.
+    missing = [
+        cid for cid in CAPABILITIES
+        if cid not in ("none", "chat") and describe_action(cid, "{}") is None
+    ]
+    assert not missing, f"describe_action says nothing about: {missing}"

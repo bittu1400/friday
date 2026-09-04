@@ -16,6 +16,7 @@ import asyncio
 import pytest
 from textual.widgets import Input
 
+from friday import gate as gate_mod
 import friday.ui.tui as tui_mod
 from friday.errors import Outcome
 from friday.store.prefs import PendingPreference
@@ -135,7 +136,10 @@ def test_tui_preference_confirm_still_writes(monkeypatch):
     monkeypatch.setattr(tui_mod, "run_turn", None, raising=False)
     import friday.turn as turn_mod
 
-    monkeypatch.setattr(turn_mod, "confirm_preference", fake_confirm)
+    # `confirm_preference` lives in `friday.gate` since criterion 3.4 split the
+    # confirm handshake out of `turn.py`; `friday.turn` re-exports it, and
+    # patching a re-export does not reach the caller. Patch where it is DEFINED.
+    monkeypatch.setattr(gate_mod, "confirm_preference", fake_confirm)
 
     pending = PendingPreference(key="name", value="Subham")
     _pending_turn(monkeypatch, TurnResult(

@@ -6068,3 +6068,108 @@ the toolset joined in sorted order; the confirm gate never firing; the panic
 gate never blocking; the argv fingerprint ignored; `system_wifi` gating
 unconditionally; and the approval written while disabled — the last of which
 **survived its first run and is why that test exists.**
+
+
+## ADR-125 — The handler table, the fixture obligation, and a derived hotword list (Phase 3, criteria 3.4, 3.6, 3.7)
+
+**Date:** 2026-09-04 · **Status:** ACCEPTED · **Completes Phase 3**
+
+### Context
+
+ADR-123 built the record; ADR-124 derived both prompt regions, the confirm
+decision and the panic gate. What was left of design §1's ten places: the
+nineteen-branch chain in `turn.py`, the eval fixtures, `STT_HOTWORDS`, and
+`habits.describe_action`.
+
+### 3.4 — the chain becomes a table, and `turn.py` is split three ways
+
+`_plan_and_act` was nineteen `if plan.name == ...` branches with the handler
+bodies interleaved. It is now a lookup into `friday/handlers.py::HANDLERS`, and
+`friday/turn.py` is **941 → 246 lines** against a criterion of 400.
+
+Three modules, layered so there is no cycle:
+
+```
+capabilities.py   the record
+gate.py           the confirm handshake + the derived gate   (ADR-124's work)
+handlers.py       one function per capability + the table
+turn.py           plan, gate, dispatch — and nothing per-capability
+```
+
+Capabilities with a `Subprocess` spec are deliberately **not** in the table:
+they share one body (execute, then speak from the outcome template — ADR-009),
+and the lookup missing is what selects it. `tests/test_handler_table.py` asserts
+every capability is reachable exactly one way, and that `turn.py` grows no
+per-capability branch back — `plan.name == "none"` is the single exemption,
+because ADR-065's re-plan tests a property of the PLAN, not a capability.
+
+**Rejected:** rewriting each handler's signature to `(ctx, params)`. The table
+holds a one-line adapter per row instead, so ~300 lines of tested handler bodies
+moved **verbatim**. A behaviour-freeze refactor is the worst possible place to
+retype working code.
+
+`friday.turn` keeps re-exporting the moved names, because ~30 test files and
+both UIs import from it. Two tests needed a real change: they
+`monkeypatch.setattr(turn_mod, "confirm_preference", ...)`, and **patching a
+re-export does not reach the caller** — they now patch `friday.gate`, where it
+is defined.
+
+### 3.6 — `examples`, and the 17 fixtures it demanded
+
+`Capability.examples` holds utterances that must EXIST in
+`tests/fixtures/eval.jsonl` against that action. Fourteen capabilities had only
+one fixture, so **17 were added** and `just eval` went **64 → 81, still 100 %,
+regressions 0**, re-baselined.
+
+Two, not one, because a single fixture measures the easy end — the lesson of
+D16 (28 fixtures blind to 20 of 28 actions) and D31 (ten scanned-app fixtures,
+every one a program whose name IS its id).
+
+**One draft fixture was wrong and the planner was right.** *"put my address on
+the clipboard"* returned `none`, correctly: "my address" is a referent Friday
+does not have. That is E29's shape exactly — a fixture encoding a belief nobody
+checked — so the fixture was fixed, not the model.
+
+`examples` **defaults to `()` on purpose**, unlike `risk`, `summary` and
+`persona`: forgetting it has to be possible for
+`tests/test_fixture_obligation.py` to be the thing that catches it, and that
+file records why both its checks are needed — an empty tuple is a subset of
+everything, so "every example is a fixture" passes vacuously on a stub.
+
+### 3.7 — hotwords derived; `describe_action` pinned, not rewritten
+
+`STT_HOTWORDS` is now `capabilities.stt_hotwords()`, the union of each
+capability's `hotwords` in record order, and it is a **superset** of the
+hand-written list — the test pins that against a frozen copy of the string as
+it stood at `cb5836f`, so a word silently leaving the bias is caught. That is
+the D26/D31 class: ADR-042 wrote this coupling down in prose in 2026-08-26 and
+prose prevented neither.
+
+`open_app` holds the **twenty** names the owner picked on 2026-09-03, not all
+167. **OQ-68 stays open** and says in terms not to spend a session choosing a
+number; answering it is now editing one field rather than a string constant.
+
+**`describe_action` was NOT rewritten, and this is a deliberate partial.** The
+chain already covers every capability (Phase 1 swept F21). Turning a hundred
+lines of tuned, per-param phrasing into record callables would change what
+Friday *says* — inside the one commit whose contract is that behaviour did not
+move, and the eval gate cannot see spoken habit text. What is derived is the
+**obligation**: `test_describe_action_covers_every_capability` enumerates the
+record, so a new capability with no phrasing fails the suite. If the owner wants
+the chain itself moved into the record, that is a separate, measurable commit —
+the same call, for the same reason, as `summary`'s compression.
+
+### Evidence
+
+`pytest` 642 → **653**, `eval` **81/81 (100 %), regressions 0**, grammars
+**byte-identical**, `selftest` **10/10 rc=0**, `bootstrap --check` **11/11**,
+`turn.py` **246 lines**. Six mutations demonstrated RED: a handler row dropped;
+a capability's `examples` emptied; an example that matches no fixture; a
+capability's hotwords dropped; `config` falling back to a hand-written string;
+and `turn.py` growing a per-capability branch back.
+
+**One process note, because it cost a rebuild.** Reverting the last of those
+with `git checkout -- friday/turn.py` discarded the entire uncommitted 3.4
+rewrite — the exact trap ADR-116's amendment names, walked into anyway. Copy
+the file aside and copy it back; `git checkout` is only safe on a file with no
+uncommitted work in it.

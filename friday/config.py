@@ -119,21 +119,26 @@ DEBUG: bool = bool(os.environ.get("FRIDAY_DEBUG"))
 # proven (OQ-57). The remaining ~145 go in once these twenty are proven at a
 # microphone; that is OQ-68. Measured cost of these twenty: p95 651 ms,
 # miss 4/20 — no regression (2026-09-03, balanced).
-STT_HOTWORDS: str = os.environ.get(
-    "FRIDAY_STT_HOTWORDS",
-    # Phase 1: the five apps, youtube, preference subjects.
-    "Brave, foot, terminal, Visual Studio Code, VLC, mpv, Neovim, Arch Linux, "
-    "Kathmandu, lo-fi, jazz, YouTube, dark theme, web search, "
-    # Phase 2 (G11/G12) control vocabulary — every word that selects an action.
-    "Wi-Fi, wifi, volume, mute, unmute, brightness, workspace, fullscreen, "
-    "clipboard, dictation, notes, timer, reminder, quiet mode, media, "
-    "pause, resume, next track, previous track, "
-    # ADR-097's applications, twenty of them (D31/ADR-118). Chosen from what is
-    # installed AND running on this machine, not from a popularity list.
-    "Firefox, Zen Browser, LibreWolf, Discord, Spotify, Obsidian, Anytype, "
-    "Claude, Thunar, Kitty, PyCharm, WebStorm, IntelliJ IDEA, Android Studio, "
-    "Zed, Todoist, Thunderbird, btop, Heroic, Timeshift",
-)
+def _stt_hotwords() -> str:
+    """Derived from the capability record (Phase 3, criterion 3.7).
+
+    It was a hand-written string and it went stale at a microphone twice: D26
+    (no G12 control vocabulary, so "wifi" came back as wife / weapon / way /
+    life on four consecutive turns) and D31 (ADR-097 widened the app enum and
+    left this at Phase 1's five apps, so in the month that followed no scanned
+    application was ever dispatched). ADR-042 recorded the coupling in prose in
+    2026-08-26; prose is not a control.
+
+    Imported lazily because `capabilities` reaches `tools.apps`, which scans
+    the machine's desktop entries — `config` is imported by nearly everything
+    and must not pull that in at import time.
+    """
+    from .capabilities import stt_hotwords
+
+    return stt_hotwords()
+
+
+STT_HOTWORDS: str = os.environ.get("FRIDAY_STT_HOTWORDS") or _stt_hotwords()
 
 # PTT control socket (FR-3). A unix socket in the per-user runtime dir (0700
 # on Linux) — the Hyprland bind runs `friday-ptt press|release`, which sends
