@@ -12,6 +12,18 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-09-04 (post-audit / Phase 4a): PHASE 4a (CHEAP WIDTH) COMPLETE — ADR-129.**
+Five new capabilities rolled out under ADR-129 using Phase 3's unified architecture:
+`local_time` (Risk: NONE, FR-88/D7), `system_status` (Risk: NONE, FR-154, closed target enum),
+`window_move_to_workspace` (Risk: LOW, FR-155, 1..10 in GBNF), `window_focus_app` (Risk: LOW, FR-156,
+dynamic APP_ENUM), and `window_list` (Risk: NONE, FR-157).
+Total capabilities: 25 → 30. GBNF closed enum constraints: 7 → 9.
+`turn.py` remains untouched at **246 lines** (0 branches added, pure handler lookup).
+Gates: `pytest` **687 → 711** (+24 tests), `eval` **81 → 91/91 (100%), 0 regressions** (10 new fixtures E82–E91),
+`selftest` **10/10 PASS**, `bootstrap --check` **11/11 PASS**, `doc_paths` **24/24 PASS**, grammars byte-identical.
+All 5 capabilities registered in `stats_cli.py` and `store/habits.py`. Step 2 status: daemon running since
+15:45:56; 4 approvals live in `~/.local/state/friday/memory.db` (`discord`, `firefox`, `gedit`, `zen_browser`). <<<**
+
 **>>> 2026-09-04 (post-audit / ADR-128): CLOSED ENUM PARAMS ARE CONSTRAINED IN plan.gbnf (STEP 3, ADR-128).**
 `plan.gbnf` previously constrained the action name only while params were generic `{string: string}`
 — the structural cause of D19, D20, and D34. The seven machine-independent closed enum actions are now
@@ -6445,7 +6457,187 @@ Cleanly restored from `.bak`.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-04**, after Step 3 / ADR-128) <<<
+## 2026-09-04 (post-audit): Phase 4a — Cheap Width (ADR-129)
+
+**Execution of Step 5 (Phase 4a) from the roadmap.**
+
+### The problem & motivation
+
+Phase 3 established a unified single-record capability architecture (`friday/capabilities.py`), a pure handler dispatch table (`friday/handlers.py`), and derived prompts, schemas, and grammars. `turn.py` shrank from 941 to 246 lines. Phase 4a exercises this infrastructure to deliver five high-utility "cheap width" system capabilities without adding custom branches or state machines:
+1. `local_time`: Speaks the system clock time formatted for voice (fixes D7, implements FR-88).
+2. `system_status`: Inspects battery, disk, ram, network, window, media status with a closed enum target (implements FR-154).
+3. `window_move_to_workspace`: Moves focused window to workspaces 1..10 (implements FR-155).
+4. `window_focus_app`: Targets and focuses an open window matching an application key (implements FR-156).
+5. `window_list`: Enumerates open windows, titles, and workspaces (implements FR-157).
+
+### The implementation
+
+1. **`friday/tools/status.py`**: Created status reader collecting battery (sysfs), disk (shutil.disk_usage), ram (procfs MemAvailable), network (default route via `ip -br route`), active window (`hyprctl activewindow -j`), and media (`playerctl status` + metadata). Exported `query_status(target: StatusTarget) -> str`.
+2. **`friday/tools/windows.py`**: Created window manager using Hyprland IPC:
+   - `list_windows() -> list[WindowInfo]` parses `hyprctl clients -j`.
+   - `focus_app(app_key: str) -> tuple[bool, str]` finds active window matching `app_key` via class or initialTitle (handling title prefixes and browser profiles) and dispatches `hyprctl dispatch focuswindow address:0x...`.
+3. **`friday/tools/registry.py`**: Added compile-time constant `move_to_workspace:{1..10}` to `_LUA_DISPATCH` using `hl.dsp.window.move{workspace=N}` (verified against Hyprland 0.56 Lua dispatch syntax). Registered `ToolSpec` for `window_move_to_workspace`.
+4. **`friday/capabilities.py`**: Appended all 5 capabilities to `_ALL`. Exported `STATUS_TARGET_ENUM = ("all", "battery", "disk", "ram", "network", "window", "media")`.
+5. **`friday/llm/schema.py`**: Exported `STATUS_TARGET_ENUM`. Added `system_status` and `window_move_to_workspace` to `CONSTRAINED_ENUM_ACTIONS` (expanding constrained actions 7 → 9). Explicitly kept `window_focus_app` (like `open_app`) in `GENERIC_ACTIONS` to preserve host-machine independence and avoid leaking dynamic XDG app lists into the static grammar.
+6. **`friday/handlers.py`**: Implemented `_format_local_time`, `_h_local_time`, `_h_system_status`, `_h_window_focus_app`, and `_h_window_list`. Registered in `HANDLERS`.
+7. **`friday/store/habits.py`**: Added human-readable gerund and non-gerund descriptions for all 5 capabilities in `describe_action()`.
+8. **`friday/stats_cli.py`**: Added all 5 capabilities under `"commands"` in `ACTION_CLASSES`.
+9. **`tests/fixtures/eval.jsonl`**: Added fixtures E82–E91 (2 fixtures per capability, fulfilling criterion 3.6).
+10. **`tests/fixtures/system_policy.txt`**: Re-synced with `SYSTEM_POLICY` (6174 chars, 1618 tokens).
+11. **Unit tests**: Created `tests/test_status.py` and `tests/test_windows.py`. Updated `tests/test_capabilities.py`, `tests/test_schema.py`, `tests/test_prompt.py`, `tests/test_audit_contract.py`, `tests/test_action_surface.py`, and `tests/test_hypr_dispatch.py`.
+
+### Measured Gates after the change
+
+```
+$ .venv/bin/python -m pytest -q
+711 passed, 2 warnings in 6.45s               # 687 -> 711 (+24 tests)
+
+$ .venv/bin/python -m friday.eval_harness
+fixture-set revision: ef015fde93f8
+passed 91/91  (100%)   known-failing: 0    regressions vs baseline: 0
+
+$ .venv/bin/python -m friday.selftest         # 10/10 PASS, rc=0
+[PASS] llama-server    Reachable at http://127.0.0.1:8080 (status: ok)
+[PASS] searxng         Reachable at http://127.0.0.1:8888 (HTTP 200)
+[PASS] gpu_arch        NVIDIA GeForce RTX 5070 Laptop GPU (compute 12.0 - sm_120 verified)
+[PASS] llm_on_gpu      llama-server pid 205338 holds 7010 MiB VRAM (GPU offload live)
+[PASS] database        SQLite at /home/bittusah/.local/state/friday/memory.db (mode 0600, dir 0700, schema v4)
+[PASS] audio_devices   Input: default | Output: default
+[PASS] panic_switch    Disarmed (normal dispatch allowed)
+[PASS] socket_binds    Services bound to 127.0.0.1 loopback only (no 0.0.0.0 / wildcard listeners)
+[PASS] power_profile   Profile is 'balanced'
+[PASS] unit_deployed   Running friday.service matches the repo (reload clean, 4 directives verified)
+
+$ .venv/bin/python scripts/bootstrap.py --check
+[BOOTSTRAP SUCCESS] All systems, models, and services verified.   # 11/11 PASS
+
+$ .venv/bin/python -m pytest tests/test_doc_paths.py
+24 passed in 0.03s                            # 24/24 PASS
+
+$ .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/
+(clean — byte-identical against generated plan.gbnf)
+
+$ wc -l friday/turn.py
+246 friday/turn.py                            # preserved at 246 lines (<400)
+```
+
+### Decisions taken, and where they are written
+
+| decision | where |
+| :-- | :-- |
+| Roll out 5 capabilities of Phase 4a (local_time, system_status, window_move_to_workspace, window_focus_app, window_list) under ADR-129 | **ADR-129** · `spec.md` (FR-88, FR-154..157) |
+| System status target enum: "all", "battery", "disk", "ram", "network", "window", "media" | ADR-129 · `friday/capabilities.py` · `spec.md` (FR-154) |
+| Window move to workspace 1..10 constrained in GBNF; Hyprland Lua syntax `hl.dsp.window.move{workspace=N}` | ADR-129 · `friday/tools/registry.py` · `spec.md` (FR-155) |
+| Exclude `window_focus_app` from GBNF closed enum constraints to preserve machine-independence and fail-closed diagnostics | ADR-129 · `friday/llm/schema.py` |
+| Window focus parses hex address from `hyprctl clients -j` and dispatches `focuswindow address:0x...` | ADR-129 · `friday/tools/windows.py` · `spec.md` (FR-156) |
+| Added status.py and windows.py to tools architecture | `architecture.md` |
+| Updated Diagram 02 Turn 1 action box and GBNF constraints annotation | `diagrams/02-tool-call-loop.md` |
+| Added Phase 4a capabilities surface review to threat model §6 | `threat-model.md` |
+
+**No diagram was contradicted.** `02-tool-call-loop.md` Turn 1 box updated with ADR-129 actions and 9 closed enums.
+
+---
+
+## >>> START HERE: NEXT SESSION (written **2026-09-04**, after Phase 4a / ADR-129) <<<
+
+**Read this whole block before touching anything. Everything in it is measured.**
+
+### The state in seven lines
+
+- **PHASE 4a IS COMPLETE (ADR-129, FR-88, FR-154..157):** Five capabilities added (`local_time`, `system_status`,
+  `window_move_to_workspace`, `window_focus_app`, `window_list`). Total capabilities: 25 → 30.
+  GBNF closed enum constraints: 7 → 9 (`system_status.target`, `window_move_to_workspace.workspace`).
+- **STEP 2 IS IN PROGRESS:** Daemon restarted at 15:45:56 under `balanced` profile; 4 approvals live
+  in `~/.local/state/friday/memory.db` (`discord`, `firefox`, `gedit`, `zen_browser`); 1 `chat` row
+  audited in `action_audit` (1399 ms, `args_redacted='{}'`); burden measurement ongoing (OQ-69, OQ-70).
+- **All Phase 3 criteria are closed (ADR-123, ADR-124, ADR-125); ADR-127 defects (D35, D36, D37) fixed; ADR-128 constraints live.**
+- **Gates:** `pytest` **711 rc=0** (89 test files), `eval` **91/91 regressions 0 (100%)**, `selftest` **10/10 rc=0**,
+  `bootstrap --check` **11/11**, `doc_paths` **24/24 PASS**, grammars **byte-identical**, `turn.py` **246 lines**,
+  app enum **167 as scanned 2026-09-04** (generated — do not pin it).
+- **Hard Invariant #5 preserved:** `window_focus_app.app` (like `open_app.app`) is kept in `GENERIC_ACTIONS` to avoid
+  machine-specific leakage into `plan.gbnf` and ensure fail-closed diagnostics.
+- **Power profile MUST be `balanced`:** Check `powerprofilesctl get` before running latency benches or selftest.
+- **Next up:** Restart daemon to test Phase 4a at microphone; observe chat rows/approvals; Step 4 (Model Question); Phase 4b.
+
+### THE TODO LIST, in order
+
+```
+[ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed (pytest 711, eval 91/91, selftest 10/10)
+[ ] 1.  RESTART                 1 min   daemon running since 15:45:56 predates Phase 4a; restart to test new capabilities live
+[x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, incl. the decline path
+[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 4 approvals live (discord, firefox, gedit, zen_browser);
+                                        1 chat row audited (p50 1399 ms); burden measurement ongoing -> OQ-69, OQ-70
+[x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128, FR-153) — 7 closed enums server-side;
+                                        open_app.app kept free; pytest 685 -> 687; eval 81/81; mutation RED
+[ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
+[x] 5.  PHASE 4a (Cheap Width)  DONE (ADR-129, FR-88, FR-154..157) — local_time, system_status,
+                                        window_move_to_workspace, window_focus_app, window_list;
+                                        pytest 687 -> 711; eval 91/91; turn.py untouched at 246 lines
+[ ] 5b. PHASE 4b (Deep Tools)   design-2026-09-02.md §11. Media play, timer pause, timer adjust
+[ ] 5c. PHASE 4c (Hard Tools)   design-2026-09-02.md §11. Notifications dismiss, web summary
+[x] 6.  RECORD IT               DONE — ADR-129, FR-88, FR-154..157, evidence pasted below
+```
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 711 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 91/91 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+powerprofilesctl get                                     # MUST be `balanced`
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # MUST stay clean
+ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
+.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"      # generated; 167 on 2026-09-04
+wc -l friday/turn.py                                     # 246; criterion 3.4 is <400
+.venv/bin/python -m friday.stats_cli --tools             # verify chat, launch, and command rows
+sqlite3 ~/.local/state/friday/memory.db 'SELECT kind, subject, approved_at FROM approvals;'  # verify approvals
+```
+
+### 1. Daemon & Live Capabilities Status
+
+- The daemon was restarted at **15:45:56** (post-ADR-127). It does NOT yet have ADR-129 code loaded.
+- To test Phase 4a live:
+```bash
+systemctl --user restart friday.service
+journalctl --user -u friday.service -f
+```
+Spoken tests:
+- *"What time is it?"* -> expects spoken local time ("It is 6:15 PM").
+- *"Check battery status"* -> expects battery percentage or "no battery detected".
+- *"Move window to workspace 2"* -> dispatches window move.
+- *"Focus the terminal"* -> focuses terminal window.
+- *"List open windows"* -> speaks summary of active windows.
+
+### 2. OQ-69 & OQ-70 — A week of ordinary use
+
+- **OQ-69 (User burden):** Mechanism is closed (decline, accept, remember verified live at mic).
+  What is being evaluated is the human burden: does `SELECT COUNT(*) FROM approvals` settle near
+  the number of distinct applications actually used, or churn? 4 apps approved so far.
+- **OQ-70 (Audit rows):** `chat` now records audit rows (`duration_ms=1399`, `args_redacted='{}'`)
+  and displays cleanly in `just stats`. Evaluation of whether read-only actions should audit is ongoing.
+
+### The docs were re-synced to the tree at the end of this session
+
+Every doc below matches the code as committed:
+
+| doc | what changed |
+| :-- | :-- |
+| `adr.md` | **ADR-129** — Phase 4a Cheap Width: local_time, system_status, window_move_to_workspace, window_focus_app, window_list. Detailed context, decisions, Hyprland Lua syntax, machine-independence invariants, consequences |
+| `spec.md` | **FR-88** marked MET; **FR-154, FR-155, FR-156, FR-157** added and marked MET |
+| `architecture.md` | `status.py` and `windows.py` added to `friday/tools/`; `plan.gbnf` description updated (30 actions, 9 closed enums) |
+| `threat-model.md` | §6 Phase gates table updated with Phase 4a surface review |
+| `diagrams/02-tool-call-loop.md` | TURN 1 action list and closed enum constraints updated (30 actions, 9 closed enums) |
+| `README.md` | Pytest count updated to 711 (89 test files), eval updated to 91/91; review passes updated with ADR-129 bullet |
+| `CLAUDE.md` | Top banner, gate numbers (711 tests, 91 eval fixtures), ADR count (129), and TODO list updated for ADR-129 |
+| `progress.md` | Top session banner, session log for Phase 4a, new START HERE block, Phase 4a marked DONE |
+
+---
+
+## >>> (superseded 2026-09-04 by the block above) START HERE: NEXT SESSION (written **2026-09-04**, after Step 3 / ADR-128) <<<
 
 **Read this whole block before touching anything. Everything in it is measured.**
 

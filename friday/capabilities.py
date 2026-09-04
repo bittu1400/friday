@@ -188,6 +188,9 @@ DICTATION_ENUM: Final[tuple[str, ...]] = ("start", "stop")
 # shape that let brightness "brighten" reach a builder that guessed. It matters
 # more now: the workspace selects a Lua dispatch constant (ADR-074).
 WORKSPACE_ENUM: Final[tuple[str, ...]] = tuple(str(i) for i in range(1, 11))
+STATUS_TARGET_ENUM: Final[tuple[str, ...]] = (
+    "all", "battery", "disk", "ram", "network", "window", "media",
+)
 
 
 # --- the three conditional tiers -------------------------------------------
@@ -735,6 +738,99 @@ _ALL: Final[tuple[Capability, ...]] = (
         ),
         hotwords=(
             'dictation',
+        ),
+    ),
+    Capability(
+        "local_time",
+        _NO_PARAMS,
+        Risk.NONE,
+        summary=(
+            "the user asks for current time or date (\"what time is it\", \"what is today's date\"). "
+            "params: {}"
+        ),
+        persona="tell you the current time and date",
+        examples=(
+            'what time is it',
+            "what's today's date",
+        ),
+        hotwords=(
+            'time',
+            'date',
+        ),
+    ),
+    Capability(
+        "system_status",
+        _enum(target=STATUS_TARGET_ENUM),
+        Risk.NONE,
+        summary=(
+            "report system status or hardware metrics (battery, disk, RAM, network, "
+            "active window, or playing media). params: {\"target\": \"all\" | "
+            "\"battery\" | \"disk\" | \"ram\" | \"network\" | \"window\" | \"media\"}"
+        ),
+        persona="check system status and hardware metrics",
+        examples=(
+            'how much battery do I have left',
+            'check system status',
+        ),
+        hotwords=(
+            'battery',
+            'disk space',
+            'RAM',
+            'system status',
+        ),
+    ),
+    Capability(
+        "window_move_to_workspace",
+        _enum(workspace=WORKSPACE_ENUM),
+        Risk.LOW,
+        summary=(
+            "move the active window to a workspace (\"move this window to workspace 2\", "
+            "\"send window to workspace 3\"). params: {\"workspace\": \"1\"…\"10\"}"
+        ),
+        persona="move windows across workspaces",
+        examples=(
+            'move this window to workspace 2',
+            'send this window to workspace 4',
+        ),
+        hotwords=(
+            'move window',
+            'send window',
+        ),
+    ),
+    Capability(
+        "window_focus_app",
+        _enum(app=APP_ENUM),
+        Risk.LOW,
+        summary=(
+            "focus an existing window of an open application (\"switch to firefox\", "
+            "\"focus the terminal\", \"focus code\"). params: {\"app\": one id}"
+        ),
+        persona="focus open application windows",
+        examples=(
+            'switch to firefox',
+            'focus the terminal',
+        ),
+        hotwords=(
+            'switch to',
+            'focus',
+        ),
+    ),
+    Capability(
+        "window_list",
+        _NO_PARAMS,
+        Risk.NONE,
+        summary=(
+            "list open application windows and which workspace they are on (\"what windows are open\", "
+            "\"list my windows\"). params: {}"
+        ),
+        persona="list open windows",
+        examples=(
+            'what windows are open',
+            'list my windows',
+        ),
+        hotwords=(
+            'windows',
+            'open windows',
         ),
     ),
 )

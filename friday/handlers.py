@@ -27,6 +27,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Awaitable, Callable, Mapping
 
 from . import config
@@ -41,6 +42,7 @@ from .llm.client import LlamaClient
 from .llm.validate import SchemaError
 from .store.audit import AuditLog
 from .store.prefs import PendingPreference, PrefStore, resolve
+from .tools import status, windows
 from .tools.search import SearchClient, SearchResult, SearchUnavailable, sanitize
 from .ui import templates
 
@@ -446,6 +448,49 @@ async def _h_dictation_mode(ctx: TurnContext, params: dict) -> TurnResult:
     return TurnResult("dictation_mode", params, spoken, False)
 
 
+def _format_local_time(now: datetime | None = None) -> str:
+    if now is None:
+        now = datetime.now()
+    hour = now.strftime("%I").lstrip("0")
+    minute = now.strftime("%M")
+    ampm = now.strftime("%p")
+    date_str = now.strftime(f"%A, %B {now.day}, %Y")
+    return f"It is {hour}:{minute} {ampm} on {date_str}."
+
+
+async def _h_local_time(ctx: TurnContext, params: dict) -> TurnResult:
+    return TurnResult("local_time", {}, _format_local_time(), False)
+
+
+async def _h_system_status(ctx: TurnContext, params: dict) -> TurnResult:
+    target = params.get("target", "all")
+    spoken = status.query_status(target)
+    return TurnResult("system_status", params, spoken, False)
+
+
+async def _h_window_focus_app(ctx: TurnContext, params: dict) -> TurnResult:
+    app_key = params.get("app", "")
+    t0 = time.monotonic()
+    success, spoken = windows.focus_app(app_key)
+    dur_ms = int((time.monotonic() - t0) * 1000)
+    if ctx.audit:
+        outcome = "ok" if success else "failed"
+        await ctx.audit.record(
+            request_id=ctx.request_id,
+            tool_id="window_focus_app",
+            params=params,
+            policy_decision="allowed",
+            outcome=outcome,
+            duration_ms=dur_ms,
+        )
+    return TurnResult("window_focus_app", params, spoken, success)
+
+
+async def _h_window_list(ctx: TurnContext, params: dict) -> TurnResult:
+    spoken = windows.list_windows()
+    return TurnResult("window_list", {}, spoken, False)
+
+
 HANDLERS: Mapping[str, Handler] = {
     "none": _h_none,
     "chat": _h_chat,
@@ -471,6 +516,10 @@ HANDLERS: Mapping[str, Handler] = {
     ),
     "read_notes": lambda ctx, p: _do_read_notes(ctx.prefs),
     "dictation_mode": _h_dictation_mode,
+    "local_time": _h_local_time,
+    "system_status": _h_system_status,
+    "window_focus_app": _h_window_focus_app,
+    "window_list": _h_window_list,
 }
 
 

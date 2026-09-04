@@ -156,13 +156,14 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        chat.py              stage 2 free-text conversational reply generator
        grounding.py         search grounding turn under final.gbnf
        grammars/
-         plan.gbnf          full action enum; 7 closed enums constrained (ADR-128)
+         plan.gbnf          full action enum (30 actions); 9 closed enums constrained (ADR-128, ADR-129)
          final.gbnf         action enum = ["none"] ONLY (enforced at G7)
        schema.py            grammar + validator generator. NO LONGER the source of
                             truth: since ADR-123 `PARAM_SCHEMA` is a VIEW over
-                            `friday/capabilities.py` (and since ADR-128 derives
-                            GBNF rules for the seven closed enum actions directly
-                            from `Capability.params`). The param vocabularies are
+                            `friday/capabilities.py` (and since ADR-128/ADR-129 derives
+                            GBNF rules for the nine closed enum actions directly
+                            from `Capability.params`, with open_app and window_focus_app
+                            explicitly excluded as machine-dependent). The param vocabularies are
                             re-exported here so `from friday.llm.schema import WORKSPACE_ENUM`
                             keeps working, but they are DECLARED with the record
        prompt.py            SYSTEM POLICY + <preferences> digest assembly. BOTH
@@ -232,6 +233,8 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
                             and the terminal emulators (`-e` is the same escape;
                             15 of the live app ids are `foot -e <something>`)
        typer.py             Wayland typer using ydotool or wtype fail-soft (G12)
+       status.py            system status reader: battery, disk, ram, network, window, media (ADR-129)
+       windows.py           Hyprland window list & focus dispatch by application key (ADR-129)
 
      audio/
        capture.py           sounddevice input, 15 s ring, gate, ensure_open (G6/G9)

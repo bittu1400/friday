@@ -29,6 +29,11 @@ Choose exactly one action name:
   clipboard_read       read current clipboard ("what is in my clipboard", "read clipboard"). params: {}
   clipboard_set        copy text to clipboard ("copy ... to clipboard"). params: {"text": text}
   dictation_mode       start or stop dictation mode ("start dictation", "stop dictation"). params: {"action": "start" | "stop"}
+  local_time           the user asks for current time or date ("what time is it", "what is today's date"). params: {}
+  system_status        report system status or hardware metrics (battery, disk, RAM, network, active window, or playing media). params: {"target": "all" | "battery" | "disk" | "ram" | "network" | "window" | "media"}
+  window_move_to_workspacemove the active window to a workspace ("move this window to workspace 2", "send window to workspace 3"). params: {"workspace": "1"…"10"}
+  window_focus_app     focus an existing window of an open application ("switch to firefox", "focus the terminal", "focus code"). params: {"app": one id}
+  window_list          list open application windows and which workspace they are on ("what windows are open", "list my windows"). params: {}
 
 Rules:
 - Pick the single best action. Casual talk, greetings, and questions about yourself are chat. A request for a real-world fact is web_search. If a request is vague or you cannot tell which app or action it means (e.g. "open the thing"), choose none. Destructive requests are always none.

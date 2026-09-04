@@ -1,5 +1,5 @@
 {
-  "revision": "3caeb92212e1",
+  "revision": "ef015fde93f8",
   "results": {
     "E01": true,
     "E02": true,
@@ -81,6 +81,16 @@
     "E78": true,
     "E79": true,
     "E80": true,
-    "E81": true
+    "E81": true,
+    "E82": true,
+    "E83": true,
+    "E84": true,
+    "E85": true,
+    "E86": true,
+    "E87": true,
+    "E88": true,
+    "E89": true,
+    "E90": true,
+    "E91": true
   }
 }

@@ -46,6 +46,11 @@ ACTION_CLASSES: dict[str, str] = {
     "list_reminders": "commands",
     "clipboard_set": "commands",
     "clipboard_read": "commands",
+    "local_time": "commands",
+    "system_status": "commands",
+    "window_move_to_workspace": "commands",
+    "window_focus_app": "commands",
+    "window_list": "commands",
     # Launches
     "open_app": "launches",
     "open_youtube": "launches",

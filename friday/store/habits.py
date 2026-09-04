@@ -148,6 +148,25 @@ def describe_action(tool_id: str, args_redacted_json: str, *, gerund: bool = Fal
     elif tool_id == "dictation_type":
         return "typing dictation" if gerund else "type dictation"
 
+    elif tool_id == "local_time":
+        return "checking the time" if gerund else "check the time"
+
+    elif tool_id == "system_status":
+        t = args.get("target", "")
+        return f"checking system status ({t})" if (gerund and t) else (f"check system status ({t})" if t else ("checking system status" if gerund else "check system status"))
+
+    elif tool_id == "window_move_to_workspace":
+        w = args.get("workspace", "")
+        return f"moving window to workspace {w}" if (gerund and w) else (f"move window to workspace {w}" if w else ("moving window across workspaces" if gerund else "move window across workspaces"))
+
+    elif tool_id == "window_focus_app":
+        a = args.get("app", "")
+        display = _APP_NAMES.get(a, f"app '{a}'" if a else "an app")
+        return f"focusing {display}" if gerund else f"focus {display}"
+
+    elif tool_id == "window_list":
+        return "listing open windows" if gerund else "list open windows"
+
     return None
 
 

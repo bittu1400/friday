@@ -6502,3 +6502,71 @@ search space to exact valid tokens.
 - **Constraining `open_app.app` in GBNF**: Rejected for the reasons above (machine dependence and loss of fail-closed semantics).
 - **Hardcoding grammar strings in `schema.py`**: Rejected; rules are derived from `CAPABILITIES` records to preserve the single source of truth.
 
+---
+
+## ADR-129 — Phase 4a ("Cheap Width"): System Telemetry, Local Clock, and Window Targeting
+
+**Status:** Accepted 2026-09-04. Delivers Phase 4a (FR-88, FR-154, FR-155, FR-156, FR-157). Closes D7.
+
+### Context
+
+With Phase 3 complete (ADR-123, ADR-124, ADR-125), the ten scattered edit sites for adding capabilities
+were replaced by the unified declarative `Capability` record, derived schemas/prompts, and the handler
+table. `turn.py` shrunk from 941 to 246 lines, unblocking Phase 4 ("Cheap Width") without the risk of
+cross-layer branch drift.
+
+Phase 4a addresses five high-frequency user intents with low implementation risk:
+1. **D7 / FR-88 (`local_time`)**: "What time is it?" previously fell through to `web_search` and returned scraped,
+   inaccurate clocks from the web (ADR-078). Local time must come from the machine clock.
+2. **FR-154 (`system_status`)**: Real-time read-only system telemetry (battery, disk space, RAM usage, network connectivity,
+   active window, currently playing media).
+3. **FR-155 (`window_move_to_workspace`)**: Move focused window to a target workspace (1..10) via Hyprland Lua dispatch.
+4. **FR-156 (`window_focus_app`)**: Bring an already-open window into focus by application name or alias without launching a duplicate instance.
+5. **FR-157 (`window_list`)**: Enumerate active open windows across workspaces in a concise, natural spoken summary.
+
+### Decision
+
+1. **`local_time` (Risk: NONE)**:
+   - Schema: `params: {}`.
+   - Handler: Reads `datetime.now()` in Python; renders formatted spoken time and date.
+   - The model never supplies the time string (invariant #2, ADR-009, ADR-078).
+
+2. **`system_status` (Risk: NONE)**:
+   - Schema: `target: "all" | "battery" | "disk" | "ram" | "network" | "window" | "media"`.
+   - Constrained server-side in `plan.gbnf` as a machine-independent closed enum (ADR-128).
+   - Implementation: Dedicated `friday.tools.status` module reading directly from local interfaces:
+     `/sys/class/power_supply` (battery), `shutil.disk_usage` (disk), `/proc/meminfo` (RAM), `nmcli` (network),
+     `hyprctl activewindow -j` (active window), `playerctl` (media).
+   - Instantaneous, fail-closed, read-only.
+
+3. **`window_move_to_workspace` (Risk: LOW)**:
+   - Schema: `workspace: "1"…`"10"` (`WORKSPACE_ENUM`).
+   - Constrained server-side in `plan.gbnf`.
+   - Implementation: `ToolSpec` in `friday.tools.registry`, building compile-time constant Lua dispatch
+     `hl.dsp.window.move{workspace=N}` (ADR-074).
+
+4. **`window_focus_app` (Risk: LOW)**:
+   - Schema: `app: APP_ENUM`.
+   - Explicitly kept in `GENERIC_ACTIONS` (unconstrained in `plan.gbnf` like `open_app`) to preserve host
+     machine-independence and fail-closed diagnostics (`No open window found for <app>`).
+   - Implementation: `friday.tools.windows.focus_app` queries `hyprctl clients -j`, matches open windows against app
+     identifiers/aliases, and dispatches `hl.dsp.focus{window="address:<addr>"}`. Audits execution duration.
+
+5. **`window_list` (Risk: NONE)**:
+   - Schema: `params: {}`.
+   - Implementation: `friday.tools.windows.list_windows` queries `hyprctl clients -j`, filters active mapped windows,
+     and formats a concise spoken briefing.
+
+### Consequences
+
+- **Capabilities**: 25 → 30 capabilities declared in `friday/capabilities.py`.
+- **Grammar**: 9 closed enum actions constrained server-side in `plan.gbnf`; 21 in generic actions.
+- **Gates**:
+  - `pytest`: **687 → 711 passed** (+24 tests covering status, windows, dispatch, schema, and prompt).
+  - `eval_harness`: **81/81 → 91/91 (100%)**, 0 regressions, baseline updated.
+  - `selftest`: **10/10 PASS**.
+  - `bootstrap --check`: **11/11 PASS**.
+  - `turn.py`: **246 lines** (0 per-capability branches added).
+- **Audit & Stats**: All 5 new capabilities categorized under `"commands"` in `ACTION_CLASSES`.
+
+

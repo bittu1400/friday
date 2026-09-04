@@ -2,7 +2,7 @@
 # Regenerate with: uv run python -m friday.llm.schema
 
 root ::= "{" ws "\"action\"" ws ":" ws action ws "}" ws
-action ::= action-system-volume | action-system-brightness | action-system-media | action-system-wifi | action-hypr-workspace | action-hypr-window | action-dictation-mode | action-generic
+action ::= action-system-volume | action-system-brightness | action-system-media | action-system-wifi | action-hypr-workspace | action-hypr-window | action-dictation-mode | action-system-status | action-window-move-to-workspace | action-generic
 action-system-volume ::= "{" ws "\"name\"" ws ":" ws "\"system_volume\"" ws "," ws "\"params\"" ws ":" ws params-system-volume ws "}"
 params-system-volume ::= "{" ws "\"direction\"" ws ":" ws val-system-volume-direction ws "}"
 val-system-volume-direction ::= "\"up\"" | "\"down\"" | "\"mute\"" | "\"unmute\"" | "\"toggle_mute\""
@@ -24,8 +24,14 @@ val-hypr-window-action ::= "\"focus_left\"" | "\"focus_right\"" | "\"focus_up\""
 action-dictation-mode ::= "{" ws "\"name\"" ws ":" ws "\"dictation_mode\"" ws "," ws "\"params\"" ws ":" ws params-dictation-mode ws "}"
 params-dictation-mode ::= "{" ws "\"action\"" ws ":" ws val-dictation-mode-action ws "}"
 val-dictation-mode-action ::= "\"start\"" | "\"stop\""
+action-system-status ::= "{" ws "\"name\"" ws ":" ws "\"system_status\"" ws "," ws "\"params\"" ws ":" ws params-system-status ws "}"
+params-system-status ::= "{" ws "\"target\"" ws ":" ws val-system-status-target ws "}"
+val-system-status-target ::= "\"all\"" | "\"battery\"" | "\"disk\"" | "\"ram\"" | "\"network\"" | "\"window\"" | "\"media\""
+action-window-move-to-workspace ::= "{" ws "\"name\"" ws ":" ws "\"window_move_to_workspace\"" ws "," ws "\"params\"" ws ":" ws params-window-move-to-workspace ws "}"
+params-window-move-to-workspace ::= "{" ws "\"workspace\"" ws ":" ws val-window-move-to-workspace-workspace ws "}"
+val-window-move-to-workspace-workspace ::= "\"1\"" | "\"2\"" | "\"3\"" | "\"4\"" | "\"5\"" | "\"6\"" | "\"7\"" | "\"8\"" | "\"9\"" | "\"10\""
 action-generic ::= "{" ws "\"name\"" ws ":" ws generic-name ws "," ws "\"params\"" ws ":" ws params-generic ws "}"
-generic-name ::= "\"none\"" | "\"chat\"" | "\"open_app\"" | "\"web_search\"" | "\"open_youtube\"" | "\"youtube_search\"" | "\"remember_preference\"" | "\"forget_preference\"" | "\"set_reminder\"" | "\"list_reminders\"" | "\"cancel_reminder\"" | "\"set_dnd\"" | "\"resume_dnd\"" | "\"file_open\"" | "\"create_note\"" | "\"read_notes\"" | "\"clipboard_read\"" | "\"clipboard_set\""
+generic-name ::= "\"none\"" | "\"chat\"" | "\"open_app\"" | "\"web_search\"" | "\"open_youtube\"" | "\"youtube_search\"" | "\"remember_preference\"" | "\"forget_preference\"" | "\"set_reminder\"" | "\"list_reminders\"" | "\"cancel_reminder\"" | "\"set_dnd\"" | "\"resume_dnd\"" | "\"file_open\"" | "\"create_note\"" | "\"read_notes\"" | "\"clipboard_read\"" | "\"clipboard_set\"" | "\"local_time\"" | "\"window_focus_app\"" | "\"window_list\""
 params-generic ::= "{" ws ( pair ( ws "," ws pair )* ws )? "}"
 pair ::= string ws ":" ws string
 string ::= "\"" char* "\""

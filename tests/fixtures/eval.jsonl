@@ -79,3 +79,13 @@
 {"id":"E79","utt":"read out what I copied","expect":{"name":"clipboard_read","params":{}},"note":"3.6: no 'clipboard' keyword"}
 {"id":"E80","utt":"put see you at six on my clipboard","expect":{"name":"clipboard_set","params":{}},"note":"3.6. The first draft was \"put my address on the clipboard\" and the planner answered none -- correctly, because \"my address\" is a referent Friday does not have, exactly like D16/E29 where refusing was right and the FIXTURE was wrong. Copying needs text the utterance actually carries"}
 {"id":"E81","utt":"stop dictation","expect":{"name":"dictation_mode","params":{"action":"stop"}},"note":"3.6: the other half of the enum; the first fixture only covered start"}
+{"id":"E82","utt":"what time is it","expect":{"name":"local_time","params":{}},"note":"Phase 4a: query time"}
+{"id":"E83","utt":"what's today's date","expect":{"name":"local_time","params":{}},"note":"Phase 4a: query date"}
+{"id":"E84","utt":"how much battery do I have left","expect":{"name":"system_status","params":{"target":"battery"}},"note":"Phase 4a: battery query"}
+{"id":"E85","utt":"check system status","expect":{"name":"system_status","params":{"target":"all"}},"note":"Phase 4a: system status query"}
+{"id":"E86","utt":"move this window to workspace 2","expect":{"name":"window_move_to_workspace","params":{"workspace":"2"}},"note":"Phase 4a: move window"}
+{"id":"E87","utt":"send this window to workspace 4","expect":{"name":"window_move_to_workspace","params":{"workspace":"4"}},"note":"Phase 4a: send window"}
+{"id":"E88","utt":"switch to firefox","expect":{"name":"window_focus_app","params":{"app":"firefox"}},"note":"Phase 4a: focus window"}
+{"id":"E89","utt":"focus the terminal","expect":{"name":"window_focus_app","params":{"app":"terminal"}},"note":"Phase 4a: focus window"}
+{"id":"E90","utt":"what windows are open","expect":{"name":"window_list","params":{}},"note":"Phase 4a: list windows"}
+{"id":"E91","utt":"list my windows","expect":{"name":"window_list","params":{}},"note":"Phase 4a: list windows"}

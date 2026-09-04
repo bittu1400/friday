@@ -29,14 +29,15 @@ _EXPECTED_ORDER = (
     "cancel_reminder", "set_dnd", "resume_dnd", "system_volume",
     "system_brightness", "system_media", "system_wifi", "hypr_workspace",
     "hypr_window", "file_open", "create_note", "read_notes", "clipboard_read",
-    "clipboard_set", "dictation_mode",
+    "clipboard_set", "dictation_mode", "local_time", "system_status",
+    "window_move_to_workspace", "window_focus_app", "window_list",
 )
 
 
 def test_the_param_schema_is_derived_from_the_record_in_order():
     assert tuple(CAPABILITIES) == _EXPECTED_ORDER
     assert ACTIONS == _EXPECTED_ORDER
-    assert len(PARAM_SCHEMA) == 25  # criterion 3.8's table has 25 rows
+    assert len(PARAM_SCHEMA) == 30  # Phase 4a adds 5 capabilities -> 30
     for cid, cap in CAPABILITIES.items():
         assert PARAM_SCHEMA[cid] is cap.params
 

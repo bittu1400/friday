@@ -12,6 +12,16 @@ enum is generated from the XDG desktop entries and merged over the five
 curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
 and shell `Exec` entries are never offered.
 
+**>>> 2026-09-04 (post-audit / Phase 4a): PHASE 4a (CHEAP WIDTH) COMPLETE — ADR-129.**
+Five new capabilities rolled out under ADR-129 using Phase 3's unified architecture:
+`local_time` (FR-88, D7), `system_status` (FR-154, closed target enum),
+`window_move_to_workspace` (FR-155, 1..10 in GBNF), `window_focus_app` (FR-156,
+dynamic APP_ENUM), and `window_list` (FR-157).
+Total capabilities: 25 → 30. Closed enum constraints in `plan.gbnf`: 7 → 9.
+`turn.py` remains untouched at **246 lines** (0 branches added, pure handler lookup).
+`pytest` **687 → 711** (+24 tests), `eval` **81 → 91/91 (100%), 0 regressions** (10 new fixtures E82–E91).
+`tests/test_doc_paths.py` **24/24 PASS**, `selftest` **10/10 PASS**, `bootstrap` **11/11 PASS**. <<<**
+
 **>>> 2026-09-03 (later): THE FIVE TIER-1 TEST GAPS ARE CLOSED, AND THE THREE
 QUESTIONS ARE ANSWERED. OQ-65 = tests first, OQ-66 = a `selftest` check,
 OQ-67 = the sixth definition-of-done line — all three are ADR-117.
@@ -365,9 +375,9 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-**Gate numbers, all re-run 2026-09-04 after Phase 3 closed:**
-`uv run pytest` **687 passed, rc=0** (653 until ADR-127 added +2 D35, +4 D37, +2 stats, +24 doc-path; 687 with ADR-128's +2 enum grammar tests), `just eval` **81/81 (100%), regressions 0**
-(64 until criterion 3.6 added 17 so every capability has >=2 — ADR-125),
+**Gate numbers, all re-run 2026-09-04 after Phase 4a closed:**
+`uv run pytest` **711 passed, rc=0** (687 until ADR-129 added +24 status, window and schema tests), `just eval` **91/91 (100%), regressions 0**
+(81 until ADR-129 added 10 fixtures for Phase 4a — E82–E91),
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
@@ -430,7 +440,7 @@ todo list, the runnable commands and the gate numbers — read it first. The
 short version, in order:**
 
 ```
-[ ] 0.  VERIFY THE GROUND       2 min   commands in START HERE, no judgement needed (pytest 687, eval 81/81, selftest 10/10)
+[ ] 0.  VERIFY THE GROUND       2 min   commands in START HERE, no judgement needed (pytest 711, eval 91/91, selftest 10/10)
 [x] 1.  RESTART                 1 min   DONE — daemon restarted 15:45:56; chat row live in action_audit
 [x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, decline path included
 [ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 4 approvals live (discord, firefox, gedit, zen_browser);
@@ -438,8 +448,12 @@ short version, in order:**
 [x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128, FR-153) — 7 closed enums server-side;
                                         open_app.app kept free; pytest 685 -> 687; eval 81/81; mutation RED
 [ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
-[ ] 5.  PHASE 4a / 4b / 4c      design-2026-09-02.md §11. Phase 3 unblocked them
-[x] 6.  RECORD IT               DONE — ADR-128, FR-153, evidence pasted in progress.md
+[x] 5.  PHASE 4a (Cheap Width)  DONE (ADR-129, FR-88, FR-154..157) — local_time, system_status,
+                                        window_move_to_workspace, window_focus_app, window_list;
+                                        pytest 687 -> 711; eval 91/91; turn.py untouched at 246 lines
+[ ] 5b. PHASE 4b (Deep Tools)   design-2026-09-02.md §11. Media play, timer pause, timer adjust
+[ ] 5c. PHASE 4c (Hard Tools)   design-2026-09-02.md §11. Notifications dismiss, web summary
+[x] 6.  RECORD IT               DONE — ADR-129, FR-88, FR-154..157, evidence pasted in progress.md
 ```
 
 **A COLD AUDIT ON 2026-09-04 (last) FOUND THREE DEFECTS UNDER A COMPLETELY GREEN
@@ -997,11 +1011,12 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  128 ADRs
-                      (ADR-001..ADR-128; the count was wrong at 74 for weeks,
+   adr.md             decisions + why + what they cost.  129 ADRs
+                      (ADR-001..ADR-129; the count was wrong at 74 for weeks,
                       again at 107, and again at 123 while the file held 126 --
                       verify with `grep -c '^## ADR-' adr.md`, never by reading
                       this line). ADR-128 constrains the seven closed enum params.
+                      ADR-129 rolls out Phase 4a (cheap width) capabilities.
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
                       ADR-120 records the two Phase 3 policy calls (FIRST_USE on

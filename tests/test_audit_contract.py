@@ -40,6 +40,7 @@ _PARAMS: dict[str, dict[str, str]] = {
     "system_wifi": {"state": "on"},
     "hypr_workspace": {"workspace": "3"},
     "hypr_window": {"action": "fullscreen"},
+    "window_move_to_workspace": {"workspace": "2"},
     "file_open": {"alias": "notes"},
 }
 

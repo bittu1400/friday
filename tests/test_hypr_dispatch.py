@@ -27,6 +27,24 @@ def test_workspace_switch_uses_the_lua_dispatcher():
     assert argv == ["hyprctl", "dispatch", "hl.dsp.focus{workspace=3}"]
 
 
+def test_window_move_to_workspace_uses_the_lua_dispatcher():
+    argv = registry._build_window_move_argv({"workspace": "2"})
+    assert argv == ["hyprctl", "dispatch", "hl.dsp.window.move{workspace=2}"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        '2"} hl.dsp.window.close{',
+        "2} or hl.dsp.exit{",
+        "0", "11", "-1", "", "2 ", "two",
+    ],
+)
+def test_window_move_bad_workspace_fails_closed(bad):
+    with pytest.raises(PolicyRejected):
+        registry._build_window_move_argv({"workspace": bad})
+
+
 def test_window_actions_map_to_dispatcher_constants():
     b = registry._build_window_argv
     assert b({"action": "close"})[2] == "hl.dsp.window.close{}"

@@ -139,6 +139,7 @@ def _build_wifi_argv(p: Mapping[str, str]) -> list[str]:
 _LUA_DISPATCH: Mapping[str, str] = MappingProxyType(
     {
         **{f"workspace:{i}": f"hl.dsp.focus{{workspace={i}}}" for i in range(1, 11)},
+        **{f"move_to_workspace:{i}": f"hl.dsp.window.move{{workspace={i}}}" for i in range(1, 11)},
         # `hl.dsp.focus` names directions in full: it rejects anything but
         # left/right/up/down ("invalid direction \"zzz\"", measured 2026-08-29).
         "focus_left": 'hl.dsp.focus{direction="left"}',
@@ -153,6 +154,13 @@ _LUA_DISPATCH: Mapping[str, str] = MappingProxyType(
 
 def _build_workspace_argv(p: Mapping[str, str]) -> list[str]:
     dispatch = _LUA_DISPATCH.get(f"workspace:{p.get('workspace', '1')}")
+    if dispatch is None:  # fail CLOSED: not a member of the closed set
+        raise PolicyRejected("Invalid workspace number")
+    return ["hyprctl", "dispatch", dispatch]
+
+
+def _build_window_move_argv(p: Mapping[str, str]) -> list[str]:
+    dispatch = _LUA_DISPATCH.get(f"move_to_workspace:{p.get('workspace', '1')}")
     if dispatch is None:  # fail CLOSED: not a member of the closed set
         raise PolicyRejected("Invalid workspace number")
     return ["hyprctl", "dispatch", dispatch]
@@ -280,6 +288,16 @@ REGISTRY: Mapping[str, ToolSpec] = MappingProxyType(
             build_argv=_build_window_argv,
             target_binary=lambda p: "hyprctl",
             display=lambda p: f"window {p.get('action', 'action')}",
+            cwd=_HOME,
+            env=_APP_ENV,
+            timeout_s=3.0,
+        ),
+        "window_move_to_workspace": ToolSpec(
+            tool_id="window_move_to_workspace",
+            risk="reversible",
+            build_argv=_build_window_move_argv,
+            target_binary=lambda p: "hyprctl",
+            display=lambda p: f"window moved to workspace {p.get('workspace', '1')}",
             cwd=_HOME,
             env=_APP_ENV,
             timeout_s=3.0,

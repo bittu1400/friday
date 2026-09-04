@@ -195,6 +195,9 @@ def test_chat_system_advertises_every_action_in_the_schema():
         "hypr_window": "window", "file_open": "file", "create_note": "note",
         "read_notes": "note", "clipboard_read": "clipboard",
         "clipboard_set": "clipboard", "dictation_mode": "dictation",
+        "local_time": "time", "system_status": "status",
+        "window_move_to_workspace": "workspace", "window_focus_app": "focus",
+        "window_list": "windows",
     }
     # Every dispatchable action needs an entry, so a NEW action fails here too.
     undeclared = set(PARAM_SCHEMA) - set(keyword) - {"chat", "none"}

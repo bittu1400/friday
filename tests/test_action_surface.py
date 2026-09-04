@@ -118,6 +118,13 @@ def test_hypr_tools_argv():
     assert win_spec.build_argv({"action": "fullscreen"})[2] == "hl.dsp.window.fullscreen{}"
     assert win_spec.build_argv({"action": "close"})[2] == "hl.dsp.window.close{}"
 
+    mv_spec = REGISTRY["window_move_to_workspace"]
+    assert mv_spec.build_argv({"workspace": "2"}) == [
+        "hyprctl", "dispatch", "hl.dsp.window.move{workspace=2}",
+    ]
+    with pytest.raises(PolicyRejected):
+        mv_spec.build_argv({"workspace": "99"})
+
 
 def test_file_open_argv():
     spec = REGISTRY["file_open"]

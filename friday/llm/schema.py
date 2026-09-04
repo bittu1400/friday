@@ -31,6 +31,7 @@ from ..capabilities import (
     CAPABILITIES,
     DICTATION_ENUM,
     MEDIA_ENUM,
+    STATUS_TARGET_ENUM,
     VOLUME_ENUM,
     WIFI_ENUM,
     WINDOW_ENUM,
@@ -40,8 +41,8 @@ from ..capabilities import (
 __all__ = [
     "ACTIONS", "APP_ENUM", "BRIGHTNESS_ENUM", "CONSTRAINED_ENUM_ACTIONS",
     "DICTATION_ENUM", "FINAL_ACTIONS", "GENERIC_ACTIONS", "MEDIA_ENUM",
-    "PARAM_SCHEMA", "VOLUME_ENUM", "WIFI_ENUM", "WINDOW_ENUM", "WORKSPACE_ENUM",
-    "build_final_grammar", "build_grammar",
+    "PARAM_SCHEMA", "STATUS_TARGET_ENUM", "VOLUME_ENUM", "WIFI_ENUM",
+    "WINDOW_ENUM", "WORKSPACE_ENUM", "build_final_grammar", "build_grammar",
 ]
 
 # Param kinds:
@@ -84,11 +85,11 @@ def _q(s: str) -> str:
     return '"\\"' + s + '\\""'
 
 
-# Seven machine-independent closed enum actions constrained in plan.gbnf (ADR-128).
-# open_app is explicitly excluded (generated from XDG desktop entries, machine-dependent).
+# Machine-independent closed enum actions constrained in plan.gbnf (ADR-128, ADR-129).
+# open_app and window_focus_app are explicitly excluded (generated from XDG desktop entries, machine-dependent).
 CONSTRAINED_ENUM_ACTIONS: Final[tuple[str, ...]] = tuple(
     cid for cid, cap in CAPABILITIES.items()
-    if cid != "open_app" and any(p.get("kind") == "enum" for p in cap.params.values())
+    if cid not in ("open_app", "window_focus_app") and any(p.get("kind") == "enum" for p in cap.params.values())
 )
 GENERIC_ACTIONS: Final[tuple[str, ...]] = tuple(
     cid for cid in ACTIONS if cid not in CONSTRAINED_ENUM_ACTIONS

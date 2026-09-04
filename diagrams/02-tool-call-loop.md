@@ -37,12 +37,17 @@ internet steering a local action.**
    |   create/read_notes           ||
    |   clipboard_read/set          ||
    |   dictation_mode |            ||
+   |   local_time     |            ||
+   |   system_status  |            ||
+   |   window_move_to_workspace   ||
+   |   window_focus_app            ||
+   |   window_list    |            ||
    |                  |            ||
-   |  * 7 closed enum |            ||
+   |  * 9 closed enum |            ||
    |    actions are   |            ||
    |    constrained   |            ||
    |    in GBNF       |            ||
-   |    (ADR-128)     |            ||
+   |    (ADR-128/129) |            ||
   +--------+---------+            ||
            |                      ||
            v                      ||
