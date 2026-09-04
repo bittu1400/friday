@@ -5744,6 +5744,80 @@ hotword test.
 
 ---
 
+## 2026-09-04 (Phase 3, step 1) — **THE CAPABILITY RECORD EXISTS AND `PARAM_SCHEMA` IS DERIVED FROM IT.** Criteria 3.1, 3.2, 3.8 (ADR-123).
+
+**D33 was proven live first**, and D34 was not — being precise about which:
+
+```
+2026-09-04 10:57:45  open_app {"app": "android_studio"}  ok  410 ms   <- the id did not exist an hour earlier
+2026-09-04 10:58:38  open_app {"app": "kitty"}           ok  409 ms
+10:59:33  E_TOOL_NOTFOUND: app 'ez_fits' not installed   <- "Easy Effects"
+```
+
+`ez_fits` is a genuine STT mishear, not a spelling variant, and it folds to
+`ez_fits`. **So ADR-121 (D34) is still proven only by test.** It is also a
+two-word name that is NOT in `STT_HOTWORDS` failing at STT — one data point for
+OQ-68, and n=1, so D32 stays refuted.
+
+### Criterion 3.3's baseline was stale before the phase opened
+
+```
+SYSTEM_POLICY tokens: 1401     criterion 3.3 window (+/-5% of 1298): 1233 .. 1362
+```
+
+ADR-118's `open_app` paragraph grew it past the band the previous day. **Owner's
+call: preserve the prompt text verbatim, re-baseline to 1401 ±5%.** Compressing
+it would rewrite the exact paragraph that fixed D31 inside a refactor whose
+contract is "behaviour did not change".
+
+### The record
+
+`friday/capabilities.py`, 218 lines: `Risk` (five tiers), `Capability` (frozen,
+typed), and all 25 actions in one ordered tuple. `friday/llm/schema.py` is now a
+view over it and drops **216 → 153 lines**.
+
+**§1's `risk: Risk` turned out to be wrong and the owner picked the fix.** Three
+of the five live gates are conditional on a PARAM value, not on the action —
+`system_wifi` only on `"off"`, `hypr_window` only on `"close"`, `open_app` only
+for a Settings panel — and a flat field expresses none of them.
+`RiskSpec = Risk | Callable[[Params], Risk]`, resolved by `risk_for(params)`.
+Rejected: a per-param-value table (cannot express `open_app`, whose gate depends
+on `.desktop` Categories), and a separate `gate` callable beside a flat `risk`
+(two places answering "is this dangerous", which is the problem this phase ends).
+
+### The tier table, which changes nothing today
+
+```
+NONE       none, chat, list_reminders, read_notes
+ALWAYS     clipboard_read, clipboard_set
+LOW        everything else
+cond.      system_wifi  off->ALWAYS  on->LOW
+           hypr_window  close->ALWAYS  focus/fullscreen->LOW
+           open_app     Settings->ALWAYS  otherwise->FIRST_USE (declared, NOT live)
+```
+
+`FIRST_USE` turns on with the approvals table (3.9) and then the derived gate
+(3.5), **in that order**, so the tier never exists without the store that gives
+it meaning.
+
+### Gates
+
+```
+pytest      621 -> 627, rc=0
+eval        64/64 (100%), regressions 0
+grammars    byte-identical
+selftest    rc=0
+test_confirm_arming + test_panic_gate + test_adversarial   27 passed, UNTOUCHED
+```
+
+**Six mutations demonstrated RED**: a default on `risk`; wifi gating `"on"`
+instead of `"off"`; `hypr_window` no longer gating `close`; `clipboard_read`
+downgraded to `NONE`; `open_app` no longer gating Settings; and **reordering two
+capabilities, which fails the order test AND the byte-identical grammar test.**
+That last one is the contract for the whole phase, working.
+
+---
+
 ## >>> START HERE: NEXT SESSION (written **2026-09-03, last-3**, after D31 was proven live) <<<
 
 **Read this whole block before touching anything. Everything below is measured;

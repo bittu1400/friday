@@ -22,39 +22,26 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Final
 
-from ..tools.apps import APPS
-
-# Semantic app keys are canonical (ADR-032 / ADR-033). Fixtures speak the
-# way a user speaks: "open my browser" -> app="browser".
-#
-# The enum is DERIVED from the app table, not typed here (ADR-097): the five
-# curated semantic ids plus every installed desktop entry that passed the
-# scan. It is still a CLOSED enum, exact-matched by `validate.py` after NFKC —
-# that is what rejects a path, a command injection and a Cyrillic confusable
-# (AS-7/AS-8/AS-9), and none of it changed. Only the population did. The
-# grammar does not enumerate param values, so the extra ids cost zero tokens;
-# `prompt.py` lists the common ones and states the rule for the rest.
-APP_ENUM: Final[tuple[str, ...]] = tuple(APPS)
-
-# Phase 2 control vocabularies (G12). Each is exactly the set its registry
-# builder in friday/tools/registry.py knows how to translate into argv — a
-# superset of what SYSTEM_POLICY advertises, so no phrasing the planner already
-# emits regresses, and anything outside fails closed to action=none.
-VOLUME_ENUM: Final[tuple[str, ...]] = ("up", "down", "mute", "unmute", "toggle_mute")
-BRIGHTNESS_ENUM: Final[tuple[str, ...]] = ("up", "down")
-MEDIA_ENUM: Final[tuple[str, ...]] = (
-    "play_pause", "play", "pause", "next", "previous", "stop",
+# The param vocabularies are re-exported so `from friday.llm.schema import
+# WORKSPACE_ENUM` keeps working; they are DECLARED with the record they belong
+# to, in `friday/capabilities.py`, not here.
+from ..capabilities import (
+    APP_ENUM,
+    BRIGHTNESS_ENUM,
+    CAPABILITIES,
+    DICTATION_ENUM,
+    MEDIA_ENUM,
+    VOLUME_ENUM,
+    WIFI_ENUM,
+    WINDOW_ENUM,
+    WORKSPACE_ENUM,
 )
-WIFI_ENUM: Final[tuple[str, ...]] = ("on", "off")
-WINDOW_ENUM: Final[tuple[str, ...]] = (
-    "focus_left", "focus_right", "focus_up", "focus_down", "fullscreen", "close",
-)
-DICTATION_ENUM: Final[tuple[str, ...]] = ("start", "stop")
-# Ten workspaces, as strings, because that is what the planner emits. This was
-# `{"kind": "text"}` with the range checked only inside build_argv — the same
-# shape that let brightness "brighten" reach a builder that guessed (2026-08-25).
-# It matters more now: the workspace selects a Lua dispatch constant (ADR-074).
-WORKSPACE_ENUM: Final[tuple[str, ...]] = tuple(str(i) for i in range(1, 11))
+
+__all__ = [
+    "ACTIONS", "APP_ENUM", "BRIGHTNESS_ENUM", "DICTATION_ENUM", "FINAL_ACTIONS",
+    "MEDIA_ENUM", "PARAM_SCHEMA", "VOLUME_ENUM", "WIFI_ENUM", "WINDOW_ENUM",
+    "WORKSPACE_ENUM", "build_final_grammar", "build_grammar",
+]
 
 # Param kinds:
 #   "enum" — a closed set, exact match required after NFKC normalization.
@@ -62,72 +49,22 @@ WORKSPACE_ENUM: Final[tuple[str, ...]] = tuple(str(i) for i in range(1, 11))
 #   "text" — a free string. Typed only here (non-empty str). Value-level
 #            rules (e.g. the youtube query charset, FR-39) belong to the
 #            tool, not to plan-shape validation.
+#
+# DERIVED, since 2026-09-04 (Phase 3, criterion 3.2). This was a hand-written
+# dict of 25 entries and it was one of TEN places a capability lived; the
+# record in `friday/capabilities.py` is now the single one, and this is a view
+# over it. The proof that the derivation is faithful is that `just grammar`
+# still reproduces the committed `plan.gbnf` and `final.gbnf` BYTE-FOR-BYTE —
+# a refactor that changes the grammar is a refactor that changed behaviour.
+#
+# The app enum is itself derived from the machine's installed desktop entries
+# (ADR-097) and is still CLOSED, exact-matched by `validate.py` after NFKC and
+# an `app_key` fold (ADR-121) — that is what rejects a path, a command
+# injection and a Cyrillic confusable (AS-7/AS-8/AS-9). Only the population
+# ever changed. The grammar does not enumerate param values, so ids cost zero
+# prompt tokens; `prompt.py` lists the common ones and states the rule.
 PARAM_SCHEMA: Final = MappingProxyType(
-    {
-        "none": MappingProxyType({}),
-        # Conversational reply (G8, ADR-048). No params: stage 2 uses the
-        # transcript the caller already holds — the model does not pass the
-        # utterance through a field. Routed in turn.py to llm/chat.py, never
-        # to the executor; can never dispatch.
-        "chat": MappingProxyType({}),
-        "open_app": MappingProxyType({"app": {"kind": "enum", "values": APP_ENUM}}),
-        "web_search": MappingProxyType({"query": {"kind": "text"}}),
-        "open_youtube": MappingProxyType({}),
-        "youtube_search": MappingProxyType({"query": {"kind": "text"}}),
-        "remember_preference": MappingProxyType(
-            {"key": {"kind": "text"}, "value": {"kind": "text"}}
-        ),
-        "forget_preference": MappingProxyType({"key": {"kind": "text"}}),
-        "set_reminder": MappingProxyType(
-            {"seconds": {"kind": "text"}, "message": {"kind": "text"}}
-        ),
-        "list_reminders": MappingProxyType({}),
-        # No params. `id` used to be declared here as required text, which made
-        # the tool unusable: reminder ids are `rem_<hex8>` and are never spoken
-        # or shown, so the planner could not know one — while the validator
-        # rejected an empty string, so `turn.py`'s "cancel the latest" branch
-        # was unreachable and every "cancel my timer" answered "No active timer
-        # to cancel." A param the model can never fill correctly is also
-        # exactly what invariant #2 forbids: an opaque id from a CLOSED set, or
-        # nothing. Found 2026-08-29 while fixing H7 (ADR-070).
-        "cancel_reminder": MappingProxyType({}),
-        "set_dnd": MappingProxyType({}),
-        "resume_dnd": MappingProxyType({}),
-        # Phase 2 control params are CLOSED SETS, so they are declared as enums,
-        # not text. The prompt already advertises these exact vocabularies, but a
-        # prompt is not a control (ADR-008): declared as "text" the validator only
-        # checked non-emptiness, so an off-vocabulary value reached the registry
-        # and silently became the wrong action (volume "lower" -> UP, brightness
-        # anything-but-up -> DOWN). Enum here makes invariant #5 fail closed to
-        # action=none, and satisfies invariant #2 (an opaque ID from a closed
-        # enum, never a free string that becomes an argv element).
-        "system_volume": MappingProxyType(
-            {"direction": {"kind": "enum", "values": VOLUME_ENUM}}
-        ),
-        "system_brightness": MappingProxyType(
-            {"direction": {"kind": "enum", "values": BRIGHTNESS_ENUM}}
-        ),
-        "system_media": MappingProxyType(
-            {"action": {"kind": "enum", "values": MEDIA_ENUM}}
-        ),
-        "system_wifi": MappingProxyType({"state": {"kind": "enum", "values": WIFI_ENUM}}),
-        # workspace stays text: it is a NUMBER, not a vocabulary. The registry
-        # validates isdigit() + 1..10 and already fails closed.
-        "hypr_workspace": MappingProxyType(
-            {"workspace": {"kind": "enum", "values": WORKSPACE_ENUM}}
-        ),
-        "hypr_window": MappingProxyType(
-            {"action": {"kind": "enum", "values": WINDOW_ENUM}}
-        ),
-        "file_open": MappingProxyType({"alias": {"kind": "text"}}),
-        "create_note": MappingProxyType({"content": {"kind": "text"}}),
-        "read_notes": MappingProxyType({}),
-        "clipboard_read": MappingProxyType({}),
-        "clipboard_set": MappingProxyType({"text": {"kind": "text"}}),
-        "dictation_mode": MappingProxyType(
-            {"action": {"kind": "enum", "values": DICTATION_ENUM}}
-        ),
-    }
+    {cid: cap.params for cid, cap in CAPABILITIES.items()}
 )
 
 # Ordering is fixed and load-bearing: the committed grammars must be

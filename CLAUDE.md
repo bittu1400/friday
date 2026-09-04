@@ -29,6 +29,22 @@ reverting — which is now line six of the definition of done. Report:
 **`test-audit-2026-09-03.md`**, findings **M1–M19**. Method: **ADR-116**.
 Decisions: **ADR-117**.
 
+**>>> 2026-09-04 (Phase 3, step 1): THE CAPABILITY RECORD EXISTS.**
+`friday/capabilities.py` holds `Risk` (5 tiers) + `Capability` (frozen, typed)
+and all 25 actions; `PARAM_SCHEMA` is a view over it and `schema.py` drops
+216 → 153 lines. **The proof is that `just grammar` still reproduces both
+`.gbnf` byte-for-byte** — reordering two capabilities fails that test,
+demonstrated. Criteria **3.1, 3.2, 3.8** done (**ADR-123**); `risk` has no
+default and a test asserts constructing without one raises `TypeError`.
+**§1's `risk: Risk` was WRONG and the owner picked the fix:** three of the five
+live gates are conditional on a PARAM value (`system_wifi` off, `hypr_window`
+close, `open_app` Settings), so it is `Risk | Callable[[Params], Risk]`.
+**Criterion 3.3's token baseline was stale before the phase opened** — it wanted
+1298 ±5% and the live prompt is **1401**, because ADR-118's D31 fix grew it;
+re-baselined to 1401, prompt text preserved VERBATIM, compression deferred to
+its own commit. `pytest` 621 → 627, `eval` 64/64, 27 confirm/panic/adversarial
+tests **untouched**. Six mutations RED. <<<**
+
 **>>> 2026-09-04 (mic): D29/ADR-114 IS PROVEN — THIS PROJECT NOW OWES A
 MICROPHONE NOTHING — AND D32 IS REFUTED.** kitty was confirmed inside
 `friday.service`'s `cgroup.procs` (the precondition four sessions never checked)
@@ -193,7 +209,7 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-122. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
+**Decisions ADR-098…ADR-123. Questions still owed: OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
 OQ-61, OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
 **ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
 went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
@@ -290,7 +306,7 @@ Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
 **Gate numbers, all re-run 2026-09-03 (last) after M6 and M7 landed:**
-`uv run pytest` **621 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
+`uv run pytest` **627 passed, rc=0**, `just eval` **64/64 (100%), regressions 0**,
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
 `just test-no-fstring-sql` **OK**, `just grammar` **byte-identical**.
@@ -895,8 +911,8 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  122 ADRs
-                      (ADR-001..ADR-122; the count was wrong at 74 for weeks and
+   adr.md             decisions + why + what they cost.  123 ADRs
+                      (ADR-001..ADR-123; the count was wrong at 74 for weeks and
                       again at 107 -- verify with `grep -c '^## ADR-' adr.md`).
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
@@ -1118,7 +1134,7 @@ just eval               # eval fixtures -> pass count (currently 64; gate is >=9
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
-just test               # full unit + adversarial + injection suite (pytest -q). 621
+just test               # full unit + adversarial + injection suite (pytest -q). 627
 just test-adversarial   # AS-1..12 into the validator, AS-13..16 the youtube builder
 just test-injection     # G7 hostile-result suite, 20/20 must block
 just test-egress        # REAL egress check since ADR-110: guards socket.getaddrinfo

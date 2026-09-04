@@ -1,0 +1,108 @@
+"""The capability record, and the two things that make it a contract.
+
+Criterion 3.1 (the record), 3.2 (the derived schema and grammars) and 3.8 (a
+risk tier on all 25) of `design-2026-09-02.md` §11.1.
+
+The whole phase rests on one claim: moving a capability's definition into one
+record changed NOTHING. Two tests are that claim — the grammars stay
+byte-identical (`tests/test_schema.py`, which regenerates and diffs them) and
+`just eval` stays 64/64 (`tests/test_eval_gate.py`, which is what M6 bought).
+What this file adds is the third: the derived RISK reproduces every hand-coded
+confirm branch in `turn.py` exactly, which is ADR-120(b).
+"""
+
+from __future__ import annotations
+
+import dataclasses
+
+import pytest
+
+from friday.capabilities import CAPABILITIES, Capability, Risk
+from friday.llm.schema import ACTIONS, PARAM_SCHEMA
+
+# The order the committed grammars enumerate. Pinned here because `ACTIONS` is
+# `tuple(PARAM_SCHEMA)` and PARAM_SCHEMA is now derived: a reordering of the
+# record would silently rewrite plan.gbnf.
+_EXPECTED_ORDER = (
+    "none", "chat", "open_app", "web_search", "open_youtube", "youtube_search",
+    "remember_preference", "forget_preference", "set_reminder", "list_reminders",
+    "cancel_reminder", "set_dnd", "resume_dnd", "system_volume",
+    "system_brightness", "system_media", "system_wifi", "hypr_workspace",
+    "hypr_window", "file_open", "create_note", "read_notes", "clipboard_read",
+    "clipboard_set", "dictation_mode",
+)
+
+
+def test_the_param_schema_is_derived_from_the_record_in_order():
+    assert tuple(CAPABILITIES) == _EXPECTED_ORDER
+    assert ACTIONS == _EXPECTED_ORDER
+    assert len(PARAM_SCHEMA) == 25  # criterion 3.8's table has 25 rows
+    for cid, cap in CAPABILITIES.items():
+        assert PARAM_SCHEMA[cid] is cap.params
+
+
+def test_no_capability_can_ship_without_an_explicit_risk():
+    """Criterion 3.8: `risk` has NO DEFAULT. A default is how 'every capability
+    declares its tier' quietly stops being true — the next capability added
+    would inherit someone's guess instead of a decision."""
+    with pytest.raises(TypeError):
+        Capability("stub", {}, )  # type: ignore[call-arg]
+
+    for cid, cap in CAPABILITIES.items():
+        assert isinstance(cap.risk, Risk) or callable(cap.risk), cid
+        assert isinstance(cap.risk_for({}), Risk), cid
+
+
+def test_the_record_is_frozen():
+    cap = CAPABILITIES["read_notes"]
+    assert dataclasses.is_dataclass(cap)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        cap.id = "something_else"  # type: ignore[misc]
+
+
+def test_the_derived_tiers_reproduce_every_hand_coded_confirm_exactly():
+    """ADR-120(b), and the reason `tests/test_confirm_arming.py` can keep
+    passing untouched through this phase. `turn.py` gates five things today and
+    three of them are conditional on a PARAM, not on the action — which is why
+    `risk` had to accept a callable (owner's call, 2026-09-04)."""
+    gated = Risk.ALWAYS
+
+    assert CAPABILITIES["clipboard_read"].risk_for({}) is gated
+    assert CAPABILITIES["clipboard_set"].risk_for({"text": "x"}) is gated
+
+    wifi = CAPABILITIES["system_wifi"]
+    assert wifi.risk_for({"state": "off"}) is gated
+    assert wifi.risk_for({"state": "on"}) is Risk.LOW      # NOT gated today
+
+    window = CAPABILITIES["hypr_window"]
+    assert window.risk_for({"action": "close"}) is gated
+    for free in ("focus_left", "focus_right", "focus_up", "focus_down", "fullscreen"):
+        assert window.risk_for({"action": free}) is Risk.LOW
+
+
+def test_open_app_gates_settings_panels_and_asks_once_for_everything_else():
+    """The one intentional behaviour change of this phase (ADR-120(a)): the
+    owner chose FIRST_USE for all 165 ids over the safer plumbing-only option.
+    It is DECLARED here and is not live until the approvals table (3.9) and the
+    derived gate (3.5) land, in that order."""
+    from friday.tools.apps import APPS
+
+    open_app = CAPABILITIES["open_app"]
+
+    settings = [k for k, a in APPS.items() if a.confirm]
+    assert settings, "no Settings-category app on this machine to test with"
+    for key in settings:
+        assert open_app.risk_for({"app": key}) is Risk.ALWAYS, key
+
+    for ordinary in ("browser", "terminal", "editor", "firefox", "android_studio"):
+        if ordinary in APPS:
+            assert open_app.risk_for({"app": ordinary}) is Risk.FIRST_USE, ordinary
+
+    # An id that is not installed resolves to the ordinary tier rather than
+    # raising; the validator has already rejected it long before this is asked.
+    assert open_app.risk_for({"app": "nope_not_installed"}) is Risk.FIRST_USE
+
+
+def test_a_read_only_capability_never_confirms():
+    for cid in ("none", "chat", "list_reminders", "read_notes"):
+        assert CAPABILITIES[cid].risk_for({}) is Risk.NONE

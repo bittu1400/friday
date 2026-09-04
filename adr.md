@@ -5840,3 +5840,104 @@ two more ids cost nothing). `test_adversarial` **13 passed**. Enum **165 → 167
 Four mutations demonstrated RED: dropping the loop, dropping the furniture
 exclusion, accepting an ambiguous alias, and reverting the fix against the new
 hotword test.
+
+## ADR-123 — The capability record: `PARAM_SCHEMA` and the risk tiers are derived (Phase 3, criteria 3.1, 3.2, 3.8)
+
+**Date:** 2026-09-04
+**Status:** Accepted, shipped
+
+### Context
+
+A capability lives in ten places (design §1), and every recent defect is a
+place someone forgot one — D26 (hotwords), D31 (prompt + hotwords), D33 (the id
+itself), F2 (the chat persona, twice), F1 (the panic gate). `friday/capabilities.py`
+is the one place. This commit lands the record and the first two derivations.
+
+### Decision
+
+`Risk` (five tiers) and `Capability` (frozen, typed), with all 25 actions
+declared in one ordered tuple. `friday/llm/schema.py`'s `PARAM_SCHEMA` is now a
+view over it (`{cid: cap.params}`), and `schema.py` drops from 216 to 153 lines.
+
+**The proof the derivation is faithful is that `just grammar` still reproduces
+the committed `plan.gbnf` and `final.gbnf` byte-for-byte.** That is criterion
+3.2, and it is a real test: reordering two capabilities in the record fails it,
+demonstrated.
+
+**`risk` has no default.** Criterion 3.8, enforced by a test that asserts
+constructing a `Capability` without one raises `TypeError`. A default is how
+"every capability declares its tier" quietly stops being true.
+
+### `risk` accepts a callable — a gap in §1, found while building it
+
+Design §1 declared `risk: Risk`, a flat field. **Three of the five live confirm
+gates are conditional on a param value, not on the action**: `system_wifi` gates
+only on `"off"`, `hypr_window` only on `"close"`, `open_app` only for a Settings
+panel. A flat field expresses none of them, so `RiskSpec = Risk | Callable[[Params], Risk]`
+and `Capability.risk_for(params)` resolves it.
+
+**Owner's call, 2026-09-04**, over two alternatives:
+
+- *A per-param-value risk table* (`{"state": {"off": ALWAYS, "on": LOW}}`) —
+  fully declarative and enumerable by a test, but it cannot express `open_app`'s
+  gate at all, which depends on the app's `.desktop` `Categories` rather than on
+  the value.
+- *A separate `gate` callable beside a flat `risk`* — keeps the tier readable at
+  a glance, and creates two places that answer "is this dangerous", which is the
+  ten-edit-sites problem this phase exists to end.
+
+The callable form matches the record's existing shape — `subject` and `describe`
+are already `Callable | None` in §1 — and keeps risk in code, never a model
+judgement.
+
+### The tier table (criterion 3.8), and what it deliberately does not change
+
+ADR-120(b) freezes behaviour, so the derived tiers reproduce today's five
+hand-coded confirms exactly and `tests/test_confirm_arming.py` passes untouched.
+
+```
+NONE       none, chat, list_reminders, read_notes
+ALWAYS     clipboard_read, clipboard_set
+LOW        everything else
+conditional  system_wifi   off -> ALWAYS,  on -> LOW
+             hypr_window   close -> ALWAYS, focus/fullscreen -> LOW
+             open_app      Settings panel -> ALWAYS, otherwise FIRST_USE
+```
+
+`clipboard_read` is `ALWAYS` despite being read-only: it puts the clipboard into
+whatever room Friday is in, a copied password included, and opt-in is not a gate
+(ADR-068a/ADR-104). `NAMED` is declared and unused — it belongs to the file
+operations of §2, which do not exist yet.
+
+**`open_app`'s `FIRST_USE` is declared and is NOT live.** It turns on with the
+approvals table (criterion 3.9) and then the derived gate (3.5), in that order,
+so the tier never exists without the store that gives it meaning.
+
+### Criterion 3.3's token baseline was stale before the phase began
+
+3.3 requires `SYSTEM_POLICY` within ±5% of **1298** tokens. Measured against the
+live model on 2026-09-04: **1401**, against a 1233–1362 band. ADR-118's
+`open_app` paragraph — the D31 fix — grew it past the band a day earlier, so
+the refactor would have failed an acceptance test on arrival for a reason that
+has nothing to do with the refactor.
+
+**Owner's call: preserve the prompt text verbatim and re-baseline to 1401 ±5%.**
+Each capability's `summary` will hold today's exact string, so the assembled
+prompt stays byte-identical and `just eval` cannot move for prompt reasons. The
+alternative — actually compressing to one line per capability, which would reach
+the original band — rewrites the exact paragraph that fixed D31, inside a
+refactor whose contract is "behaviour did not change", making a regression and
+an intended change indistinguishable. Compression becomes a separate, measurable
+change afterwards.
+
+### Evidence
+
+`pytest` **621 → 627**. `eval` **64/64, regressions 0**. Grammars
+**byte-identical**. `selftest` rc=0. `test_confirm_arming` + `test_panic_gate` +
+`test_adversarial` **27 passed, untouched**.
+
+Six mutations demonstrated RED: a default on `risk`; wifi gating `"on"` instead
+of `"off"`; `hypr_window` no longer gating `close`; `clipboard_read` downgraded
+to `NONE`; `open_app` no longer gating Settings panels; and **reordering two
+capabilities, which fails the order test AND the byte-identical grammar test** —
+the contract for the whole phase, working.
