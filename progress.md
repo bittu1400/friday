@@ -12,6 +12,22 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-09-04: THIS PROJECT OWES A MICROPHONE NOTHING, AND PHASE 3 IS OPEN.**
+**D29/ADR-114 is ticked** — kitty was confirmed inside `friday.service`'s
+`cgroup.procs` first (the precondition four sessions never checked), then
+survived a restart at the same PID; and `systemctl show` reports
+`KillMode=process` **live**, not merely committed. **D32 was REFUTED at n=8** —
+it claimed two-word app names die in STT, from n=2, and the same two utterances
+landed the next day. The two real failures were enum defects: **D34** (the
+planner wrote `easy-effects`; the generator only makes `easy_effects` —
+ADR-121) and **D33** (the id was `android_studio_panda_4_2025_3_4_patch_1`,
+straight from a `.desktop` `Name` — ADR-122, **proven live at 410 ms**).
+**Phase 3 opened**: F4 and F5 shipped standalone (**ADR-119**), the two policy
+decisions are recorded (**ADR-120**, OQ-69), and the capability record exists
+with `PARAM_SCHEMA` derived from it (**ADR-123**, criteria 3.1/3.2/3.8).
+`pytest` **608 → 627**, `eval` **64/64**, grammars **byte-identical**, app enum
+**167 as scanned 2026-09-04**. Read the `>>> START HERE <<<` block. <<<**
+
 **>>> 2026-09-03 (later): THE FIVE TIER-1 TEST GAPS ARE CLOSED AND THE THREE
 QUESTIONS ARE ANSWERED (ADR-117). `pytest` 581 → 596, `selftest` 9/9 → 10/10,
 `eval` still 60/60 with 0 regressions. `friday/` is unchanged apart from
@@ -32,7 +48,8 @@ project, all at 402-412 ms (the healthy signature). `firefox` resolved to
 **single-word names 4/4, two-word 0/2 — that is D32, new and open.** The four
 apps that were gone eight minutes later were **closed by the owner** — asked,
 not guessed. **D31 is CLOSED, and D29/ADR-114 is now the ONLY item this project
-owes a microphone.** <<<**
+owes a microphone.** *(Both sentences were overtaken the next day: **D32 was
+REFUTED at n=8** and **D29 was ticked**, 2026-09-04. See the block above.)* <<<**
 
 **>>> 2026-09-03 (last, 2): D31 — ONLY FIVE APPS HAD EVER LAUNCHED, a month
 after ADR-097 widened the enum to every installed desktop entry. `action_audit`
@@ -5818,20 +5835,177 @@ That last one is the contract for the whole phase, working.
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-03, last-3**, after D31 was proven live) <<<
+## >>> START HERE: NEXT SESSION (written **2026-09-04**, mid-Phase-3) <<<
+
+**Read this whole block before touching anything. Everything in it is measured.**
+
+### The state in eight lines
+
+- **This project owes a microphone NOTHING.** D29/ADR-114 was the last item and
+  it was ticked 2026-09-04. Everything left at a mic is opportunistic —
+  `docs/reality-check.md` **§G** is the list, six rows, none blocking.
+- **D31, D32, D33, D34 are all closed.** D32 was **refuted**, not fixed: it
+  claimed two-word app names die in STT, from n=2; at n=8 the same two
+  utterances landed. Do not re-open it — read its ledger row first.
+- **Phase 3 is OPEN and three of nine criteria are done: 3.1, 3.2, 3.8**
+  (ADR-123). `friday/capabilities.py` exists, `PARAM_SCHEMA` is derived from it.
+  **Not done: 3.3, 3.4, 3.5, 3.6, 3.7, 3.9.**
+- **F4 and F5 shipped standalone ahead of the refactor** (ADR-119) because
+  neither depends on the record. They are the only Phase 3 row items complete
+  besides the record itself.
+- **Two decisions are recorded and NOT yet built (ADR-120).** `open_app` ships
+  `FIRST_USE` for every id — declared in the record, **not live** — and every
+  other gate freezes bit-for-bit.
+- Gates: `pytest` **627 rc=0**, `eval` **64/64 regressions 0**, `selftest`
+  **10/10 rc=0**, `bootstrap --check` **11/11**, grammars **byte-identical**,
+  app enum **167 as scanned 2026-09-04** (generated — do not pin it).
+- **The daemon is running the current code** as of the last restart at 10:56;
+  re-check before any voice work (command below).
+- Mutation tiers 1 and 2 are closed (M1-M7). **Tier 3 is M8-M11** and is still
+  deliberately ranked below Phase 3.
+
+### THE TODO LIST, in order
+
+```
+[ ] 0.  VERIFY THE GROUND      2 min   commands below, no judgement needed
+[ ] 1.  PHASE 3, CRITERION 3.3  the prompt regions. Decisions already taken
+[ ] 2.  PHASE 3, 3.9 THEN 3.5   approvals table BEFORE the derived gate
+[ ] 3.  PHASE 3, 3.4 / 3.6 / 3.7
+[ ] 4.  RECORD IT              paste output here per rule 6, then commit
+```
+
+### 0. Verify the ground — two minutes, no judgement required
+
+```bash
+cd /home/bittusah/Projects/Personal/Intern/friday
+
+# uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
+.venv/bin/python -m pytest -q                            # 627 passed, rc=0
+.venv/bin/python -m friday.eval_harness                  # 64/64 (100%), regressions 0
+.venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
+.venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
+.venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # MUST stay clean
+ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
+.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"      # generated; 167 on 2026-09-04
+```
+
+Is the running daemon this code? **Compare COMMIT times, not file mtimes** — a
+mutation run rewrites mtimes without changing content — and check the changed
+file is actually in the import graph before restarting, because a restart costs
+the owner their session:
+
+```bash
+ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)
+git log -1 --format=%ci -- 'friday/*.py' 'friday/**/*.py'
+.venv/bin/python -c "import friday.voice_main, sys; print('friday.capabilities' in sys.modules)"
+# capabilities / llm.validate / tools.apps / tools.ban / tools.env -> True (all in the graph)
+# friday.selftest -> False (not in it)
+```
+
+### 1. Criterion 3.3 — derive both prompt regions
+
+**The two decisions this needs are already made. Do not re-ask them.**
+
+- **`summary` holds each capability's text VERBATIM** (owner, 2026-09-04). The
+  assembled `SYSTEM_POLICY` must come out byte-identical, so `just eval` cannot
+  move for prompt reasons. §1 wants "one line per capability" and today's
+  `open_app` entry is a twelve-line paragraph — **that paragraph is the ADR-118
+  text that fixed D31 and E61-E64 test it.** Compressing it is a separate,
+  measurable commit, afterwards.
+- **The token criterion is re-baselined to 1401 ±5%**, not 1298. The original
+  was measured before ADR-118 grew the prompt; the live value was **1401**
+  against a 1233-1362 band on the day the phase opened. Measure it the same way:
+
+```bash
+.venv/bin/python - <<'EOF'
+import json, urllib.request
+from friday.llm.prompt import SYSTEM_POLICY
+req = urllib.request.Request("http://127.0.0.1:8080/tokenize",
+    data=json.dumps({"content": SYSTEM_POLICY}).encode(),
+    headers={"Content-Type": "application/json"})
+print(len(json.loads(urllib.request.urlopen(req, timeout=30).read())["tokens"]))
+EOF
+```
+
+Also in 3.3: **`CHAT_SYSTEM`'s toolset clause** comes from `persona`. That is
+F2 closed *by construction* — the persona has denied an ability the schema had
+**twice**, months apart (`system_wifi` in D24, then the whole app enum after
+ADR-097), and `tests/test_prompt.py` has a coverage test for action NAMES that
+could not see the second one because the app enum is a parameter VALUE set.
+
+### 2. Criterion 3.9 BEFORE 3.5 — the order is load-bearing
+
+`open_app` is declared `FIRST_USE` in the record and **is not live**. The tier
+means nothing without a store, so:
+
+1. **3.9 first** — migration `004_approvals.sql`, the schema is in
+   `design-2026-09-02.md` §3.3, and `argv_sha256` is **not optional**:
+   `desktop.app_key`'s `setdefault` resolves a key collision first-wins, so two
+   applications can normalise to one id and an uninstall-then-install can hand a
+   stored approval to a **different binary**. The acceptance test is that
+   changing the argv behind an approved id makes Friday ask again.
+2. **3.5 after** — derive the confirm decision AND the panic gate from `risk`.
+   `tests/test_confirm_arming.py` and `tests/test_panic_gate.py` must pass
+   **untouched**; if they go red the derived tier did not reproduce the
+   hand-coded one, which is exactly what they are for (ADR-120(b)).
+
+Turning FIRST_USE on is the phase's **one** intentional behaviour change, and
+**the eval gate structurally cannot see it** — the fixtures score the planner's
+output, not what the turn does with it. That is **OQ-69**, answered by a week of
+ordinary use plus `SELECT COUNT(*) FROM approvals`.
+
+### 3. What is left after that
+
+- **3.4** — replace the 19-branch if-chain in `_plan_and_act` with a handler
+  table; `turn.py` under 400 lines (it is **941** today).
+- **3.6** — a capability with empty `examples` fails the suite. Prove it: add a
+  stub capability, watch it go red.
+- **3.7** — derive `STT_HOTWORDS` (generated list must be a **superset** of
+  today's) and `describe_action` (must cover **every** capability, audit F21).
+  **D33 is this row's evidence and it arrived early:** four names in the
+  hand-written hotword list pointed at apps the enum could not serve.
+  `tests/test_stt_hotwords.py::test_no_hotword_is_a_near_miss_of_an_app_the_enum_cannot_serve`
+  is the guard that now exists; deriving the list is still the fix.
+
+### The contract, restated because it is the whole safety net
+
+**If `just grammar` stops reproducing the committed `.gbnf` byte-for-byte, or
+`just eval` moves off 64/64 with zero regressions, the refactor changed
+behaviour and is wrong.** Both halves are real tests — `tests/test_schema.py`
+regenerates and diffs the grammars, and `tests/test_eval_gate.py` is what M6
+bought, without which the gate could be made to always exit 0.
+
+Proven, not asserted: **reordering two capabilities in the record fails the
+order test AND the grammar test.**
+
+### The mechanical doc-vs-tree check is clean
+
+Run 2026-09-04 over every tracked `.md` outside `docs/archive/`:
+
+```
+dangling ADR ids   0
+dangling FR ids    0
+dangling OQ ids    0   (one hit, OQ-06, is a sentence quoting a MISTAKEN id on purpose)
+dead file paths    0
+unresolved tests   0   (one hit is a line-wrapped name for a DELETED test)
+unknown just recipes 0 (`approvals` and `recipes` are documented as not-yet-built)
+```
+
+The known-good exception table below still applies; nothing was added to it.
+
+---
+
+## >>> (superseded 2026-09-04 by the block above) START HERE: NEXT SESSION (written **2026-09-03, last-3**, after D31 was proven live) <<<
+
+> **DO NOT ACT ON THIS BLOCK.** Two of its items were settled on 2026-09-04 and
+> one of them was settled by being **wrong**: its job 1 (D29/ADR-114) is
+> **TICKED**, and its job 2 (D32, *"two-word app names do not survive STT"*) was
+> **REFUTED at n=8** — the very two utterances it names, "Zen Browser" and
+> "LibreWolf", both landed the next day. The real defects were D33 and D34, in
+> the enum, and both are fixed. Kept for the reasoning, not the instructions.
 
 **Read this whole block before touching anything. Everything below is measured;
 nothing in it is belief.**
-
-> **AMENDED 2026-09-04.** Job 0 was re-run and is green; the daemon was checked
-> and is NEWER than the code, so no restart was needed. **Job 3's F4 and F5 are
-> DONE** — shipped standalone ahead of the Capability refactor (**ADR-119**), and
-> the two Phase 3 policy questions underneath it are answered and recorded
-> (**ADR-120**: `open_app` ships FIRST_USE for all 165, everything else freezes;
-> **OQ-69** is its measurement). **Gate numbers below are stale by one line:
-> `pytest` is now 616, not 608.** Jobs 1 (D29/ADR-114) and 2 (D32) are unchanged
-> and still owed to a microphone — see the 2026-09-04 block above for what the
-> code half did.
 
 ### The state in seven lines
 

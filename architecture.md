@@ -45,6 +45,21 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
      daemon.py              the voice loop: PTT/Wake -> capture -> STT -> turn ->
                             speak, barge-in, confirm-first voice handshake, DND/signoff
      config.py              typed config, fixed paths, panic switch, wake/AEC/VAD/speaker constants
+     capabilities.py        ONE RECORD PER CAPABILITY (Phase 3 §1, ADR-123). `Risk`
+                            (5 tiers) + frozen `Capability` + the 25 actions in one
+                            ORDERED tuple -- the order is load-bearing, because
+                            `ACTIONS` is `tuple(PARAM_SCHEMA)` and the committed
+                            grammars enumerate names in that sequence. `risk` is
+                            `Risk | Callable[[Params], Risk]`: three of the five
+                            live confirm gates key on a PARAM value, not the action
+                            (`system_wifi` off, `hypr_window` close, `open_app`
+                            Settings), which design §1's flat field could not
+                            express. `risk` has NO DEFAULT (criterion 3.8).
+                            DERIVED SO FAR: `PARAM_SCHEMA` and therefore both
+                            grammars. STILL HAND-WRITTEN, one per remaining
+                            criterion: the prompt regions (3.3), the confirm
+                            decision + panic gate (3.5), eval fixtures (3.6),
+                            `STT_HOTWORDS` + `describe_action` (3.7)
      errors.py              Outcome enum + error taxonomy codes (spec §4)
      turn.py                one turn: utterance -> plan -> execute -> outcome
                             (TurnResult); execute-first (ADR-009). Also owns
@@ -74,9 +89,21 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
        grammars/
          plan.gbnf          full action enum
          final.gbnf         action enum = ["none"] ONLY (enforced at G7)
-       schema.py            single source of truth; generates grammar+validator
+       schema.py            grammar + validator generator. NO LONGER the source of
+                            truth: since ADR-123 `PARAM_SCHEMA` is a VIEW over
+                            `friday/capabilities.py` and this file went 216 -> 153
+                            lines. The param vocabularies are re-exported here so
+                            `from friday.llm.schema import WORKSPACE_ENUM` keeps
+                            working, but they are DECLARED with the record
        prompt.py            SYSTEM POLICY + <preferences> digest assembly
-       validate.py          strict parse, fail-closed
+       validate.py          strict parse, fail-closed. A miss on `open_app.app`
+                            retries ONCE through `desktop.app_key` -- the same
+                            function that generated every id -- and accepts only an
+                            exact member (D34, ADR-121). Not fuzzy matching:
+                            `app_key` is a whitelist, so AS-7/8/9 and a bare prefix
+                            all still reject. The rejection names the RAW value the
+                            planner emitted, which is what makes E_TOOL_NOTFOUND
+                            diagnosable
 
      proactive/
        __init__.py          proactive module package
@@ -91,11 +118,37 @@ and logging & health audits live in `logging_config.py` and `selftest.py`.
      tools/
        registry.py          frozen dict: tool_id -> ToolSpec (system, hyprland, files, apps)
        executor.py          subprocess argv, no shell, bounded timeout, ban preflight
-       apps.py              app_id -> argv map
+       apps.py              app_id -> argv map. THREE id sources, because no single
+                            one is a name a human says: the `.desktop` Name (carries
+                            releases and codenames), the binary basename (`idea`,
+                            `studio` -- abbreviations), and since ADR-122 the vendor
+                            path `.../<app-name>/bin/<exe>`. Filesystem furniture is
+                            excluded and an alias claimed by TWO entries is dropped,
+                            never resolved (D33)
+       desktop.py           XDG desktop-entry scan -> the installed applications
+                            (ADR-097). Owns `app_key` (casefold, then `[^a-z0-9]+`
+                            to "_"), the field-code stripper (ADR-114a) and the
+                            Settings-category test. Runs every scanned argv through
+                            `ban.assert_not_banned`, so a stricter ban list DELETES
+                            enum ids -- measure the whole table before tightening it
+       env.py               `SUBPROCESS_ENV`: the ONE explicit environment every
+                            subprocess runs under (F4, FR-140, ADR-119). Was
+                            `registry._build_app_env`; `registry._APP_ENV` is now an
+                            alias. Invariant #3's fourth clause had FIVE unlabelled
+                            exceptions until 2026-09-04 -- clipboard x2, typer x2 and
+                            proactive/notifier inherited all ~50 of the daemon's
+                            variables, `NOTIFY_SOCKET` included
        search.py            searxng client + sanitizer (G7)
        ban.py               permanent hard ban validator (G12). The RiskTier
-                            enum was deleted 2026-08-29: never referenced —
-                            the three tiers live in the confirm logic, not a type
+                            enum was deleted 2026-08-29: never referenced — the
+                            three tiers lived in the confirm logic, and since
+                            ADR-123 they live in `capabilities.Risk`.
+                            Since ADR-119 (F5) a WRAPPER at argv[0] means every
+                            remaining token is checked, `--opt=value` split on the
+                            first `=`. `WRAPPER_BINARIES` covers `env`, `flatpak`,
+                            `distrobox-enter`, `timeout`, `systemd-run`, `unshare`
+                            and the terminal emulators (`-e` is the same escape;
+                            15 of the live app ids are `foot -e <something>`)
        typer.py             Wayland typer using ydotool or wtype fail-soft (G12)
 
      audio/

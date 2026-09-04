@@ -883,18 +883,39 @@ splits in two:
 
 - **single-word names: they work.** Adding more of them is cheap and probably
   helps, and nothing argues against it.
-- **compound names: a hotword does not help**, because it biases decoding toward
-  a token sequence rather than repairing one the acoustic model split in the
-  wrong place. `wolf_studio` and `jin_browser` are ordinary two-word phrases, not
-  near-misses. **That is D32 and it needs a different fix**, not a longer list.
+- ~~**compound names: a hotword does not help**~~ — **that inference was WRONG
+  and was refuted the next day. D32 is closed as not-a-defect.**
 
-**What answers the rest:** say six or eight *two-word* names out loud — "Zen
-Browser", "LibreWolf", "Android Studio", "IntelliJ IDEA", "Visual Studio Code",
-"GitHub Desktop" — and read the `E_TOOL_NOTFOUND` lines. Three of those six are
-ids that already exist under a different spelling, which is a hint about where
-the cheap fix is. **Do not widen this list on the theory that more is better** —
-that is the reasoning D26 already paid for once, in the opposite direction, and
-2026-09-03 measured it failing in this direction.
+**THE SAMPLE WAS WIDENED 2026-09-04 AND IT ANSWERED SOMETHING ELSE.** Eight
+two-word names, four in the list and four not:
+
+```
+zen_browser     409 ms  ok   (in the list)      github_desktop  411 ms  ok   (NOT in the list)
+librewolf       404 ms  ok   (in the list)      proton_vpn      401 ms  ok   (NOT in the list)
+editor          401 ms  ok   ("Visual Studio Code")
+android_studio       E_TOOL_NOTFOUND x3  -> D33, an ENUM defect
+easy-effects         E_TOOL_NOTFOUND     -> D34, a SPELLING defect
+"Bulk Rename"        action=none, no E_TOOL_NOTFOUND at all -> unresolved
+```
+
+**"Zen Browser" and "LibreWolf" — the exact two utterances D32 was written from
+— both landed.** So did two names that are NOT in the hotword list. STT
+delivered every one correctly; the two failures were the enum, not the
+microphone, and both are now fixed (ADR-121, ADR-122).
+
+**What this does to OQ-68:** the compound-name argument for widening the list is
+gone, and so is the compound-name argument against it. The question is back to
+where it started — **the twenty cost nothing measurable (p95 651 ms, miss 4/20)
+and the benefit of any of them has still never been proven** (that is OQ-57).
+**What is now known to be worth doing is the opposite direction:** four names in
+the list pointed at applications the enum could not serve, and
+`tests/test_stt_hotwords.py::test_no_hotword_is_a_near_miss_of_an_app_the_enum_cannot_serve`
+is the guard that catches that (D33).
+
+**And the real answer is probably not "how many" at all** — Phase 3 criterion
+3.7 DERIVES `STT_HOTWORDS` from the capability record, which makes the list a
+consequence rather than a decision. Do not spend a session choosing a number
+that a refactor is about to delete.
 
 `tests/test_stt_hotwords.py` asserts a floor of 20 app names, not a specific
 list, so answering this question does not require editing a test.

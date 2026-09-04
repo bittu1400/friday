@@ -17,8 +17,10 @@ Mobile (GB206M, sm_120), Core Ultra 9 275HX, 16 GB DDR5
 > - **The model.** §"ADR-029: bartowski" downloads **Qwen2.5-7B**. The live model
 >   is **Gemma 4 12B QAT** (ADR-090). Qwen stays on disk as the rollback, but
 >   reverting reintroduces D19/D20/D21.
-> - **The eval gate.** "50 fixtures before implementation" — the gate is **60**
->   today (28 → 50 by ADR-089, → 60 when Phase 1 added the scanned-app tail).
+> - **The eval gate.** "50 fixtures before implementation" — the gate is **64**
+>   as of 2026-09-04 (28 → 50 by ADR-089, → 60 when Phase 1 added the
+>   scanned-app tail, → 64 when ADR-118 added E61-E64 for D31). Read the number,
+>   do not trust this line: `.venv/bin/python -m friday.eval_harness`.
 >
 > The current work is post-audit: `audit-2026-09-02.md`,
 > `design-2026-09-02.md`, and `progress.md`'s `>>> START HERE <<<` block.

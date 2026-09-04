@@ -161,13 +161,34 @@ editing code plus an eval fixture, never by config.
 ```
 
 Five **curated** entries, and since 2026-09-02 they are the semantic core of a
-set that is otherwise **generated from the machine's XDG desktop entries** —
-101 applications here (ADR-097). The five above always win a collision: the
-eval fixtures, the prompt and the habits miner speak them. The set is still a
-CLOSED enum, exact-matched after NFKC; only its population moved from
-hand-typed to machine-read. Entries whose `Exec` escalates privilege (`pkexec`
-and friends, now in `ban.BANNED_BINARIES`) or invokes a shell are never
-offered; a `Settings`-category entry is offered but confirm-gated.
+set that is otherwise **generated from the machine's XDG desktop entries**
+(ADR-097). **The size is generated, so do not pin it** — 162 on 2026-09-02, 165
+on 2026-09-03, **167 as scanned 2026-09-04**; read it with
+`.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"`.
+The five above always win a collision: the eval fixtures, the prompt and the
+habits miner speak them.
+
+The set is still a CLOSED enum, exact-matched after NFKC; only its population
+moved from hand-typed to machine-read. Two things changed on 2026-09-04, both
+about the id being a name a human can say:
+
+- **Three id sources, not two** (ADR-122, D33). The `.desktop` `Name` carries
+  releases and codenames — Android Studio's id was
+  `android_studio_panda_4_2025_3_4_patch_1` — and the binary-basename alias is
+  an abbreviation as often as not (`idea`, `studio`). A vendor path
+  `.../<app-name>/bin/<exe>` now supplies the known name; filesystem furniture
+  is excluded and an alias claimed by two entries is dropped, never resolved.
+- **The validator folds a miss through `app_key`** (ADR-121, D34), the same
+  function that generated every id, and accepts only an exact member. Not fuzzy
+  matching: `app_key` is a whitelist, so AS-7/8/9 and a bare prefix all still
+  reject.
+
+Entries whose `Exec` escalates privilege (`pkexec` and friends, in
+`ban.BANNED_BINARIES`) or invokes a shell are never offered; a
+`Settings`-category entry is offered but confirm-gated. **Since ADR-119 a
+WRAPPER at `argv[0]` — `env`, `flatpak`, `distrobox-enter`, `timeout`, a
+terminal's `-e` — means every remaining token is checked against the denylist
+too, `--opt=value` split on the first `=`.**
 
 Plus `youtube_search` — still **the single** audited exception
 where a model-supplied string (the query) reaches an argv element, under the

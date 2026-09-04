@@ -85,7 +85,8 @@ gate and a false positive DELETES an app: 0 of 165 argvs carry a banned token
 past index 0, enum 165 → 165.** `pytest` **608 → 616**, `eval` still 64/64,
 grammars byte-identical, **eight mutations demonstrated RED**.
 **Two Phase 3 policy decisions are recorded and not yet built (ADR-120):
-`open_app` ships FIRST_USE for ALL 165 ids — the owner's call over the safer
+`open_app` ships FIRST_USE for EVERY id in the generated enum (167 as scanned
+2026-09-04) — the owner's call over the safer
 plumbing-only option — and every other gate freezes bit-for-bit. OQ-69 is the
 measurement that answers whether the confirm burden is tolerable, and the eval
 gate structurally cannot: its fixtures score the planner's output, not what the
@@ -109,7 +110,8 @@ project.** But *"LibreWolf"* reached the planner as `wolf_studio` and *"Zen
 Browser"* as `jin_browser`, **both already in the twenty hotwords**, both
 correctly rejected: **single-word app names 4/4, two-word 0/2. That is D32.**
 The four apps that were gone eight minutes later were **closed by the owner** —
-asked, not guessed. **D31 is CLOSED; D32 is the residue.** <<<**
+asked, not guessed. **D31 is CLOSED; D32 was the residue — and D32 was
+REFUTED the next day at n=8. See the 2026-09-04 blocks above.** <<<**
 
 **>>> 2026-09-03 (last): TIER 2 IS CLOSED TOO. M6 and M7.** The eval gate could
 be made to always exit 0 and the self-test's FAIL path could stop producing
@@ -141,9 +143,13 @@ closed. **ADR-113 was proven live 2026-09-03 08:23** — a marginal wake
 (score 0.543) opened a speechless capture and the journal reads
 `capture abandoned: no speech within 5.0s` at +4.985 s, with **no
 `Processing audio`, no `stage_timings`, no TTFA**: STT and the turn were skipped,
-which is the half of ADR-113 that pays for the longer wait. **ONE thing is still
-owed at a microphone:** ADR-114 — restart the daemon with a Friday-launched app
-open, and the window must survive.
+which is the half of ADR-113 that pays for the longer wait. ~~**ONE thing is
+still owed at a microphone:** ADR-114~~ — **DONE 2026-09-04, and NOTHING is
+owed to a microphone any more.** The launch went first, kitty's PID was
+confirmed in `friday.service`'s `cgroup.procs`, and it survived the restart at
+the same PID; `systemctl show` reports `KillMode=process` live rather than
+merely committed. What is left at a mic is opportunistic and listed in
+`docs/reality-check.md` **§G** — six rows, none blocking.
 
 The 2026-09-02 audit (`audit-2026-09-02.md`, 29 findings F1–F29) and its plan
 (`design-2026-09-02.md`, 8 owner decisions, 12 phases) are still the map. What
@@ -369,46 +375,54 @@ todo list, the runnable commands and the gate numbers — read it first. The
 short version, in order:**
 
 ```
-0.  VERIFY THE GROUND          2 min   commands in START HERE, no judgement needed
-0b. RESTART THE DAEMON         5 s     ADR-118 IS in its import graph. Do this BEFORE 1
-1.  SAY APP NAMES OUT LOUD     2 min   D31/ADR-118, unproven by voice. Answers OQ-68 too
-2.  ONE MICROPHONE ITEM        60 s    D29/ADR-114. Launch FIRST, then restart
-3.  PHASE 3                    design-2026-09-02.md 11.1. Contract not optional
-4.  RECORD IT                  paste output into progress.md per rule 6, then commit
+0.  VERIFY THE GROUND      2 min   commands in START HERE, no judgement needed
+1.  PHASE 3, CRITERION 3.3  the prompt regions. Both decisions ALREADY TAKEN
+2.  PHASE 3, 3.9 THEN 3.5   approvals table BEFORE the derived gate. Order matters
+3.  PHASE 3, 3.4 / 3.6 / 3.7
+4.  RECORD IT              paste output into progress.md per rule 6, then commit
 ```
 
-Jobs 1 and 2 are **one** microphone session: job 1's launches are exactly what
-job 2 needs open before the restart. Do them together, in that order.
+**THIS PROJECT OWES A MICROPHONE NOTHING.** D29/ADR-114 was the last item and it
+was ticked 2026-09-04. Everything left at a mic is opportunistic and none of it
+blocks: `docs/reality-check.md` **§G** is that list, six rows.
 
-0b. **Restart the daemon first.** Unlike ADR-117's commit, ADR-118 touched
-   `friday/llm/prompt.py` and `friday/config.py`, and **both are in the daemon's
-   import graph** (`voice_main` loads them). A daemon started before that commit
-   is running the old prompt and the old hotword list, and job 1 would measure
-   the defect instead of the fix. Check with
-   `ps -o lstart= -p $(systemctl --user show friday -p MainPID --value)` against
-   `git log -1 --format=%ci -- friday/llm/prompt.py friday/config.py`.
+**Phase 3 is OPEN and three of its nine criteria are done — 3.1, 3.2, 3.8
+(ADR-123). Not done: 3.3, 3.4, 3.5, 3.6, 3.7, 3.9.** Two of the row's five
+items, F4 and F5, shipped standalone ahead of the refactor (ADR-119).
 
-1. **Say "open firefox", "open kitty", "open neovim", "open zen browser",
-   "open discord", "open obsidian".** Then read `action_audit`, never Friday.
-   `docs/reality-check.md` **§A1b** is the manifest row and it lists what each
-   outcome means. Short version: **~400 ms in `duration_ms` = the process was
-   alive; under ~120 ms = it died** (D30's signature). A row carrying the wrong
-   id (`browser` for firefox) means the daemon was not restarted; **no row at
-   all** means STT never delivered the word, which is the hotword half and
-   **OQ-68**.
-2. ~~**Say "open the browser."**~~ **DONE 2026-09-03** — the owner confirmed a
-   window appeared, and the `action_audit` row agrees (**401 ms** post-fix
-   against 49-119 ms before). **D30/ADR-115 is CLOSED.**
-3. **`systemctl --user restart friday` with an app open.** The window must still
-   be there. That is D29/ADR-114, **the one thing still unconfirmed by a human.**
-   **Order matters and it is why four sessions have not settled it:** every
-   restart so far came *before* the launches. Launch first (by VOICE — a
-   text-mode launch is a different cgroup), confirm the app is inside
-   `friday.service`'s cgroup with `systemctl --user status friday`, then
-   restart, then `hyprctl clients`.
-4. ~~**Watch for one false wake**~~ **DONE 2026-09-03 08:23** — wake score
-   0.543, `capture abandoned: no speech within 5.0s` at +4.985 s, and no STT
-   line and no TTFA after it. **ADR-113 is proven live.**
+1. **Criterion 3.3 — derive both prompt regions. Do NOT re-ask its two
+   decisions**, both taken 2026-09-04: `summary` holds each capability's text
+   **VERBATIM** so the assembled prompt stays byte-identical (§1's "one line per
+   capability" would rewrite the twelve-line `open_app` paragraph that fixed D31
+   and that E61-E64 test — compression is a separate, measurable commit); and
+   **the token criterion is re-baselined to 1401 ±5%**, not 1298, because the
+   original was measured before ADR-118 grew the prompt and the live value was
+   already 1401 against a 1233-1362 band on the day the phase opened.
+2. **Criterion 3.9 BEFORE 3.5, and the order is load-bearing.** `open_app` is
+   declared `FIRST_USE` in the record and **is not live** — a tier means nothing
+   without a store. Build `004_approvals.sql` with `argv_sha256` first (it is not
+   optional: `app_key`'s `setdefault` is first-wins, so an uninstall-then-install
+   can hand a stored approval to a **different binary**), then derive the confirm
+   decision and the panic gate from `risk`. `tests/test_confirm_arming.py` and
+   `tests/test_panic_gate.py` must pass **untouched** — if they go red the
+   derived tier did not reproduce the hand-coded one, which is what they are for.
+3. **3.4** (`turn.py`'s 19-branch chain → a handler table; it is **941** lines
+   and the criterion is under 400), **3.6** (a capability with empty `examples`
+   fails the suite — prove it with a stub), **3.7** (derive `STT_HOTWORDS` as a
+   superset of today's, and `describe_action` over every capability).
+
+**THE CONTRACT, and it is the whole safety net:** if `just grammar` stops
+reproducing the committed `.gbnf` byte-for-byte, or `just eval` moves off
+**64/64 with zero regressions**, the refactor changed behaviour and is wrong.
+Both halves are real tests, and it is proven rather than asserted — **reordering
+two capabilities in the record fails the order test AND the grammar test.**
+
+**One thing the gate structurally CANNOT see.** ADR-120 turns `open_app`
+FIRST_USE on for every id — the phase's one intentional behaviour change — and
+the eval fixtures score the planner's *output*, not what the turn then does with
+it. 64/64 will read 64/64 whether the confirm handshake works, annoys, or never
+fires. That is **OQ-69** and it is answered by a week of ordinary use plus
+`SELECT COUNT(*) FROM approvals`, not by a test.
 
 **The tier-1 AND tier-2 tests are DONE — do not write them twice.** M1-M5 under
 ADR-117 (`tests/test_confirm_arming.py` is new; `test_executor.py`,
@@ -901,12 +915,14 @@ evidence, not defaults. A dependency added without this drill is not done.
                       >>> START HERE <<< block is written for the next session.
    docs/reality-check.md
                       the manifest of what Friday must DO and must REFUSE, on
-                      the real machine.  Section F says what is verified and
-                      what is not.  This is the next session's work.
-                      **A1b is new (2026-09-03) and every row in it is
-                      UN-TICKED**: the ~160 scanned applications, which no human
-                      has ever watched open.  A1's title used to end "and
-                      nothing else" -- that title WAS the defect (D31).
+                      the real machine.  **Section G (new 2026-09-04) is the
+                      current status: nothing is owed to a microphone, and the
+                      six remaining rows are opportunistic.**  Section F is the
+                      2026-08-29 live-voice pass, kept for its findings.
+                      A1b covers the scanned applications and is now mostly
+                      ticked -- it also carries the D32 refutation table, so
+                      read that row before re-opening D32.  A1's title used to
+                      end "and nothing else" -- that title WAS the defect (D31).
    friday.md          the build plan, gate by gate, with commands (all gates
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
@@ -917,7 +933,11 @@ evidence, not defaults. A dependency added without this drill is not done.
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
                       ADR-120 records the two Phase 3 policy calls (FIRST_USE on
-                      for all 165; every other gate frozen bit-for-bit).
+                      for every generated id; every other gate frozen
+                      bit-for-bit).  ADR-121 and ADR-122 make an app id
+                      reachable by the name a human says (D34, D33).  ADR-123
+                      is the capability record -- criteria 3.1/3.2/3.8, and
+                      `PARAM_SCHEMA` is now derived from it.
                       ADR-118 is D31: a named program wins over its category,
                       and every list naming a capability widens together.
                       ADR-110/111/112 are the 2026-09-02 evening verification
@@ -942,7 +962,12 @@ evidence, not defaults. A dependency added without this drill is not done.
                       THE PLAN.  8 owner decisions (section 0), 12 phases, 47
                       days, every finding traced to a phase or an explicit
                       deferral.  Section 11.1 carries the Phase 3 acceptance
-                      criteria and they are not optional.
+                      criteria and they are not optional.  **Its 11.1 rows are
+                      annotated with what is DONE (3.1, 3.2, 3.8 -- ADR-123)
+                      and 3.3's token baseline is RE-BASELINED to 1401 +/-5%,
+                      because the original 1298 was measured before ADR-118
+                      grew the prompt.**  Phase 3's F4/F5 row items shipped
+                      early and standalone (ADR-119).
    test-audit-2026-09-03.md
                       THE TEST-SUITE AUDIT.  Findings M1-M19 from 85 mutations.
                       Read its B (the module table -- the pattern IS the
@@ -1301,6 +1326,9 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "`git checkout -- <file>` puts the mutation back" | Only on a file with **no uncommitted work in it.** Reverting an M6-style mutation that way took an uncommitted hotword change with it, and the next full-suite run failed a test that had passed standalone sixty seconds earlier — which reads exactly like test pollution and is not. Copy the file aside and copy it back, or commit before you mutate (ADR-116, amended). |
 | "The ADR found three frozen sites, so there were three" | ADR-097 widened the app enum and named "three sites frozen at Phase 1". **There were five** — the planner prompt and `STT_HOTWORDS` were both still naming the same five apps, and either one alone stops a scanned app ever launching. A month of `action_audit` proves none did (D31). **An enumeration in an ADR is what the author found, not what exists.** Widening a capability means widening every list that names it: the enum, the prompt, the hotwords, the eval fixtures, the chat persona. |
 | "The registry is generated now, so the coupling is handled" | ADR-042 wrote down in 2026-08-26 that *"the hotwords list is coupled to the registry — a new app must be added there too"*. ADR-097 then replaced the registry with a generated enum and did not touch the hotwords. **A coupling recorded in prose is not a coupling anything enforces** — it is a note that predicts the defect and does not prevent it. `tests/test_stt_hotwords.py` exists because of this. |
+| "Two failures of the same shape, that is a pattern" | It is a sample of two. **D32** generalised `wolf_studio` and `jin_browser` into *"a two-word app name does not survive STT, and a hotword does not fix it"* — a mechanism, an explanation and a "do not fix it this way" instruction, all off n=2. At n=8 the next day **both of those exact utterances landed**, along with two names that were not in the hotwords at all, and the real defects turned out to be in the enum (D33, D34). **The write-up was more confident than the sample.** Say the shape and the n — *"single-word 4/4, two-word 0/2, n=6, so a shape not a law"* was the honest version, and the block that acted on it dropped the caveat. |
+| "The defect is in the layer where the symptom appeared" | Both D33 and D34 surfaced as `E_TOOL_NOTFOUND` on a spoken app name, which is what a mis-hearing looks like — and neither was one. `easy-effects` and `android_studio` are the planner spelling a name **correctly** against an enum that spells it differently or cannot spell it at all. A "blame STT" reading would have buried both and produced a second round of hotword tuning. **Read the id the log names before deciding which layer failed.** |
+| "The acceptance criterion is a number, so meet the number" | Criterion 3.3 wanted `SYSTEM_POLICY` within ±5% of 1298 tokens and the live prompt measured **1401** on the day Phase 3 opened — because ADR-118's `open_app` paragraph, the D31 fix, had grown it the day before. Meeting the number would have meant compressing the exact text that fixed a live defect, inside a refactor whose contract is "behaviour did not change". **A stale criterion is a bug in the criterion.** Re-measure, re-baseline in writing, and say what moved (ADR-123). |
 | "The generated id came from the machine, so it is the app's name" | It came from the `.desktop` `Name`, and vendors write releases and codenames into it: Android Studio's id was `android_studio_panda_4_2025_3_4_patch_1`. The binary-basename alias is the other source and it is an abbreviation as often as not — IntelliJ IDEA's binary is `idea`, Android Studio's is `studio`. **Neither source is reliably what a person says**, and four of those application names were already in `STT_HOTWORDS`, so Whisper was biased toward apps the enum could not serve (D33, ADR-122). |
 | "The hotword test passes, so every hotword reaches something" | It counts hotwords that resolve to an enum id against a floor of 20, so four stranded names sat under a green test for a day — the count cleared 20 either way. The signature of the defect is narrower than the count: **a hotword that is not an id but IS the prefix of one** means the app is present under a name nobody says. Control words prefix no app id, so that assertion is free (ADR-122). |
 | "Two entries want the same alias, take the first" | That is `desktop.scan`'s `setdefault` hazard, the one `argv_sha256` exists to catch (ADR-120): `/usr/lib/jvm/java-26-openjdk/bin/jshell` and `.../jconsole` both want `java_26_openjdk`, and picking either silently binds a spoken name to whichever the scan happened to see first. **Drop an ambiguous alias, do not resolve it** — both entries stay reachable under their own ids. |
@@ -1313,4 +1341,4 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The basename check catches the binary" | Not when the binary is on the right of an `=`. `flatpak run --command=sh org.x.App` runs a shell and `Path("--command=sh").name` is `"--command=sh"`. **The test found this; the design did not** — the same shape as ADR-114a's `--uri=%u`, which an anchored `^%[a-zA-Z]$` never matched. Split on the first `=` and check both halves. |
 | "Tightening a gate is always safe — worst case it blocks too much" | `desktop.scan` runs every scanned entry through `assert_not_banned`, so a false positive there **deletes an id from the app enum**, and the eval fixtures name scanned ids. A stricter ban list can therefore turn `eval` red by removing an app rather than by rejecting one. Measure the whole table against the new rule BEFORE shipping it: 0 of 165 carried a banned token, enum 165 → 165 (ADR-119). |
 | "The finding says these call sites skip the ban list, so wire them to it" | Two of the five carry free text — a reminder message, a dictated sentence — and `BANNED_SUBSTRINGS` holds `;`, `\|`, `>` and backtick. Wiring them up silently drops a notification whose message contains a semicolon. `argv[0]` there is a `which()` result for a code-owned constant and can never be banned, so the check is dead code that can only false-positive. The substring rules exist for shell-string safety and there is no shell (ADR-119). |
-| "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02 and is **165** today, because ADR-097 generates the enum from the machine's XDG desktop entries — it moves whenever an application is installed. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose.** State the shape, and date the observation. |
+| "Write the count down, it is a fact" | `162 app ids` was true on 2026-09-02, `165` on 2026-09-03, `167` after ADR-122 added two aliases — and it moves again the next time an application is installed, because ADR-097 generates the enum from the machine's XDG desktop entries. Nothing broke; three doc sites were just wrong on a schedule (M19). **Do not pin a generated number in prose** — this row pinned one itself and was stale within a day. State the shape, and date the observation: *"the generated enum, 167 as scanned 2026-09-04"*. |

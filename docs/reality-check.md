@@ -173,7 +173,13 @@ only the easy half.
 - [ ] A single-instance app already running still reports success, not "That
       didn't work." (ADR-043 amendment — exit code is not a launch verdict)
 
-### A1b. Launch any OTHER installed application — the ~160 scanned ids
+### A1b. Launch any OTHER installed application — every scanned id
+
+> The enum is GENERATED from this machine's XDG desktop entries, so its size
+> moves whenever something is installed: 162 on 2026-09-02, 165 on 2026-09-03,
+> **167 as scanned 2026-09-04** after ADR-122 added two vendor-path aliases.
+> Do not pin the number; read it with
+> `.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"`.
 
 **Added 2026-09-03.** Until that day, `action_audit` held `open_app` rows for
 `browser`, `terminal`, `editor`, `video` and `vlc` and **nothing else** — a
@@ -195,7 +201,9 @@ prompt taught the canonical five to swallow their own categories, and
 | "open zen browser" | Zen, not shortened to `zen` | | ❌ STT gave **`jin_browser`** → `none` |
 | "open neovim" | **neovim in a terminal**, not VS Code | | not spoken yet |
 | "open spotify" | Spotify | | not spoken yet |
-| "open bluetooth settings" | **asks first** — a `Settings` entry is launchable but confirm-gated (FR-111) | **C?** | not spoken yet |
+| "open bluetooth settings" | **asks first** — a `Settings` entry is launchable but confirm-gated (FR-111) | **C?** | not spoken yet — **still the only Settings-gate row never heard**, and it is now also the live check on `capabilities._open_app_risk` (ADR-123) |
+| "open Android Studio" | Android Studio | | ✅ **410 ms**, 2026-09-04 (D33/ADR-122) |
+| "open IntelliJ IDEA" | IntelliJ IDEA, id `intellij_idea` | | not spoken yet — the other id ADR-122 created |
 
 - [x] **TICKED 2026-09-03 — the planner half, by voice.** Eleven turns, one
       wake and ten PTT, **no text-mode turn in the window**; daemon restarted
@@ -203,14 +211,38 @@ prompt taught the canonical five to swallow their own categories, and
       dispatched, the first in the life of the project. All five at
       **402-412 ms** — the 400 ms launch grace timing out, i.e. the process was
       alive when measured. **D30's dead-launch signature is 49-119 ms.**
-- [ ] **UN-TICKED — two-word app names (D32).** *"LibreWolf"* reached the
-      planner as `wolf_studio` and *"Zen Browser"* as `jin_browser`; the enum
-      correctly rejected both and the log named them:
-      `E_TOOL_NOTFOUND: app 'jin_browser' not installed, failing closed to none`.
-      **Both words were already in `STT_HOTWORDS`.** Single-word 4/4, two-word
-      0/2. A hotword biases decoding toward a token sequence; it does not repair
-      one the acoustic model split in the wrong place. **Do not open this by
-      adding the other ~145 names** — they would not have changed either turn.
+- [x] **TICKED 2026-09-04 — D32 IS REFUTED, at n=8.** The 2026-09-03 row above
+      raised it: *"LibreWolf"* reached the planner as `wolf_studio` and
+      *"Zen Browser"* as `jin_browser`, both already in `STT_HOTWORDS`,
+      single-word 4/4 and two-word 0/2 — and that was **n=2 and it was
+      flakiness.** Re-run the next day with eight names, four in the hotwords and
+      four not:
+
+      | Say | live 2026-09-04 |
+      | :-- | :-- |
+      | "open Zen Browser" | ✅ `zen_browser` **409 ms** (in hotwords) |
+      | "open LibreWolf" | ✅ `librewolf` **404 ms** (in hotwords) |
+      | "open Visual Studio Code" | ✅ `editor` **401 ms** — same program, ADR-118's E23/E24 note |
+      | "open GitHub Desktop" | ✅ `github_desktop` **411 ms** — **NOT in hotwords**, and ADR-065 confirmed it (`plan_ms=1819` = two planner calls) |
+      | "open Proton VPN" | ✅ `proton_vpn` **401 ms** — **NOT in hotwords** |
+      | "open Android Studio" | ❌ `android_studio` ×3 + `android_studio_panda_4` ×1 → **D33, an enum defect** |
+      | "open Easy Effects" | ❌ `easy-effects` → **D34, a spelling defect** |
+      | "open Bulk Rename" | ❌ `action=none` with **no `E_TOOL_NOTFOUND` at all** — the planner attempted no id. Unresolved; needs the `heard=` line and `FRIDAY_DEBUG` was off |
+
+      **STT delivered every one of those correctly.** The two real failures had
+      nothing to do with the microphone, and a "blame STT" reading would have
+      buried both. **Do not re-open D32; read this row first.**
+- [x] **TICKED 2026-09-04 — D33 fixed and PROVEN LIVE.**
+      `open_app{android_studio}` **ok, 410 ms** — an id that had not existed an
+      hour earlier. The id was `android_studio_panda_4_2025_3_4_patch_1`, from
+      the `.desktop` `Name`; the binary alias was `studio`. Neither source is a
+      name anyone says, so a vendor path `.../<app-name>/bin/<exe>` now supplies
+      one (ADR-122).
+- [ ] **UN-TICKED — D34 is fixed but was never exercised (ADR-121).** The one
+      attempt came back as `ez_fits`, a genuine STT mishear that folds to
+      itself, so the `app_key` retry never ran. **Say a name whose id uses an
+      underscore and say it clearly** — "open Easy Effects" is still the test.
+      One utterance.
 - [x] **TICKED 2026-09-03 by ASKING.** At 11:35, `discord` was running and
       `firefox`, `obsidian`, `kitty` and `vlc` were not, eight minutes after all
       five recorded `ok` at ~400 ms. The owner: *"Yes, I closed them."* Test
@@ -865,15 +897,20 @@ alone is the open half of **OQ-56**.
   capture after the question, not a `ptt-barge` during it), so the row stands
   untested. The observed cancel was correct behaviour.
 - **FR-7 key barge-in** over a reply.
-- **D29 / ADR-114 — a launched app must survive a daemon restart.** `KillMode`
-  defaulted to `control-group`, so every app Friday launched was SIGKILLed when
-  the service stopped or restarted — and `Restart=always` + `WatchdogSec=10s`
-  mean that happens unasked. Fixed and proven at the mechanism level (a `foot`
-  window alive with the parent, gone one second after `systemctl stop`), **never
-  confirmed by a human.** To check: have Friday open an app, `systemctl --user
-  restart friday`, and confirm the window is still in `hyprctl clients`. It must
-  be an app the DAEMON launched — a text-mode launch is a different cgroup and a
-  different experiment.
+- ~~**D29 / ADR-114 — a launched app must survive a daemon restart.**~~
+  **TICKED 2026-09-04, and this project now owes a microphone nothing.** The
+  precondition four sessions never checked was checked first: `pgrep -x kitty`
+  gave `32201` and that PID was **in `friday.service`'s `cgroup.procs`**, so it
+  was a valid subject — Discord is not, because it moves itself into
+  `app-discord-<pid>.scope`. Then kitty **32774** survived the 09:21:17 restart
+  at the same PID with the window count unchanged at 5.
+  **And the mechanism was read from systemd, not from the unit file** (M16's
+  lesson): `KillMode=process`, `NeedDaemonReload=no`, `Type=notify`,
+  `WatchdogUSec=10s`, `NRestarts=0`. A restart cannot kill a child by cgroup.
+  **Method note that cost a question:** a themed `kitty` is indistinguishable
+  from `foot` to this machine's owner, so `hyprctl clients | grep -c '^Window'`
+  cannot say WHICH terminal survived. Match on the class or the PID, never on
+  the count.
 - ~~**ADR-113 — an abandoned capture**~~ — **TICKED 2026-09-03 08:23.** A wake
   at score 0.543 opened a speechless capture and it was abandoned at +4.985 s
   with no STT line and no TTFA after it. See the A15 row above.
@@ -985,3 +1022,26 @@ detector starvation, fixed and confirmed live 2026-08-25).
 laptop — blocks hands-free barge-in, see `docs/aec-probe.md`) and OQ-33 (what
 `WAKE_THRESHOLD` should be — three false wakes in one live session; the score
 is now logged at fire time so it can be chosen from data).
+
+---
+
+## G. Status as of 2026-09-04 — what is owed to a microphone
+
+**Nothing is blocking.** D29/ADR-114 was the last item this project owed a
+microphone and it was ticked on 2026-09-04 (see the row above). What remains is
+opportunistic — say them next time you are at the machine anyway:
+
+| row | why it is still owed | cost |
+| :-- | :-- | :-- |
+| **D34 / ADR-121** — "open Easy Effects" | the fix is proven by test only; the one live attempt mis-heard the phrase as `ez_fits`, which folds to itself, so the `app_key` retry never ran | one utterance |
+| **A1b** — "open bluetooth settings" | the ONLY Settings confirm-gate row never spoken, and now also the live check on `capabilities._open_app_risk` (ADR-123) | one utterance + a "yes" |
+| **A1b** — "open IntelliJ IDEA" | the other id ADR-122 created; `android_studio` is proven, `intellij_idea` is not | one utterance |
+| **ADR-069** barge-over-confirm | the 2026-08-29 pass tested it wrong — a normal `ptt` capture AFTER the question instead of a `ptt-barge` DURING it | one turn |
+| **FR-7** key barge-in over a reply | never exercised | one turn |
+| **OQ-57** — do the widened hotwords actually help? | the 20-clip corpus has no G12 utterance in it, so the re-bench proved non-regression and nothing about efficacy | a bench, not an utterance |
+
+**And one thing that is owed to a keyboard, not a microphone:** the eval gate
+cannot see the FIRST_USE confirm burden that ADR-120 turns on, because its
+fixtures score the planner's output and not what the turn does with it. That is
+**OQ-69**, and it is answered by a week of ordinary use plus
+`SELECT COUNT(*) FROM approvals`.

@@ -107,6 +107,26 @@ directory listing.
    +-----------------------------------------------------------+
 ```
 
+**Two other words in that box were aspirational too, and both were fixed on
+2026-09-04.** Reading a diagram's claims back against the code is how they were
+found.
+
+```
+   "fixed env"      TRUE for the executor, FALSE for five other subprocess
+                    call sites -- clipboard x2, typer x2, proactive/notifier
+                    all omitted `env=` and inherited the daemon's whole
+                    ~50-variable environment, NOTIFY_SOCKET included (F4).
+                    All six now share `tools/env.py::SUBPROCESS_ENV`
+                    (ADR-119, FR-140).
+
+   "Never a path"   still true of the MODEL -- but the denylist that backs it
+                    read `argv[0]` and nothing else, so `env python3 /tmp/x.py`,
+                    `flatpak run org.x.App` and `distrobox-enter -- bash` all
+                    passed while a bare `bash` was banned (F5). A wrapper at
+                    the head now means every remaining token is checked
+                    (ADR-119, FR-141).
+```
+
 The `timeout` in that box was aspirational until 2026-08-29 (`ToolSpec.timeout_s`
 was dead config). It is real now, and it means two different things (ADR-073):
 
