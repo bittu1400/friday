@@ -1124,6 +1124,16 @@ evidence, not defaults. A dependency added without this drill is not done.
    docs/superpowers/  the Phase-2 design + per-gate plans (historical)
    docs/archive/      friday-v4.md and the AI reviews.  HISTORICAL ONLY.
 
+   .claude/skills/landing-a-friday-change/SKILL.md
+                      the runnable procedure for shipping a change: the
+                      three-piece capability recipe, the gate and what to
+                      assert in it (relations, not counts -- those live in
+                      progress.md), the mutation step and its `git checkout`
+                      footgun, the two gates that lie by construction (a new
+                      eval fixture can never regress; a forbid-only test goes
+                      green when the value is deleted), and the ask-the-system
+                      commands.  Loaded on demand -- this file is not.
+
    laptop-specifications.md   local only, GITIGNORED (ADR-024 — it
                       contains MAC addresses and hardware serials).
                       Never commit it, never quote its identifiers into

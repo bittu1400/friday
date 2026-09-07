@@ -36,7 +36,13 @@ _RECORDS = {"adr.md"}
 
 #: Every tracked document that carries runnable commands.
 DOCS = sorted(
-    p for p in [*REPO.glob("*.md"), *(REPO / "docs").glob("*.md")]
+    p for p in [
+        *REPO.glob("*.md"),
+        *(REPO / "docs").glob("*.md"),
+        # A project skill is a runbook the next session loads on demand, so it
+        # can carry the same wrong path — and nothing else was globbing it.
+        *(REPO / ".claude" / "skills").rglob("*.md"),
+    ]
     if "archive" not in p.parts and p.name not in _RECORDS
 )
 
