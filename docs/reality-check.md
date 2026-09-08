@@ -1040,7 +1040,7 @@ is now logged at fire time so it can be chosen from data).
 
 ---
 
-## G. Status as of 2026-09-04 — what is owed to a microphone
+## G. Status as of 2026-09-04, live numbers re-read 2026-09-08 — what is owed to a microphone
 
 **Nothing is blocking.** D29/ADR-114 was the last item this project owed a
 microphone and it was ticked on 2026-09-04 (see the row above). What remains is
@@ -1054,12 +1054,41 @@ opportunistic — say them next time you are at the machine anyway:
 | **ADR-069** barge-over-confirm | the 2026-08-29 pass tested it wrong — a normal `ptt` capture AFTER the question instead of a `ptt-barge` DURING it | one turn |
 | **FR-7** key barge-in over a reply | never exercised | one turn |
 | **OQ-57** — do the widened hotwords actually help? | the 20-clip corpus has no G12 utterance in it, so the re-bench proved non-regression and nothing about efficacy | a bench, not an utterance |
+| **FR-88 `local_time`** — "what time is it" | never dispatched; `action_audit` has no row for it | one utterance |
+| **FR-154 `system_status`** — "how much battery do I have left" | never dispatched, and its `target` enum has seven values | one or two utterances |
+| **FR-156 `window_focus_app`** — "focus discord" | never dispatched; it is the one Phase 4a capability that reads `hyprctl clients -j` for an address | one utterance |
+| **FR-157 `window_list`** — "what windows are open" | never dispatched | one utterance |
+
+### G0. Phase 4a at a microphone — 1 of 5, read off the table 2026-09-08
+
+**`window_move_to_workspace` HAS run live.** `action_audit`, 2026-09-04 18:19:11:
+`{"workspace": "3"}`, `policy_decision=allowed`, `outcome=ok`, **6 ms**. That is
+the first and so far only Phase 4a capability exercised by a human, and it
+retires the blanket claim that nothing from Phase 4a has been heard.
+
+**The other four have never been dispatched**, which is why they are now rows in
+the table above. Read it back rather than assuming — the query is one line and
+it distinguishes "shipped" from "used":
+
+```bash
+sqlite3 ~/.local/state/friday/memory.db \
+  "SELECT tool_id, COUNT(*) FROM action_audit GROUP BY tool_id ORDER BY 2 DESC;"
+```
+
+**Two live facts that change how you run the rest of this section (2026-09-08):**
+the daemon has been up since **2026-09-07 07:12:38** and now POSTDATES the Phase
+4a sources, so no restart is owed; but **`friday-llm.service` is `inactive
+(dead, result=success)`**, so Friday is running and cannot serve a turn. Start it
+with `systemctl --user start friday-llm` before any utterance in this section —
+and note it competes for VRAM with the ollama models on this machine.
 
 **And one thing that is owed to a keyboard, not a microphone:** the eval gate
 cannot see the FIRST_USE confirm burden that ADR-120 turns on, because its
 fixtures score the planner's output and not what the turn does with it. That is
 **OQ-69**, and it is answered by a week of ordinary use plus
-`SELECT COUNT(*) FROM approvals`. **The mechanism half was proven live
+`SELECT COUNT(*) FROM approvals` — **5 as of 2026-09-08** (`discord`, `firefox`,
+`gedit`, `zen_browser`, `claude`), up from the 4 recorded on 2026-09-04, so the
+count is moving without anyone driving it. **The mechanism half was proven live
 2026-09-04 — see §G1** — so what is owed is only the burden.
 
 ### G1. Added 2026-09-04 (later) — the first row Phase 3 put back on this list

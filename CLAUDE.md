@@ -12,6 +12,40 @@ enum is generated from the XDG desktop entries and merged over the five
 curated ids (ADR-097); settings panels are confirm-gated, privilege-escalating
 and shell `Exec` entries are never offered.
 
+**>>> 2026-09-08: FRIDAY RUNS **GEMMA 4**, NOT GEMMA 3. `upskill` IS REJECTED FOR
+THE RUNTIME. A PROJECT SKILL EXISTS FOR CLAUDE CODE AND IT WAS *MEASURED* —
+ADR-130, OQ-71.**
+`friday-llm.service:50` and `just serve` both name `gemma-4-12B-it-qat-UD-Q4_K_XL.gguf`;
+the only other GGUF is the ADR-090 Qwen rollback. The machine also has `gemma3:4b`,
+`gemma4:12b`, `gemma4:e4b`, `qwen3.5:9b` **in ollama** — **Friday has never touched
+ollama** and speaks only to `llama-server` on 127.0.0.1:8080.
+**`upskill` (HF, 2026-01-28) is rejected for Friday's LLM**, three reasons any one
+sufficient: the planner is a grammar-locked 30-way classification, not an agentic loop;
+the mechanism is prompt scaffolding, which invariant #5 / ADR-008 already settled; and
+`SYSTEM_POLICY` is pinned byte-identical at 1401 tokens.
+**A skill was built for the AGENT instead** —
+`.claude/skills/landing-a-friday-change/SKILL.md` — and **pinned like a runbook**, because
+a skill hands the next session runnable commands and can carry D36's wrong path.
+`tests/test_doc_paths.py` now sweeps `.claude/skills/**/*.md`; **24 → 25 cases**; mutation
+RED, reverted by copy-aside.
+**IT WAS A/B MEASURED, BECAUSE A SKILL CAN CAP AS WELL AS HELP.** Two Opus 5 subagents,
+isolated worktrees, one seeded patch with six planted defects, scoring key published
+first. **The control was not "no guidance" — `CLAUDE.md` auto-loads for both arms**, so
+the question tested was the only one worth money: does the skill add anything this file
+does not already carry? **Both 6/6 on the key, both 14 findings, both DO NOT SHIP;
+treatment cost +31% tokens (154k → 203k) and produced three findings the control missed,
+all three derived-site coverage tests.** No capping observed — treatment ran MORE tools.
+**n = 1 per arm; D32 says do not build a law out of that.** Whether to trim the skill to
+its one load-bearing table is **OQ-71**.
+**ASKING THE SYSTEM MOVED FOUR LIVE NUMBERS THE DOCS HAD WRONG:** the daemon restarted
+**2026-09-07 07:12:38** and now POSTDATES Phase 4a (this file and `progress.md` were wrong
+in opposite directions); **`window_move_to_workspace` HAS been dispatched live**
+(2026-09-04 18:19:11, `{"workspace":"3"}`, `ok`, **6 ms**) while the other four Phase 4a
+capabilities never have; **approvals 4 → 5** (`claude`); **`chat` rows 1 → 5**
+(1323/1399/1465/1879/1926 ms, p50 **1465**, 212 audit rows) — the series step 4 needs.
+App enum **167 → 166** (M19 again). **`friday-llm` is `inactive (dead)`: Friday is up and
+cannot serve a turn.** `pytest` **711 → 712**. <<<**
+
 **>>> 2026-09-04 (post-audit / Phase 4a): PHASE 4a (CHEAP WIDTH) COMPLETE — ADR-129.**
 Five new capabilities rolled out under ADR-129 using Phase 3's unified architecture:
 `local_time` (FR-88, D7), `system_status` (FR-154, closed target enum),
@@ -276,7 +310,7 @@ one TALKS TO.**
 **F7, F8 and F9 are D14, D13 and D15** — the same defects found independently.
 All three are now fixed. Do not fix them twice.
 
-**Decisions ADR-098…ADR-127. Questions still owed: OQ-70, OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
+**Decisions ADR-098…ADR-130. Questions still owed: OQ-71, OQ-70, OQ-69, OQ-68, OQ-57, OQ-59, OQ-60,
 OQ-61, OQ-63. OQ-65, OQ-66 and OQ-67 are CLOSED** (all three answered 2026-09-03 →
 **ADR-117**: tier-1 tests before Phase 3 and they shipped; the live deploy check
 went to `selftest`; the mutation line joined the definition of done). **OQ-39 is
@@ -375,8 +409,12 @@ briefings (G11, ADR-056), an action surface — system volume/brightness/media/w
 Hyprland workspace/window, notes, clipboard, dictation, all behind a permanent
 destructive-command ban + three-tier confirm (G12, ADR-057/058), and CPU speaker
 verification with a 10-utterance voiceprint (G13, ADR-059).
-**Gate numbers, all re-run 2026-09-04 after Phase 4a closed:**
-`uv run pytest` **711 passed, rc=0** (687 until ADR-129 added +24 status, window and schema tests), `just eval` **91/91 (100%), regressions 0**
+**Gate numbers.** Re-run 2026-09-08 (ADR-130): `uv run pytest` **712 passed, rc=0**,
+`tests/test_doc_paths.py` **25 passed**, `just grammar` **byte-identical**.
+The rest are the 2026-09-04 readings and were NOT re-run on 2026-09-08 — ADR-130
+touched only tests, docs and one skill file, `friday/` is untouched, and
+`friday-llm` was `inactive (dead)`:
+`uv run pytest` **711 → 712** (687 until ADR-129 added +24 status, window and schema tests), `just eval` **91/91 (100%), regressions 0**
 (81 until ADR-129 added 10 fixtures for Phase 4a — E82–E91),
 `just test-injection` **20/20 blocked**, `just selftest` **10/10, rc=0**,
 `just test-egress` **8 passed**, `just bootstrap --check` **11/11**,
@@ -440,11 +478,13 @@ todo list, the runnable commands and the gate numbers — read it first. The
 short version, in order:**
 
 ```
-[ ] 0.  VERIFY THE GROUND       2 min   commands in START HERE, no judgement needed (pytest 711, eval 91/91, selftest 10/10)
-[x] 1.  RESTART                 1 min   DONE — daemon restarted 15:45:56; chat row live in action_audit
+[ ] 0.  VERIFY THE GROUND       2 min   commands in START HERE, no judgement needed (pytest 712, eval 91/91, selftest 10/10)
+[x] 1.  RESTART                 DONE — daemon up 2026-09-07 07:12:38 (PID 234801), POSTDATES Phase 4a sources
 [x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, decline path included
-[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 4 approvals live (discord, firefox, gedit, zen_browser);
-                                        1 chat row audited (p50 1399 ms); burden measurement ongoing -> OQ-69, OQ-70
+[ ] 1c. PHASE 4a AT A MIC       1 of 5 — window_move_to_workspace live 2026-09-04 18:19:11 (6 ms).
+                                        local_time, system_status, window_focus_app, window_list NEVER dispatched
+[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 5 approvals (discord, firefox, gedit, zen_browser, claude);
+                                        5 chat rows audited (p50 1465 ms, 212 rows total) -> OQ-69, OQ-70
 [x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128, FR-153) — 7 closed enums server-side;
                                         open_app.app kept free; pytest 685 -> 687; eval 81/81; mutation RED
 [ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
@@ -454,6 +494,9 @@ short version, in order:**
 [ ] 5b. PHASE 4b (Deep Tools)   design-2026-09-02.md §11. Media play, timer pause, timer adjust
 [ ] 5c. PHASE 4c (Hard Tools)   design-2026-09-02.md §11. Notifications dismiss, web summary
 [x] 6.  RECORD IT               DONE — ADR-129, FR-88, FR-154..157, evidence pasted in progress.md
+[x] 7.  PROJECT SKILL           DONE 2026-09-08 (ADR-130) — upskill rejected for the runtime; a Claude Code
+                                        skill built, pinned by test_doc_paths (24->25), A/B measured.
+                                        pytest 711 -> 712. OQ-71 open: trim it or keep it whole?
 ```
 
 **A COLD AUDIT ON 2026-09-04 (last) FOUND THREE DEFECTS UNDER A COMPLETELY GREEN
@@ -1011,12 +1054,16 @@ evidence, not defaults. A dependency added without this drill is not done.
                       complete — a record of sequencing, not a to-do list)
    spec.md            requirements with IDs and acceptance tests
    architecture.md    modules, interfaces, concurrency, deployment
-   adr.md             decisions + why + what they cost.  129 ADRs
-                      (ADR-001..ADR-129; the count was wrong at 74 for weeks,
+   adr.md             decisions + why + what they cost.  130 ADRs
+                      (ADR-001..ADR-130; the count was wrong at 74 for weeks,
                       again at 107, and again at 123 while the file held 126 --
                       verify with `grep -c '^## ADR-' adr.md`, never by reading
                       this line). ADR-128 constrains the seven closed enum params.
                       ADR-129 rolls out Phase 4a (cheap width) capabilities.
+                      ADR-130 rejects `upskill` for the RUNTIME (three reasons),
+                      builds a project skill for the AGENT instead, pins it with
+                      the doc-path sweep, and MEASURES it A/B against CLAUDE.md
+                      alone -- +31% tokens for three findings, no capping, n=1.
                       ADR-119 is F4+F5 -- one explicit subprocess env, and a
                       denylist that follows a wrapper to the command it runs.
                       ADR-120 records the two Phase 3 policy calls (FIRST_USE on
@@ -1276,7 +1323,7 @@ just grammar            # regenerate plan.gbnf/final.gbnf from friday/llm/schema
                         # Output MUST stay byte-identical -- Phase 3's safety net
 just run                # orchestrator, text mode
 just voice              # voice-in daemon (PTT + wake); --dry-run / --no-voice / --no-wake
-just eval               # eval fixtures -> pass count (currently 64; gate is >=90%
+just eval               # eval fixtures -> pass count (91 fixtures; gate is >=90%
                         # AND zero regressions AND no failing unbaselined fixture)
 just eval-baseline      # re-record the current pass/fail map as the baseline.
                         # Run it AFTER adding fixtures, or new ones can never regress
@@ -1423,7 +1470,7 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "Chunk the audio so STT gets faster" | Whisper pads every input to a **30-second window**. Measured in `balanced`: 1.0 s of audio costs 556 ms, 5.0 s costs 688 ms. Transcribing a 1-second tail costs what the whole utterance costs, and `faster_whisper 1.2.1` has no streaming API (F26). This killed a 1.5 s latency target that had already been committed to, in writing, off an unmeasured assumption. |
 | "The launch returned quickly, so there is no latency there" | `_LAUNCH_GRACE_S = 0.4`, and a GUI app never exits, so the `wait_for` **always** runs the full grace. Measured: detached launch 402 ms, command 2 ms (F29). Launches and commands are different latency classes and every budget written before 2026-09-02 conflated them. |
 | "Read the governor to check the power profile" | `scaling_governor` reads `powersave` and `scaling_max_freq` reads `5400` in **all three profiles**. Only `powerprofilesctl get`, `/sys/firmware/acpi/platform_profile`, or `scaling_cur_freq` sampled UNDER LOAD tell them apart (F28). A profile check written the obvious way can never fail — write the FAIL-path test. |
-| "I added fixtures and the eval gate is green" | Regressions are `prev.get(fid) and not passed`. A **newly added** fixture has no baseline entry, so a failing new fixture is **never** a regression (F23). The "≥90%" gate the harness docstring promises exists nowhere in code — `main()` returns 1 only on regressions. Re-baseline after adding, and read the rate, not the exit code. |
+| "I added fixtures and the eval gate is green" | Regressions are `prev.get(fid) and not passed`. A **newly added** fixture has no baseline entry, so a failing new fixture is **never** a regression (F23). Re-baseline after adding, and read the `unbaselined failures` line, not just the exit code. *(Corrected 2026-09-08: this row used to say the "≥90%" gate "exists nowhere in code". It does — `eval_harness.py:151` is `if regressions or unbaselined_fails or (total > 0 and pass_pct < 90)`. F23 was fixed in `44d59fb`, Phase 1/ADR-108, and `audit-2026-09-02.md` records it RESOLVED; only this file kept publishing the pre-fix claim. **A temptation row is a doc like any other and goes stale like one.**)* |
 | "The unit file on disk is the one systemd is running" | The installed unit was a **symlink to the repo file**, so `diff` said IDENTICAL — while `systemctl show` reported `Type=simple`, `WatchdogUSec=0`, `NeedDaemonReload=yes`. Nobody had run `daemon-reload`, so `Type=notify` + `WatchdogSec=10s` had been committed, documented and **never once executed**. Editing a unit is not deploying it. Ask `systemctl show`, and prove a watchdog by leaving it running and reading `NRestarts`. |
 | "The fix is committed, so the fix is running" | The live daemon had started at `15:32:40`; every Phase 1/2 source file had an mtime of `18:44`–`18:49`. Two whole phases of fixes existed only on disk. `ps -o lstart=` against the file mtimes is one command and it answers this. |
 | "pytest segfaulted, so bisect the tests" | `coredumpctl info -1` gave the culprit in one command after ~40 minutes of subset runs had given a contradictory answer. And the crash was **~90%, not 100%**: the first delta-debugger took one clean run as proof and discarded the whole set. Three different signals (SIGILL/SIGSEGV/SIGABRT) mean memory corruption — read the core, and if you must bisect a flaky crash, repeat every trial. |
@@ -1477,5 +1524,9 @@ and downloaded candidate models live in `~/.cache/friday-accel-eval/`.
 | "The row writes nothing sensitive, it is just an audit row" | On the `chat` path both halves are exactly what invariant #7 forbids: the utterance is a raw transcript (FR-26), the reply is raw model output (FR-57). The row is `params={}` and the test asserts `args_redacted == "{}"` rather than the absence of particular strings — an absence test passes for every string you did not think of. And note what it may never grow into: a length, a topic or a token count all start describing what was said (D37, ADR-127). |
 | "I fixed the producer, so the feature is done" | Read the CONSUMER. Adding the `chat` audit row would have made `just stats` raise `KeyError` on its first row — `by_class` was a hand-listed dict of six names that `query_audit_stats` indexes directly, so the latency tool would have died on the class it was being extended to measure. The same read found `file_open` with **no stats class since G12**, four live rows bucketed as `other`. **Grep for the class, not the ticket** — and the class includes whoever reads what you just started writing. |
 | "A test that forbids the wrong value is enough" | It goes green when the value is DELETED. `tests/test_doc_paths.py` as first written forbade the wrong database path and would have passed if the `sqlite3` command were removed from both runbooks entirely — demonstrated by replacing it with `<the database>`. Pin the positive too: `RUNBOOKS` asserts the command is still there. `gpu_arch`'s lesson, re-learned the same afternoon it was written. |
+| "The machine has gemma3 and gemma4, so which one Friday uses is ambiguous" | It is not. Friday reads ONE path: `friday-llm.service:50` / `just serve` → `gemma-4-12B-it-qat-UD-Q4_K_XL.gguf`, served by `llama-server` on 127.0.0.1:8080. **Everything in `ollama list` is invisible to Friday** — `gemma3:4b`, `gemma4:12b`, `gemma4:e4b`, `qwen3.5:9b` are the owner's, not the assistant's. Read the unit file, not the model directory, and never `ollama list`. |
+| "This technique makes local models better, so it helps Friday" | Check what it acts ON. `upskill` (HF) transfers procedural skill to a **cheap agentic** model via a `SKILL.md`. Friday's planner is a grammar-locked 30-way classification with slot fill, run once per turn — there is no loop for a skill to steer, prompt scaffolding is what ADR-008 already rejected as a control, and `SYSTEM_POLICY` is pinned byte-identical at 1401 tokens so the file fails a test on arrival. **"Improves local models" is a claim about a workload, not about a model** (ADR-130). |
+| "A skill/doc obviously helps, so add it" | Measure it against the guidance you ALREADY load. `CLAUDE.md` auto-loads every session, so the control arm is never "nothing" — and in the one A/B run here it matched the skill 6/6 on the seeded key and 14/14 on total findings, quoting D35, D36, D37 and M5 by number unaided. The skill bought **three** extra findings for **+31% tokens**, and all three came from one table. **Prose the always-on file already carries is prose the on-demand file charges twice for** (ADR-130, OQ-71). |
+| "A skill file is documentation, so it can't carry a defect" | It hands the next session runnable commands, which is the definition of a runbook — and D36 was exactly that: a runbook naming `~/.local/` **`share`** `/friday/memory.db` — note the segment; the code opens `state` — where `sqlite3` CREATES an empty database and answers `no such table`. Nothing was globbing `.claude/`, so `tests/test_doc_paths.py` swept every `*.md` in the repo except the newest runbook in it. **Ask what is NOT in the glob.** |
 | "The grammar constrains the plan, so the params are safe" | It USED TO constrain the action NAME only (`pair ::= string ws ":" ws string`), which was where **D19** (the model echoed the prompt's own example as an enum value), **D20** (invented params on a no-param action) and **D34** (`easy-effects`) all came from. **Fixed (ADR-128):** the seven machine-independent closed enum actions are now server-side constrained in `plan.gbnf`. But **do NOT constrain `open_app.app`:** the enum is generated so the grammar would stop being reproducible, and a constrained `app` **cannot fail closed** — instead of naming the id it could not find, the model gets forced into some other legal id and opens the wrong application. |
 

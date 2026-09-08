@@ -1808,6 +1808,41 @@ like a FIRST_USE that never fired — pinned now by `tests/test_doc_paths.py`).
 
 ---
 
+### OQ-71 — Trim `landing-a-friday-change` to the derivation map, or keep it whole?
+**Decider:** USER · **Blocks:** nothing · **Status:** OPEN (raised 2026-09-08 by
+ADR-130)
+
+The skill is 948 words and it was measured, not assumed (ADR-130). Two Opus 5
+arms reviewed the same seeded patch; the control had `CLAUDE.md` only and
+`.claude/` barred. Both scored 6/6 on the seeded key and both returned 14
+findings. The treatment arm cost **+31% tokens** and produced **three** findings
+the control did not — and all three came from one table, the list of derived
+sites and the coverage test pinning each one.
+
+**The case for trimming to ~150 words.** Everything else in the file is already
+in `CLAUDE.md`, which auto-loads anyway. The control reproduced the gate
+commands, the mutation procedure with its `git checkout` footgun, the red-flag
+table and the ask-the-system section unaided, quoting D35, D36, D37 and M5 by
+number. Prose that the always-on file already carries is prose the on-demand
+file is charging twice for. A skill that is only the derivation map plus the
+test pinning each site would plausibly buy the same three findings at a
+fraction of the tokens.
+
+**The case for keeping it whole.** The +31% was measured on a *review* task,
+where the control had every reason to go read the tree. A session that is
+*writing* a change under time pressure is the discipline case the gate commands
+and the mutation procedure exist for, and no arm tested that. Trimming on
+review-task evidence would be generalising from the wrong task — and from
+**n = 1 per arm**, which is D32's exact error.
+
+**What would settle it:** one more A/B on an implementation task rather than a
+review task, with the trimmed file as a third arm. That is three more Opus
+subagent runs; it is not obviously worth the tokens for a documentation file.
+
+**Default if the owner does not decide:** keep it whole. It is inert until
+loaded, the measured cost lands only on sessions that load it, and the trim can
+happen any time the file is touched for another reason.
+
 ### OQ-70 — Should `none`, `read_notes`, `list_reminders` and `resume_dnd` write audit rows too?
 **Decider:** USER · **Blocks:** nothing · **Status:** OPEN (raised 2026-09-04 by
 ADR-127)

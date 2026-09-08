@@ -12,6 +12,111 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-09-08: `upskill` EVALUATED AND REJECTED FOR THE RUNTIME; A PROJECT SKILL
+BUILT FOR THE AGENT AND *MEASURED*; AND THE LIVE TABLES MOVED WHILE NOBODY WAS
+READING THEM — ADR-130, OQ-71.**
+
+**The model question, settled off the tree.** Friday runs **Gemma 4**, not Gemma 3:
+`friday-llm.service:50` and the `justfile` `serve` recipe both name
+`gemma-4-12B-it-qat-UD-Q4_K_XL.gguf`, and the only other GGUF on disk is the
+ADR-090 Qwen rollback. The machine ALSO has `gemma3:4b`, `gemma4:12b`,
+`gemma4:e4b` and `qwen3.5:9b` **in ollama** — and Friday has never touched
+ollama. It speaks to `llama-server` on 127.0.0.1:8080 and nothing else.
+
+**`upskill` (HF, 2026-01-28) is rejected for Friday's LLM.** Three reasons, any
+one sufficient: the planner is a grammar-locked 30-way classification, not an
+agentic loop, so a `SKILL.md` has nowhere to land; the whole mechanism is prompt
+scaffolding, which invariant #5 / ADR-008 already settled; and `SYSTEM_POLICY`
+is pinned byte-identical at 1401 tokens, so a skill file fails
+`test_system_policy_is_byte_identical_to_the_hand_written_baseline` on arrival.
+
+**A project skill was built for Claude Code instead** —
+`.claude/skills/landing-a-friday-change/SKILL.md` — and **pinned like a runbook**,
+because a skill hands the next session runnable commands and can therefore carry
+D36's wrong database path. `tests/test_doc_paths.py::DOCS` now sweeps
+`.claude/skills/**/*.md`; **24 → 25 cases**; mutation demonstrated RED (write
+`share` for `state`, watch the skill's own parametrised case fail) and reverted
+**by copy-aside, not `git checkout`**.
+
+**AND IT WAS MEASURED, BECAUSE A SKILL CAN CAP AS WELL AS HELP.** Two Opus 5
+subagents in isolated worktrees, same seeded `system_uptime` patch, six planted
+defects, scoring key published BEFORE the arms returned. The control was **not**
+"no guidance" — `CLAUDE.md` auto-loads for both — so the question tested was the
+only one worth money: *does the skill add anything CLAUDE.md does not already
+carry?*
+
+| | Control (`CLAUDE.md`, `.claude/` barred) | Treatment (+ skill) |
+| :-- | :-- | :-- |
+| Seeded key | 6/6 | 6/6 |
+| Findings | 14 | 14 |
+| Verdict | DO NOT SHIP | DO NOT SHIP |
+| Tokens | 154k | **203k (+31%)** |
+| Tool calls | 14 | 27 |
+
+Three findings only the treatment produced, **all three derived-site coverage
+tests**: `SYSTEM_POLICY`'s pinned baseline + the chat-persona test (F2's shape),
+`habits.describe_action`'s coverage test, and — the sharpest finding in either
+report — that the proposed verification query **can never return a row even at
+the correct path**, because a bespoke handler writes no audit row. That is
+`gpu_arch`'s lesson applied to a doc snippet. One finding only the control
+produced: `validate.py` rejects the unregistered name, so the handler is
+unreachable dead code. **No capping observed** — the treatment ran MORE tools,
+not fewer. **n = 1 per arm; D32 says do not build a law out of that.**
+
+**The control arm also caught a defect I seeded by accident**: `subprocess` is
+never imported in `handlers.py` in that patch — **D35 character-for-character** —
+and both arms named the ADR.
+
+**WHAT ASKING THE SYSTEM FOUND, and it is the part that matters.** Four live
+numbers had drifted past the docs while the docs said otherwise:
+
+1. **The daemon restarted 2026-09-07 07:12:38 (PID 234801)** — it now POSTDATES
+   the Phase 4a sources (`capabilities.py` 2026-09-04 18:00). START HERE step 1
+   said `[ ]` "daemon predates Phase 4a"; `CLAUDE.md` said `[x]` for a different
+   reason. **Both were wrong.** Step 1 is genuinely DONE.
+2. **`window_move_to_workspace` HAS been dispatched live** — 2026-09-04 18:19:11,
+   `{"workspace": "3"}`, `allowed`, `ok`, **6 ms**. The first Phase 4a capability
+   exercised at a microphone, against a doc that still says nothing from Phase 4a
+   has been heard by a human. The other four remain never-dispatched.
+3. **Approvals 4 → 5.** The fifth is `app/claude`, 2026-09-04 18:28:52. OQ-69's
+   burden count is moving on its own.
+4. **`chat` rows 1 → 5**, all `args_redacted='{}'`, all `ok`, **1323 / 1399 /
+   1465 / 1879 / 1926 ms (p50 1465)**. D37's fix is now producing exactly the
+   series the model question (step 4) needs. Audit rows **192 → 212**.
+
+**Also read off the machine:** app enum **167 → 166** (M19 again — it is
+generated, do not pin it), `friday-llm.service` is **inactive (dead,
+result=success)**, so Friday is up and cannot currently serve a turn.
+
+**Gates.** `uv run pytest -q` → **712 passed** (711 → 712), `just grammar` →
+**byte-identical** (`git diff --quiet friday/llm/grammars/` clean),
+`tests/test_doc_paths.py` → **25 passed**, `powerprofilesctl get` → `balanced`,
+stray `tmp*/` dirs → **0**, `wc -l friday/turn.py` → **246**.
+**`eval`, `selftest`, `injection`, `adversarial` and `egress` were NOT re-run**:
+this commit touches tests, docs and one skill file and leaves `friday/`
+untouched, and `friday-llm` is down. Asserting numbers not observed is what
+rule 6 forbids.
+
+**THE WIDENED SWEEP EARNED ITS KEEP INSIDE ONE SESSION.** Writing the D36
+temptation row for this very change put the wrong path — `share` where the code
+opens `state` — into `CLAUDE.md` as one contiguous string, and `test_no_document_names_a_database_path_the_code_does_not_use[CLAUDE.md]`
+went red on the next full run. Fixed the way the existing D36 row already
+handled it — split the segment out (`` ~/.local/ `` **`share`** `` /friday/... ``)
+so the pattern cannot match a contiguous path. **Then it happened a SECOND time
+in the same paragraph** — writing this note up reintroduced the literal path into
+`progress.md` and the same test went red again on the next run. **A row warning
+about a defect is the easiest place to commit it**, twice inside one session, and
+nothing but the test would have caught either. That is the whole argument for
+widening the glob rather than trusting care.
+
+**Two documented claims were found stale against the code and fixed:**
+`CLAUDE.md` still said the eval harness's ">=90% gate exists nowhere in code —
+`main()` returns 1 only on regressions"; `eval_harness.py:151` reads
+`if regressions or unbaselined_fails or (total > 0 and pass_pct < 90)`. F23 was
+fixed in `44d59fb` (Phase 1, ADR-108) and `audit-2026-09-02.md` records it
+RESOLVED — only `CLAUDE.md` kept publishing the pre-fix claim as current. The
+same command block still said the eval set was "currently 64"; it is **91**. <<<**
+
 **>>> 2026-09-04 (post-audit / Phase 4a): PHASE 4a (CHEAP WIDTH) COMPLETE — ADR-129.**
 Five new capabilities rolled out under ADR-129 using Phase 3's unified architecture:
 `local_time` (Risk: NONE, FR-88/D7), `system_status` (Risk: NONE, FR-154, closed target enum),
@@ -6538,7 +6643,7 @@ $ wc -l friday/turn.py
 
 ---
 
-## >>> START HERE: NEXT SESSION (written **2026-09-04**, after Phase 4a / ADR-129) <<<
+## >>> START HERE: NEXT SESSION (written **2026-09-04** after Phase 4a / ADR-129; live numbers RE-READ 2026-09-08, ADR-130) <<<
 
 **Read this whole block before touching anything. Everything in it is measured.**
 
@@ -6547,26 +6652,43 @@ $ wc -l friday/turn.py
 - **PHASE 4a IS COMPLETE (ADR-129, FR-88, FR-154..157):** Five capabilities added (`local_time`, `system_status`,
   `window_move_to_workspace`, `window_focus_app`, `window_list`). Total capabilities: 25 → 30.
   GBNF closed enum constraints: 7 → 9 (`system_status.target`, `window_move_to_workspace.workspace`).
-- **STEP 2 IS IN PROGRESS:** Daemon restarted at 15:45:56 under `balanced` profile; 4 approvals live
-  in `~/.local/state/friday/memory.db` (`discord`, `firefox`, `gedit`, `zen_browser`); 1 `chat` row
-  audited in `action_audit` (1399 ms, `args_redacted='{}'`); burden measurement ongoing (OQ-69, OQ-70).
+- **STEP 2 IS IN PROGRESS (numbers re-read 2026-09-08):** daemon restarted **2026-09-07 07:12:38**
+  (PID 234801) under `balanced` — it now POSTDATES the Phase 4a sources, so step 1 is done.
+  **5 approvals** live in `~/.local/state/friday/memory.db` (`discord`, `firefox`, `gedit`,
+  `zen_browser`, **`claude`** 2026-09-04 18:28:52); **5 `chat` rows** audited, all
+  `args_redacted='{}'`, all `ok`, **1323 / 1399 / 1465 / 1879 / 1926 ms (p50 1465)**;
+  **212** audit rows total. Burden measurement ongoing (OQ-69, OQ-70).
 - **All Phase 3 criteria are closed (ADR-123, ADR-124, ADR-125); ADR-127 defects (D35, D36, D37) fixed; ADR-128 constraints live.**
-- **Gates:** `pytest` **711 rc=0** (89 test files), `eval` **91/91 regressions 0 (100%)**, `selftest` **10/10 rc=0**,
-  `bootstrap --check` **11/11**, `doc_paths` **24/24 PASS**, grammars **byte-identical**, `turn.py` **246 lines**,
-  app enum **167 as scanned 2026-09-04** (generated — do not pin it).
+- **Phase 4a HAS been touched live, once:** `window_move_to_workspace` dispatched 2026-09-04 18:19:11,
+  `{"workspace": "3"}`, `allowed`, `ok`, **6 ms**. The other four (`local_time`, `system_status`,
+  `window_focus_app`, `window_list`) have **never** been dispatched — read it back with
+  `SELECT tool_id, COUNT(*) FROM action_audit GROUP BY tool_id;`, do not assume.
+- **`friday-llm.service` is `inactive (dead)` as of 2026-09-08** — the daemon is up and cannot serve
+  a turn. `systemctl --user start friday-llm` before `just eval` or `just selftest`, and note it
+  competes for VRAM with the ollama models on this machine.
+- **Gates:** `pytest` **712 rc=0**, `doc_paths` **25/25 PASS**, grammars **byte-identical**,
+  `turn.py` **246 lines**, profile `balanced`, stray `tmp*/` **0**, app enum
+  **166 as scanned 2026-09-08** (generated — do not pin it; it was 167 on 2026-09-04, M19).
+  `eval` **91/91 regressions 0**, `selftest` **10/10 rc=0**, `bootstrap --check` **11/11** are the
+  2026-09-04 readings and were **not re-run on 2026-09-08** — ADR-130 touched only tests, docs and
+  one skill file, leaving `friday/` untouched, and `friday-llm` was down.
 - **Hard Invariant #5 preserved:** `window_focus_app.app` (like `open_app.app`) is kept in `GENERIC_ACTIONS` to avoid
   machine-specific leakage into `plan.gbnf` and ensure fail-closed diagnostics.
 - **Power profile MUST be `balanced`:** Check `powerprofilesctl get` before running latency benches or selftest.
-- **Next up:** Restart daemon to test Phase 4a at microphone; observe chat rows/approvals; Step 4 (Model Question); Phase 4b.
+- **Next up:** exercise the four never-dispatched Phase 4a capabilities at a microphone (the restart
+  is already done); keep collecting chat rows and approvals; Step 4 (Model Question); Phase 4b.
+  OQ-71 (trim the project skill?) is open and blocks nothing.
 
 ### THE TODO LIST, in order
 
 ```
-[ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed (pytest 711, eval 91/91, selftest 10/10)
-[ ] 1.  RESTART                 1 min   daemon running since 15:45:56 predates Phase 4a; restart to test new capabilities live
+[ ] 0.  VERIFY THE GROUND       2 min   commands below, no judgement needed (pytest 712, eval 91/91, selftest 10/10)
+[x] 1.  RESTART                 DONE — daemon up 2026-09-07 07:12:38 (PID 234801), POSTDATES Phase 4a sources
 [x] 1b. FIRST_USE AT A MIC      DONE 2026-09-04 14:31-14:33, incl. the decline path
-[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 4 approvals live (discord, firefox, gedit, zen_browser);
-                                        1 chat row audited (p50 1399 ms); burden measurement ongoing -> OQ-69, OQ-70
+[ ] 1c. PHASE 4a AT A MIC       1 of 5 done — window_move_to_workspace live 2026-09-04 18:19:11 (6 ms).
+                                        local_time, system_status, window_focus_app, window_list NEVER dispatched
+[ ] 2.  A WEEK OF ORDINARY USE  IN PROGRESS — 5 approvals (discord, firefox, gedit, zen_browser, claude);
+                                        5 chat rows audited (p50 1465 ms, 212 rows total) -> OQ-69, OQ-70
 [x] 3.  CONSTRAIN THE ENUM PARAMS IN plan.gbnf   DONE (ADR-128, FR-153) — 7 closed enums server-side;
                                         open_app.app kept free; pytest 685 -> 687; eval 81/81; mutation RED
 [ ] 4.  THE MODEL QUESTION      only after 3 + a week of chat rows. See below
@@ -6576,6 +6698,9 @@ $ wc -l friday/turn.py
 [ ] 5b. PHASE 4b (Deep Tools)   design-2026-09-02.md §11. Media play, timer pause, timer adjust
 [ ] 5c. PHASE 4c (Hard Tools)   design-2026-09-02.md §11. Notifications dismiss, web summary
 [x] 6.  RECORD IT               DONE — ADR-129, FR-88, FR-154..157, evidence pasted below
+[x] 7.  PROJECT SKILL           DONE 2026-09-08 (ADR-130) — upskill rejected for the runtime; a Claude Code
+                                        skill built, pinned by test_doc_paths (24->25), and A/B measured.
+                                        pytest 711 -> 712. OQ-71 open: trim it or keep it whole?
 ```
 
 ### 0. Verify the ground — two minutes, no judgement required
@@ -6584,14 +6709,14 @@ $ wc -l friday/turn.py
 cd /home/bittusah/Projects/Personal/Intern/friday
 
 # uv is NOT on PATH here. Use .venv/bin/python. A failed `uv run` exits 0.
-.venv/bin/python -m pytest -q                            # 711 passed, rc=0
+.venv/bin/python -m pytest -q                            # 712 passed, rc=0
 .venv/bin/python -m friday.eval_harness                  # 91/91 (100%), regressions 0
 .venv/bin/python -m friday.selftest                      # 10/10 PASS, rc=0
 .venv/bin/python scripts/bootstrap.py --check            # 11/11 PASS
 powerprofilesctl get                                     # MUST be `balanced`
 .venv/bin/python -m friday.llm.schema && git diff --quiet friday/llm/grammars/  # MUST stay clean
 ls -d tmp*/ 2>/dev/null | wc -l                          # MUST be 0 (ADR-115)
-.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"      # generated; 167 on 2026-09-04
+.venv/bin/python -c "from friday.tools.apps import APPS; print(len(APPS))"      # generated; 166 on 2026-09-08
 wc -l friday/turn.py                                     # 246; criterion 3.4 is <400
 .venv/bin/python -m friday.stats_cli --tools             # verify chat, launch, and command rows
 sqlite3 ~/.local/state/friday/memory.db 'SELECT kind, subject, approved_at FROM approvals;'  # verify approvals

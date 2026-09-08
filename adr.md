@@ -6570,3 +6570,130 @@ Phase 4a addresses five high-frequency user intents with low implementation risk
 - **Audit & Stats**: All 5 new capabilities categorized under `"commands"` in `ACTION_CLASSES`.
 
 
+
+## ADR-130 — `upskill` is rejected for Friday's runtime; a project skill is built for the agent instead, and measured
+
+**Status:** Accepted 2026-09-08. Amends FR-151 (the doc-path sweep widens to `.claude/skills/`). Raises OQ-71.
+
+### Context
+
+The owner asked whether Hugging Face's `upskill` (released 2026-01-28,
+`github.com/huggingface/upskill`) could be used here, and separately whether Friday
+runs Gemma 3 or Gemma 4.
+
+**The model question, answered off the tree, not off memory.** `friday-llm.service:50`
+and the `justfile`'s `serve` recipe both name
+`~/.local/share/friday/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf`. The only other GGUF
+on disk is `Qwen2.5-7B-Instruct-Q4_K_M.gguf`, the ADR-090 rollback. The machine also has
+`gemma3:4b`, `gemma4:12b`, `gemma4:e4b` and `qwen3.5:9b` **in ollama** — and Friday has
+never touched ollama. It speaks to `llama-server` on `127.0.0.1:8080` and nothing else.
+"I have both" is true of the machine and false of Friday; the distinction is now a
+temptation row in `CLAUDE.md`.
+
+`upskill`'s premise is teacher/student: an expensive model writes a `SKILL.md`, a cheap
+or local model executes it, and the reported gain is roughly 40% → 85% on hard tasks.
+That premise is aimed at a **weak** model doing **agentic** work.
+
+### Decision
+
+**1. `upskill` is rejected for Friday's LLM. Three reasons, any one sufficient.**
+
+- **Wrong target.** `upskill` emits skills for code agents — free-form tool loops. Friday's
+  planner is a 30-way classification with slot fill whose output is locked by `plan.gbnf`.
+  There is no place in a grammar-constrained single-shot plan for a skill file to land.
+- **Invariant #5 / ADR-008.** The entire mechanism is prompt scaffolding. This project
+  already ruled that a prompt is not a control — closed sets live in GBNF and the
+  validator. Adopting a technique whose only lever is instruction text would re-argue a
+  settled decision, and it is the same reasoning that rejects prompt-based injection
+  defence.
+- **Token budget.** `SYSTEM_POLICY` is 1401 tokens and is pinned **byte-identical**
+  against `tests/fixtures/system_policy.txt`, with criterion 3.3 gating ±5%. A skill file
+  fails that test on arrival.
+
+*What would change this answer:* nothing short of Friday's planner becoming an agentic
+loop. It is not one and design §11 does not make it one.
+
+**2. A project skill IS built — for Claude Code, not for Friday.**
+`.claude/skills/landing-a-friday-change/SKILL.md`: the three-piece capability recipe, the
+gate and what to assert in it, the mutation step, the two gates that lie by construction,
+and the ask-the-system commands. It asserts **relations, not counts** (M19: the app enum
+moved 162 → 165 → 167 → **166 as scanned 2026-09-08**) and points at `progress.md`'s
+`>>> START HERE <<<` block for today's numbers.
+
+**3. The skill is pinned like a runbook.** A skill file hands the next session runnable
+commands, so it can carry D36's wrong database path. Nothing was globbing `.claude/`, so
+`tests/test_doc_paths.py::DOCS` now sweeps `.claude/skills/**/*.md` — 24 → 25 cases.
+Mutation demonstrated RED (write `share` for `state` into the skill; the parametrised case
+fails on the skill's own id) and reverted **by copy-aside, not `git checkout`**.
+
+**4. The skill was MEASURED before being trusted, because a skill can cap as well as help.**
+The concern is real and documented inside `writing-skills` itself: a description that
+summarises workflow gets followed *instead of* the skill body. A four-command gate list can
+become a ceiling for a model that would have run seven.
+
+### The measurement
+
+Two Opus 5 subagents, isolated git worktrees, identical review task: a seeded
+`system_uptime` patch carrying six planted defects (hand-edited derived sites; no eval
+fixtures; D36's wrong path; ship-on-pytest-alone; no `SUBPROCESS_ENV`; a test that asserts
+registration and never calls the handler). Scoring key written and published **before** the
+arms returned.
+
+The control is **not** "no guidance" — `CLAUDE.md` auto-loads for both arms. The question
+tested is the only one worth money: *does the skill add anything CLAUDE.md does not already
+carry?*
+
+| | Control (`CLAUDE.md`, `.claude/` barred) | Treatment (+ skill) |
+| :-- | :-- | :-- |
+| Seeded key | 6/6 | 6/6 |
+| Total findings | 14 | 14 |
+| Verdict | DO NOT SHIP | DO NOT SHIP |
+| Tokens | 154k | **203k (+31%)** |
+| Tool calls | 14 | 27 |
+
+**Three findings only the treatment arm produced**, and all three are derived-site coverage
+tests — the skill's one table doing its work:
+1. `SYSTEM_POLICY`'s pinned baseline and the chat-persona coverage test (**F2's shape**).
+2. `habits.describe_action`'s coverage test.
+3. The sharpest finding in either report: the proposed verification query **can never return
+   a row even at the correct path**, because a bespoke handler writes no audit row. That is
+   `gpu_arch`'s lesson — a check that cannot fail in the direction it was written to prove —
+   applied to a doc snippet, and only the treatment arm saw it.
+
+**One finding only the control produced:** `validate.py` rejects the unregistered action
+name, so the handler is unreachable dead code.
+
+**No capping was observed.** The treatment arm ran *more* tools, not fewer, and lost
+nothing from the control's list. The narrowing failure mode did not appear.
+
+**n = 1 per arm.** D32 is this project's standing warning against building a law out of a
+tiny sample, and it applies to this table. The shape is "a modest, concentrated gain at
++31% tokens", not a measured effect size.
+
+### Consequences
+
+- Claude Code sessions in this repo get a loadable procedure; `CLAUDE.md` stays the
+  always-on file and is unchanged in role.
+- `pytest` **711 → 712**. `friday/` is **untouched** — this commit changes tests, docs and
+  one skill file, so `eval`, `selftest`, `injection`, `adversarial` and `egress` cannot have
+  moved and were **not re-run**; `just grammar` was re-run and stayed byte-identical.
+- The skill is 948 words and the measurement says most of it is paying rent it does not
+  earn: the control reproduced the gate commands, the mutation procedure, the red flags and
+  the ask-the-system section unaided, quoting D35, D36, D37 and M5 by number. Trimming it to
+  the derivation map is **OQ-71** — deliberately not done unasked, because which half
+  survives is the owner's call.
+
+### Rejected
+
+- **Using `upskill generate` to write this skill.** It takes a task description and
+  auto-generates test cases; this is a body of repo conventions, not a task. Wrong tool for
+  the artifact, independent of the runtime rejection above.
+- **Deleting the skill.** The owner set the condition "delete if treatment finds nothing
+  new". Treatment found three things. The condition did not fire, so the file stands.
+- **Trimming it now.** See OQ-71. The evidence points at a trim; the choice of what survives
+  is not the measurement's to make.
+- **Running the full gate to produce fresh numbers.** `friday-llm.service` is
+  `inactive (dead, result=success)` on this machine right now, so `eval` and `selftest`
+  cannot run without starting a service that competes for VRAM with the ollama models the
+  owner has been using. Asserting numbers not observed would be exactly what rule 6 forbids;
+  the honest statement is that no runtime code changed.
