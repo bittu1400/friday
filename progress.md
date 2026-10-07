@@ -12,6 +12,18 @@ Rules:
 4. "Works on my machine" is the only kind of evidence that exists here —
    this is a single-machine project. Paste it.
 
+**>>> 2026-10-07: V1 IS REOPENED. FRIDAY 2's FEATURES COME HERE; V1 STAYS THE BASE.**
+Friday 2 (`~/Projects/Personal/friday2`) was found "so-so" by the owner (its D108) and the owner
+asked: v1 is the base, v2 is the updates. Owner decisions taken this session (questions asked
+and answered in chat, 2026-10-07): wake word kept + a **90 s listening window** after it; chat in
+the window **always** replies; **ERes2Net speaker check always on** (v2 voiceprint, 0.35);
+**7-day heard log** (amends invariant #7); **results by notification**, speech for chat/answers,
+confirms spoken + Confirm/Cancel buttons; all four capability groups (work tools, clipboard &
+screen, personal data, routines & memory); all four upgrades (speak per sentence, Smart Turn,
+pill + buttons, web app); **v2's answered choices carried over unchanged**; **slim the docs**.
+Design: `docs/superpowers/specs/2026-10-07-friday2-merge-design.md` (owner review pending).
+ADR-131..141 are written in its Phase A. Nothing in `friday/` changed yet. <<<**
+
 **>>> 2026-09-08: `upskill` EVALUATED AND REJECTED FOR THE RUNTIME; A PROJECT SKILL
 BUILT FOR THE AGENT AND *MEASURED*; AND THE LIVE TABLES MOVED WHILE NOBODY WAS
 READING THEM — ADR-130, OQ-71.**
